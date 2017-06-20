@@ -43,6 +43,11 @@ namespace TL { namespace OmpSs {
         ObjectList<Nodecl::NodeclBase> copy_out;
         ObjectList<Nodecl::NodeclBase> copy_inout;
 
+        // copy_addr remote access
+        ObjectList<Nodecl::NodeclBase> copy_in_addr;
+        ObjectList<Nodecl::NodeclBase> copy_out_addr;
+        ObjectList<Nodecl::NodeclBase> copy_inout_addr;
+
         ObjectList<Nodecl::NodeclBase> ndrange;
         ObjectList<Nodecl::NodeclBase> shmem; // shared memory
         ObjectList<Nodecl::NodeclBase> onto;
@@ -65,7 +70,8 @@ namespace TL { namespace OmpSs {
         CopyDepsValue copy_deps;
 
         TargetContext()
-            : device_list(), copy_in(), copy_out(), copy_inout(),
+            : device_list(), copy_in(), copy_out(), copy_inout(), 
+            copy_in_addr(), copy_out_addr(), copy_inout_addr(),
             ndrange(), shmem(), onto(), is_implicit(),
             has_implements(), implements(), file(), name(), copy_deps(UNDEF_COPY_DEPS)
         {

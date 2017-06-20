@@ -185,6 +185,9 @@ Source LoweringVisitor::fill_const_wd_info(
 
     int num_static_copies, num_dynamic_copies;
     count_copies(outline_info, num_static_copies, num_dynamic_copies);
+#if _DEBUG_FPGA_AUTO_
+    fprintf(stderr, "Filling Source LoweringVisitor::fill_const_wd_info( num_copies_static:%d num_copies_dynamic:%d\n",num_static_copies, num_dynamic_copies);
+#endif
 
     if (IS_FORTRAN_LANGUAGE)
     {
@@ -844,6 +847,10 @@ void LoweringVisitor::emit_async_common(
 
     int num_static_copies, num_dynamic_copies;
     count_copies(outline_info, num_static_copies, num_dynamic_copies);
+#if _DEBUG_FPGA_AUTO_
+    fprintf(stderr, "Filling Source LoweringVisitor::fill_const_wd_info( num_copies_static:%d num_copies_dynamic:%d\n",num_static_copies, num_dynamic_copies);
+#endif
+    
 
     Source num_copies;
     fill_copies(construct,
@@ -899,6 +906,10 @@ void LoweringVisitor::emit_async_common(
         Source::source_language = SourceLanguage::C;
     }
 
+    //DJG: printint...
+    //std::cerr << "Printing Code \n\n" << std::endl;
+    //std::cerr << construct.get_function_code().prettyprint() << std::endl;
+    //std::cerr << "End Printing Code \n\n" << std::endl;
     Nodecl::NodeclBase spawn_code_tree = spawn_code.parse_statement(construct);
 
     FORTRAN_LANGUAGE()
@@ -2072,8 +2083,39 @@ void LoweringVisitor::handle_copy_item(
 {
     Nodecl::NodeclBase address_of_object = data_ref.get_address_of_symbol();
 
-    int input = (dir & OutlineDataItem::COPY_IN) == OutlineDataItem::COPY_IN;
-    int output = (dir & OutlineDataItem::COPY_OUT) == OutlineDataItem::COPY_OUT;
+                TL::Symbol sym = data_ref.get_base_symbol();
+#if _DEBUG_FPGA_AUTO_
+                std::cerr << std::endl << std::endl;
+                std::cerr << sym.get_name() << std::endl;
+                std::cerr << "value:" << dir << std::endl; 
+                if (dir==OutlineDataItem::COPY_IN)
+                    std::cerr << "HAND COPY_IN" << std::endl; 
+//                if (dir==OutlineDataItem::COPY_IN_ADDR)
+//                    std::cerr << "HAND COPY_IN_ADDR" << std::endl; 
+//                if (dir==OutlineDataItem::COPY_OUT_ADDR)
+//                    std::cerr << "HAND COPY_OUT_ADDR" << std::endl; 
+//                if (dir==OutlineDataItem::COPY_INOUT_ADDR)
+//                    std::cerr << "HAND COPY_INOUT_ADDR" << std::endl; 
+                if (dir==OutlineDataItem::COPY_OUT)
+                    std::cerr << "HAND COPY_OUT" << std::endl; 
+
+                if ((dir & OutlineDataItem::COPY_IN )==OutlineDataItem::COPY_IN)
+                    std::cerr << "AND COPY_IN" << std::endl; 
+//                if ((dir & OutlineDataItem::COPY_IN_ADDR)==OutlineDataItem::COPY_IN_ADDR)
+//                    std::cerr << "AND COPY_IN_ADDR" << std::endl; 
+//                if ((dir & OutlineDataItem::COPY_OUT_ADDR) ==OutlineDataItem::COPY_OUT_ADDR)
+//                    std::cerr << "AND COPY_OUT_ADDR" << std::endl; 
+//                if ((dir & OutlineDataItem::COPY_INOUT_ADDR) ==OutlineDataItem::COPY_INOUT_ADDR)
+//                    std::cerr << "AND COPY_INOUT_ADDR" << std::endl; 
+                if ((dir & OutlineDataItem::COPY_OUT) ==OutlineDataItem::COPY_OUT)
+                    std::cerr << "AND COPY_OUT" << std::endl; 
+                std::cerr << std::endl << std::endl;
+#endif
+
+    //int input = ((dir & OutlineDataItem::COPY_IN) == OutlineDataItem::COPY_IN) || ((dir & OutlineDataItem::COPY_IN_ADDR) == OutlineDataItem::COPY_IN_ADDR);
+    int input = ((dir & OutlineDataItem::COPY_IN) == OutlineDataItem::COPY_IN); 
+    //int output = ((dir & OutlineDataItem::COPY_OUT) == OutlineDataItem::COPY_OUT) || ((dir & OutlineDataItem::COPY_OUT_ADDR) == OutlineDataItem::COPY_OUT_ADDR);
+    int output = ((dir & OutlineDataItem::COPY_OUT) == OutlineDataItem::COPY_OUT);
 
     Source num_dimensions, dimension_descriptor_name, ol_dimension_descriptors, imm_dimension_descriptors, copy_offset;
 

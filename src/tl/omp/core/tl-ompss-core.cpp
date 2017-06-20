@@ -560,8 +560,11 @@ namespace TL { namespace OpenMP {
             OmpSs::TargetContext& target_context = _target_context.top();
 
             TL::ObjectList<Nodecl::NodeclBase> target_ctx_copy_in = update_clauses(target_context.copy_in, function_sym);
+//            TL::ObjectList<Nodecl::NodeclBase> target_ctx_copy_in_addr = update_clauses(target_context.copy_in_addr, function_sym);
             TL::ObjectList<Nodecl::NodeclBase> target_ctx_copy_out = update_clauses(target_context.copy_out, function_sym);
+//            TL::ObjectList<Nodecl::NodeclBase> target_ctx_copy_out_addr = update_clauses(target_context.copy_out_addr, function_sym);
             TL::ObjectList<Nodecl::NodeclBase> target_ctx_copy_inout = update_clauses(target_context.copy_inout, function_sym);
+//            TL::ObjectList<Nodecl::NodeclBase> target_ctx_copy_inout_addr = update_clauses(target_context.copy_inout_addr, function_sym);
 
             if (target_context.copy_deps == OmpSs::TargetContext::COPY_DEPS)
             {
@@ -569,11 +572,17 @@ namespace TL { namespace OpenMP {
                 target_ctx_copy_in.append(input_arguments);
                 target_ctx_copy_out.append(output_arguments);
                 target_ctx_copy_inout.append(inout_arguments);
+//                target_ctx_copy_in_addr.append(input_arguments);
+//                target_ctx_copy_out_addr.append(output_arguments);
+//                target_ctx_copy_inout_addr.append(inout_arguments);
 
                 // Concurrent/Commutative deps with target attribute 'copy_deps'
                 // should generate copy_inout information
                 target_ctx_copy_inout.append(concurrent_arguments);
                 target_ctx_copy_inout.append(commutative_arguments);
+
+                //TODO copy_inout_addr???              
+
             }
 
             ObjectList<TL::OmpSs::CopyItem> copy_in =
@@ -581,15 +590,37 @@ namespace TL { namespace OpenMP {
                     FunctionCopyItemGenerator(TL::OmpSs::COPY_DIR_IN));
             target_info.append_to_copy_in(copy_in);
 
+/*
+            ObjectList<TL::OmpSs::CopyItem> copy_in_addr =
+                target_ctx_copy_in_addr.map<TL::OmpSs::CopyItem>(
+                    FunctionCopyItemGenerator(TL::OmpSs::COPY_DIR_IN_ADDR));
+            target_info.append_to_copy_in_addr(copy_in_addr);
+*/
+
             ObjectList<TL::OmpSs::CopyItem> copy_out =
                 target_ctx_copy_out.map<TL::OmpSs::CopyItem>(
                     FunctionCopyItemGenerator(TL::OmpSs::COPY_DIR_OUT));
             target_info.append_to_copy_out(copy_out);
 
+/*
+            ObjectList<TL::OmpSs::CopyItem> copy_out_addr =
+                target_ctx_copy_out_addr.map<TL::OmpSs::CopyItem>(
+                    FunctionCopyItemGenerator(TL::OmpSs::COPY_DIR_OUT_ADDR));
+            target_info.append_to_copy_out_addr(copy_out_addr);
+*/
+
+
             ObjectList<TL::OmpSs::CopyItem> copy_inout =
                 target_ctx_copy_inout.map<TL::OmpSs::CopyItem>(
                     FunctionCopyItemGenerator(TL::OmpSs::COPY_DIR_INOUT));
             target_info.append_to_copy_inout(copy_inout);
+
+/*
+            ObjectList<TL::OmpSs::CopyItem> copy_inout_addr =
+                target_ctx_copy_inout_addr.map<TL::OmpSs::CopyItem>(
+                    FunctionCopyItemGenerator(TL::OmpSs::COPY_DIR_INOUT_ADDR));
+            target_info.append_to_copy_inout_addr(copy_inout_addr);
+*/
 
             target_info.set_file(target_context.file);
             target_info.set_name(target_context.name);

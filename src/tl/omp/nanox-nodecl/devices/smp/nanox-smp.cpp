@@ -220,6 +220,7 @@ namespace TL { namespace Nanox {
 
             if (IS_CXX_LANGUAGE)
             {
+        std::cerr << "unpacked function:" << unpacked_function.get_function_code().prettyprint() << std::endl;
                 if (!unpacked_function.is_member())
                 {
                     Nodecl::NodeclBase nodecl_decl = Nodecl::CxxDecl::make(
@@ -527,6 +528,8 @@ namespace TL { namespace Nanox {
                 << "}"
                 ;
 
+    std::cerr << "outline function:" << outline_function.get_function_code().prettyprint() << std::endl;
+    std::cerr << "outline source code:" << outline_src.get_source() << std::endl;
             if (IS_CXX_LANGUAGE)
             {
                 if (!outline_function.is_member())
@@ -658,6 +661,10 @@ namespace TL { namespace Nanox {
                 << /* factory */ "&nanos_smp_factory, &" << outline_name << "_args"
                 << "}"
                 ;
+
+          std::cerr << "Casting: qualified_name " << qualified_name << std::endl;
+          std::cerr << "Casting: ancillary " << ancillary_device_description.get_source()<< std::endl;
+          std::cerr << "Casting: device_descriptor" << device_descriptor.get_source() << std::endl;
         }
         else
         {

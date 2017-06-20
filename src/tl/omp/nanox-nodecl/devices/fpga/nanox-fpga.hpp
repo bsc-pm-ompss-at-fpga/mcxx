@@ -31,6 +31,18 @@
 
 #include "tl-compilerphase.hpp"
 #include "tl-devices.hpp"
+#include "tl-source.hpp"
+
+#define STR_OUTPUTSTREAM "__outStream"
+#define STR_OUTPUTSTREAM "outStream"
+#define STR_INPUTSTREAM "__inStream"
+#define STR_INPUTSTREAM "inStream"
+#define STR_DATA "data"
+#define STR_DATA "mcxx_data"
+#define STR_PREFIX "mcxx_"
+#define STR_BUS "__mcxx_bus"
+//#define _DEBUG_AUTOMATIC_COMPILER_ 1
+
 
 namespace TL
 {
@@ -65,8 +77,27 @@ namespace TL
                  virtual void copy_stuff_to_device_file(
                          const TL::ObjectList<Nodecl::NodeclBase>& stuff_to_be_copied);
             private:
+                std::string _board_name;
+                std::string _device_name;
+                std::string _frequency;
+                std::string _bitstream_generation;
+                std::string _vivado_design_path;
+                std::string _vivado_project_name;
+                std::string _ip_cache_path;
+                std::string _dataflow;
+                std::string _acc_num;
+                std::string _num_acc_instances;
+                int _current_base_acc_num;
+
                 Nodecl::List _fpga_file_code;
+                TL::ObjectList<Source> _fpga_source_codes;
+                TL::ObjectList<Source> _expand_fpga_source_codes;
+                unsigned int __number_of_calls;
+                TL::ObjectList<std::string> _fpga_source_name;
                 Nodecl::Utils::SimpleSymbolMap _copied_fpga_functions;
+                TL::ObjectList<TL::Nanox::OutlineDataItem*> _internal_data_items;
+                TL::Symbol _internal_new_function;
+                Nodecl::Utils::SimpleSymbolMap _internal_symbol_map;
 
                 TL::Source fpga_param_code(
                         TL::ObjectList<OutlineDataItem*> &data_items,
@@ -79,11 +110,21 @@ namespace TL
                         TL::ObjectList<TL::Nanox::OutlineDataItem*>&
                         );
 
-                Nodecl::NodeclBase gen_hls_wrapper(
+                //Nodecl::NodeclBase gen_hls_wrapper(
+                //DJG instrumented Source gen_hls_wrapper(
+                void gen_hls_wrapper(
+                        const TL::Symbol& called_task,
+                        const TL::Symbol& func_symbol_original,
                         const TL::Symbol& func_symbol,
-                        TL::ObjectList<TL::Nanox::OutlineDataItem*>&
+                        TL::ObjectList<TL::Nanox::OutlineDataItem*>&,
+                        Source& wrapper_before,
+                        Source& called_source,
+                        Source& wrapper_after
                         );
                 bool task_has_scalars(TL::ObjectList<OutlineDataItem*> &);
+//                void copy_symbols_to_device_file( const TL::ObjectList<Nodecl::NodeclBase>& stuff_to_be_copied);
+                void copy_stuff_to_device_file_expand( const TL::ObjectList<Nodecl::NodeclBase> stuff_to_be_copied);
+                void preappend_list_sources_and_reset(Source outline_src, Source& full_src, TL::Scope scope);
 
             protected:
                 static const std::string hls_in;

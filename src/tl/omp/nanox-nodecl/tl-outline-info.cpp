@@ -905,7 +905,21 @@ namespace TL { namespace Nanox {
             TL::DataReference data_ref(*it);
             if (data_ref.is_valid())
             {
+                
                 TL::Symbol sym = data_ref.get_base_symbol();
+#ifdef _DEBUG_FPGA_AUTO_
+                std::cerr << std::endl << std::endl;
+                std::cerr << sym.get_name() << std::endl;
+                if (copy_directionality==OutlineDataItem::COPY_IN)
+                    std::cerr << "COPY_IN" << std::endl; 
+//                else if (copy_directionality==OutlineDataItem::COPY_IN_ADDR)
+//                    std::cerr << "COPY_IN_ADDR" << std::endl; 
+//                else if (copy_directionality==OutlineDataItem::COPY_OUT_ADDR)
+//                    std::cerr << "COPY_OUT_ADDR" << std::endl; 
+//                else if (copy_directionality==OutlineDataItem::COPY_INOUT_ADDR)
+//                    std::cerr << "COPY_INOUT_ADDR" << std::endl; 
+                std::cerr << std::endl << std::endl;
+#endif
 
                 OutlineDataItem &outline_info = _outline_info.get_entity_for_symbol(sym);
                 outline_info.get_copies().append(OutlineDataItem::CopyItem(data_ref, copy_directionality));
@@ -1253,15 +1267,35 @@ namespace TL { namespace Nanox {
                 add_copies(copy_in.get_input_copies().as<Nodecl::List>(), OutlineDataItem::COPY_IN);
             }
 
+/*
+            void visit(const Nodecl::OmpSs::CopyInAddr& copy_in_addr)
+            {
+                add_copies(copy_in_addr.get_input_addr_copies().as<Nodecl::List>(), OutlineDataItem::COPY_IN_ADDR);
+            }
+*/
+
             void visit(const Nodecl::OmpSs::CopyOut& copy_out)
             {
                 add_copies(copy_out.get_output_copies().as<Nodecl::List>(), OutlineDataItem::COPY_OUT);
             }
+/*
+            void visit(const Nodecl::OmpSs::CopyOutAddr& copy_out_addr)
+            {
+                add_copies(copy_out_addr.get_output_addr_copies().as<Nodecl::List>(), OutlineDataItem::COPY_OUT_ADDR);
+            }
+*/
 
             void visit(const Nodecl::OmpSs::CopyInout& copy_inout)
             {
                 add_copies(copy_inout.get_inout_copies().as<Nodecl::List>(), OutlineDataItem::COPY_INOUT);
             }
+
+/*
+            void visit(const Nodecl::OmpSs::CopyInoutAddr& copy_inout_addr)
+            {
+                add_copies(copy_inout_addr.get_inout_addr_copies().as<Nodecl::List>(), OutlineDataItem::COPY_INOUT_ADDR);
+            }
+*/
 
             void visit(const Nodecl::OmpSs::Implements& implements)
             {

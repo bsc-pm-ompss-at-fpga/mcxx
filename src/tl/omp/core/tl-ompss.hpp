@@ -44,6 +44,9 @@ namespace TL { namespace OmpSs {
         COPY_DIR_IN = 1 << 1,
         COPY_DIR_OUT = 1 << 2,
         COPY_DIR_INOUT = COPY_DIR_IN | COPY_DIR_OUT,
+//        COPY_DIR_IN_ADDR = 1 << 3,
+//        COPY_DIR_OUT_ADDR = 1 << 4,
+//        COPY_DIR_INOUT_ADDR = COPY_DIR_IN_ADDR | COPY_DIR_OUT_ADDR,
     };
 
     std::string copy_direction_to_str(CopyDirection dir);
@@ -86,6 +89,11 @@ namespace TL { namespace OmpSs {
             ObjectList<CopyItem> _copy_out;
             ObjectList<CopyItem> _copy_inout;
 
+            // Copy addr
+            // ObjectList<CopyItem> _copy_in_addr;
+            // ObjectList<CopyItem> _copy_out_addr;
+            // ObjectList<CopyItem> _copy_inout_addr;
+
             ObjectList<Nodecl::NodeclBase> _ndrange;
             ObjectList<Nodecl::NodeclBase> _shmem;
             ObjectList<Nodecl::NodeclBase> _onto;
@@ -113,9 +121,17 @@ namespace TL { namespace OmpSs {
             void append_to_copy_out(const ObjectList<CopyItem>& copy_items);
             void append_to_copy_inout(const ObjectList<CopyItem>& copy_items);
 
+            // void append_to_copy_in_addr(const ObjectList<CopyItem>& copy_items);
+            // void append_to_copy_out_addr(const ObjectList<CopyItem>& copy_items);
+            // void append_to_copy_inout_addr(const ObjectList<CopyItem>& copy_items);
+
             ObjectList<CopyItem> get_copy_in() const;
             ObjectList<CopyItem> get_copy_out() const;
             ObjectList<CopyItem> get_copy_inout() const;
+
+            //ObjectList<CopyItem> get_copy_in_addr() const;
+            //ObjectList<CopyItem> get_copy_out_addr() const;
+            //ObjectList<CopyItem> get_copy_inout_addr() const;
 
             void append_to_ndrange(const ObjectList<Nodecl::NodeclBase>& expressions);
             ObjectList<Nodecl::NodeclBase> get_ndrange() const;

@@ -55,10 +55,16 @@ namespace TL { namespace OmpSs {
                 return "<<undefined-copy>>";
             case OmpSs::COPY_DIR_IN:
                 return "copy_in";
+//            case OmpSs::COPY_DIR_IN_ADDR:
+//                return "copy_in_addr";
             case OmpSs::COPY_DIR_OUT:
                 return "copy_out";
+//            case OmpSs::COPY_DIR_OUT_ADDR:
+//                return "copy_out_addr";
             case OmpSs::COPY_DIR_INOUT:
                 return "copy_inout";
+//            case OmpSs::COPY_DIR_INOUT_ADDR:
+//                return "copy_inout_addr";
             default:
                 return "<<unknown-copy-kind?>>";
         }
@@ -83,6 +89,9 @@ namespace TL { namespace OmpSs {
         : _copy_in(),
         _copy_out(),
         _copy_inout(),
+//        _copy_in_addr(),
+//        _copy_out_addr(),
+//        _copy_inout_addr(),
         _device_list(),
         _copy_deps(),
         _implementation_table()
@@ -114,6 +123,23 @@ namespace TL { namespace OmpSs {
             _copy_in.append(CopyItem(updated_data_ref, dir));
         }
 
+/*
+        for (TL::ObjectList<CopyItem>::const_iterator it = target_info._copy_in_addr.begin();
+                it != target_info._copy_in_addr.end();
+                it++)
+        {
+            CopyItem item = *it;
+            CopyDirection dir = item.get_kind();
+            DataReference data_ref = item.get_copy_expression();
+
+            Nodecl::NodeclBase updated_expr = Nodecl::Utils::deep_copy(
+                    data_ref, data_ref.retrieve_context(), translation_map);
+
+            DataReference updated_data_ref(updated_expr);
+            _copy_in_addr.append(CopyItem(updated_data_ref, dir));
+        }
+*/
+
         for (TL::ObjectList<CopyItem>::const_iterator it = target_info._copy_out.begin();
                 it != target_info._copy_out.end();
                 it++)
@@ -129,6 +155,23 @@ namespace TL { namespace OmpSs {
             _copy_out.append(CopyItem(updated_data_ref, dir));
         }
 
+/*
+        for (TL::ObjectList<CopyItem>::const_iterator it = target_info._copy_out_addr.begin();
+                it != target_info._copy_out_addr.end();
+                it++)
+        {
+            CopyItem item = *it;
+            CopyDirection dir = item.get_kind();
+            DataReference data_ref = item.get_copy_expression();
+
+            Nodecl::NodeclBase updated_expr = Nodecl::Utils::deep_copy(
+                    data_ref, data_ref.retrieve_context(), translation_map);
+
+            DataReference updated_data_ref(updated_expr);
+            _copy_out_addr.append(CopyItem(updated_data_ref, dir));
+        }
+*/
+
         for (TL::ObjectList<CopyItem>::const_iterator it = target_info._copy_inout.begin();
                 it != target_info._copy_inout.end();
                 it++)
@@ -143,6 +186,23 @@ namespace TL { namespace OmpSs {
             DataReference updated_data_ref(updated_expr);
             _copy_inout.append(CopyItem(updated_data_ref, dir));
         }
+
+/*
+        for (TL::ObjectList<CopyItem>::const_iterator it = target_info._copy_inout_addr.begin();
+                it != target_info._copy_inout_addr.end();
+                it++)
+        {
+            CopyItem item = *it;
+            CopyDirection dir = item.get_kind();
+            DataReference data_ref = item.get_copy_expression();
+
+            Nodecl::NodeclBase updated_expr = Nodecl::Utils::deep_copy(
+                    data_ref, data_ref.retrieve_context(), translation_map);
+
+            DataReference updated_data_ref(updated_expr);
+            _copy_inout_addr.append(CopyItem(updated_data_ref, dir));
+        }
+*/
 
         for(TL::ObjectList<Nodecl::NodeclBase>::const_iterator it = target_info._ndrange.begin();
                 it != target_info._ndrange.end();
@@ -188,6 +248,23 @@ namespace TL { namespace OmpSs {
             new_target_info._copy_in.append(CopyItem(updated_data_ref, dir));
         }
 
+/*
+        for (TL::ObjectList<CopyItem>::const_iterator it = _copy_in_addr.begin();
+                it != _copy_in_addr.end();
+                it++)
+        {
+            CopyItem item = *it;
+            CopyDirection dir = item.get_kind();
+            DataReference data_ref = item.get_copy_expression();
+
+            Nodecl::NodeclBase updated_expr =
+                instantiate_expression(data_ref.get_internal_nodecl(), instantiation_context, instantiation_symbol_map, / * pack index* / -1);
+
+            DataReference updated_data_ref(updated_expr);
+            new_target_info._copy_in_addr.append(CopyItem(updated_data_ref, dir));
+        }
+*/
+
         for (TL::ObjectList<CopyItem>::const_iterator it = _copy_out.begin();
                 it != _copy_out.end();
                 it++)
@@ -203,6 +280,23 @@ namespace TL { namespace OmpSs {
             new_target_info._copy_out.append(CopyItem(updated_data_ref, dir));
         }
 
+/*
+        for (TL::ObjectList<CopyItem>::const_iterator it = _copy_out_addr.begin();
+                it != _copy_out_addr.end();
+                it++)
+        {
+            CopyItem item = *it;
+            CopyDirection dir = item.get_kind();
+            DataReference data_ref = item.get_copy_expression();
+
+            Nodecl::NodeclBase updated_expr =
+                instantiate_expression(data_ref.get_internal_nodecl(), instantiation_context, instantiation_symbol_map, / * pack index* / -1);
+
+            DataReference updated_data_ref(updated_expr);
+            new_target_info._copy_out_addr.append(CopyItem(updated_data_ref, dir));
+        }
+*/
+
         for (TL::ObjectList<CopyItem>::const_iterator it = _copy_inout.begin();
                 it != _copy_inout.end();
                 it++)
@@ -217,6 +311,23 @@ namespace TL { namespace OmpSs {
             DataReference updated_data_ref(updated_expr);
             new_target_info._copy_inout.append(CopyItem(updated_data_ref, dir));
         }
+
+/*
+        for (TL::ObjectList<CopyItem>::const_iterator it = _copy_inout_addr.begin();
+                it != _copy_inout_addr.end();
+                it++)
+        {
+            CopyItem item = *it;
+            CopyDirection dir = item.get_kind();
+            DataReference data_ref = item.get_copy_expression();
+
+            Nodecl::NodeclBase updated_expr =
+                instantiate_expression(data_ref.get_internal_nodecl(), instantiation_context, instantiation_symbol_map, / * pack index* / -1);
+
+            DataReference updated_data_ref(updated_expr);
+            new_target_info._copy_inout_addr.append(CopyItem(updated_data_ref, dir));
+        }
+*/
 
         for(TL::ObjectList<Nodecl::NodeclBase>::const_iterator it = _ndrange.begin();
                 it != _ndrange.end();
@@ -244,30 +355,72 @@ namespace TL { namespace OmpSs {
         _copy_in.append(copy_items);
     }
 
+/*
+    void TargetInfo::append_to_copy_in_addr(const ObjectList<CopyItem>& copy_items)
+    {
+        _copy_in_addr.append(copy_items);
+    }
+*/
+
     void TargetInfo::append_to_copy_out(const ObjectList<CopyItem>& copy_items)
     {
         _copy_out.append(copy_items);
     }
+
+/*
+    void TargetInfo::append_to_copy_out_addr(const ObjectList<CopyItem>& copy_items)
+    {
+        _copy_out_addr.append(copy_items);
+    }
+*/
 
     void TargetInfo::append_to_copy_inout(const ObjectList<CopyItem>& copy_items)
     {
         _copy_inout.append(copy_items);
     }
 
+/*
+    void TargetInfo::append_to_copy_inout_addr(const ObjectList<CopyItem>& copy_items)
+    {
+        _copy_inout_addr.append(copy_items);
+    }
+*/
+
     ObjectList<CopyItem> TargetInfo::get_copy_in() const
     {
         return _copy_in;
     }
+
+/*
+    ObjectList<CopyItem> TargetInfo::get_copy_in_addr() const
+    {
+        return _copy_in_addr;
+    }
+*/
 
     ObjectList<CopyItem> TargetInfo::get_copy_out() const
     {
         return _copy_out;
     }
 
+/*
+    ObjectList<CopyItem> TargetInfo::get_copy_out_addr() const
+    {
+        return _copy_out_addr;
+    }
+*/
+
     ObjectList<CopyItem> TargetInfo::get_copy_inout() const
     {
         return _copy_inout;
     }
+
+/*
+    ObjectList<CopyItem> TargetInfo::get_copy_inout_addr() const
+    {
+        return _copy_inout_addr;
+    }
+*/
 
     void TargetInfo::append_to_ndrange(const ObjectList<Nodecl::NodeclBase>& expressions)
     {
@@ -418,6 +571,9 @@ namespace TL { namespace OmpSs {
         mw.write(_copy_in);
         mw.write(_copy_out);
         mw.write(_copy_inout);
+//        mw.write(_copy_in_addr);
+//        mw.write(_copy_out_addr);
+//        mw.write(_copy_inout_addr);
         mw.write(_ndrange);
         mw.write(_shmem);
         mw.write(_onto);
@@ -434,6 +590,9 @@ namespace TL { namespace OmpSs {
         mr.read(_copy_in);
         mr.read(_copy_out);
         mr.read(_copy_inout);
+//        mr.read(_copy_in_addr);
+//        mr.read(_copy_out_addr);
+//        mr.read(_copy_inout_addr);
         mr.read(_ndrange);
         mr.read(_shmem);
         mr.read(_onto);

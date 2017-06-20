@@ -347,6 +347,7 @@ int execute_program(const char* program_name, const char** arguments)
 #if !defined(WIN32_BUILD) || defined(__CYGWIN__)
 static int execute_program_flags_unix(const char* program_name, const char** arguments, const char* stdout_f, const char* stderr_f)
 {
+
     if (program_name == NULL)
         program_name = "";
 

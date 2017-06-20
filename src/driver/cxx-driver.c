@@ -154,6 +154,7 @@
 "                              l: linker\n" \
 "                              r: linker (beginning of the linker command)\n" \
 "                              L: linker (end of the linker command)\n" \
+"                              f: fpga linker\n" \
 "  --Wx:<profile>:<flags>,<options>\n" \
 "                           Like --W<flags>,<options> but for\n" \
 "                           a specific compiler profile\n" \
@@ -2467,6 +2468,7 @@ static void parse_subcommand_arguments(const char* arguments)
     char linker_flag = 0;
     char linker_flag_pre = 0;
     char linker_flag_post = 0;
+    char linker_flag_fpga= 0;
     char prescanner_flag = 0;
 
     compilation_configuration_t* configuration = CURRENT_CONFIGURATION;
@@ -2546,8 +2548,12 @@ static void parse_subcommand_arguments(const char* arguments)
             case 'L' :
                 linker_flag_post = 1;
                 break;
+// FPGA
+            case 'f' :
+                linker_flag_fpga= 1;
+                break;
             default:
-                fprintf(stderr, "%s: invalid flag character %c for --W option only 'p', 'n', 's', 'l', 'r', 'L' are allowed, ignoring\n",
+                fprintf(stderr, "%s: invalid flag character %c for --W option only 'p', 'n', 's', 'l', 'r', 'L', 'f' are allowed, ignoring\n",
                         compilation_process.exec_basename,
                         *p);
                 break;
@@ -2640,6 +2646,12 @@ static void parse_subcommand_arguments(const char* arguments)
     {
         add_to_parameter_list(
                 &configuration->linker_options_post,
+                parameters, num_parameters);
+    }
+    if (linker_flag_fpga)
+    {
+        add_to_parameter_list(
+                &configuration->linker_options_fpga,
                 parameters, num_parameters);
     }
     if (prescanner_flag)
@@ -4558,6 +4570,8 @@ static void link_files(const char** file_list, int num_files,
         count_null_ended_array((void**)compilation_configuration->linker_options_pre);
     int num_args_linker_options_post =
         count_null_ended_array((void**)compilation_configuration->linker_options_post);
+    int num_args_linker_options_fpga=
+        count_null_ended_array((void**)compilation_configuration->linker_options_fpga);
     int num_args_linker_command =
         compilation_configuration->num_args_linker_command;
 
@@ -4578,6 +4592,15 @@ static void link_files(const char** file_list, int num_files,
 
     const char* linker_args[num_arguments];
     memset(linker_args, 0, sizeof(linker_args));
+
+    const char* linker_args_fpga[num_args_linker_options_fpga+2];
+
+    if (num_args_linker_options_fpga)
+    {
+      num_args_linker_options_fpga+=2;
+
+      memset(linker_args_fpga, 0, sizeof(linker_args_fpga));
+    }
 
     int i = 0;
     int j = 0;
@@ -4646,6 +4669,18 @@ static void link_files(const char** file_list, int num_files,
         linker_args[i] = compilation_configuration->linker_options_post[j];
     }
 
+
+    if (num_args_linker_options_fpga)
+    {
+      //Adding linker options fpga 
+      asprintf(linker_args_fpga, "fpgacc-bit.sh");
+      for(j = 0; j < num_args_linker_options_fpga-1; j++)
+      {
+          linker_args_fpga[j+1] = compilation_configuration->linker_options_fpga[j];
+      }
+      linker_args_fpga[j] = NULL;
+    }
+
     timing_t timing_link;
     timing_start(&timing_link);
     if (execute_program(compilation_configuration->linker_name, linker_args) != 0)
@@ -4659,6 +4694,22 @@ static void link_files(const char** file_list, int num_files,
         fprintf(stderr, "Link performed in %.2f seconds\n",
                 timing_elapsed(&timing_link));
     }
+
+    timing_t timing_link_automatic;
+    if (num_args_linker_options_fpga)
+    {
+      // FPGA linker
+      timing_start(&timing_link_automatic);
+
+      if (execute_program("/bin/bash", linker_args_fpga) != 0)
+      {
+          fatal_error("Link fpga failed");
+      }
+      timing_end(&timing_link_automatic);
+    }
+    if (num_args_linker_options_fpga && compilation_configuration->verbose)
+      fprintf(stderr, "FPGA Linking performed in %.3f seconds\n",timing_elapsed(&timing_link_automatic));
+
 }
 
 target_options_map_t* get_target_options(compilation_configuration_t* configuration, 

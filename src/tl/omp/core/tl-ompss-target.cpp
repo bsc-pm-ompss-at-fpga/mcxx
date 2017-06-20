@@ -85,8 +85,23 @@ namespace TL
             PragmaCustomClause copy_in = pragma_line.get_clause("copy_in");
             if (copy_in.is_defined())
             {
+#if _DEBUG_FPGA_AUTO_
+                fprintf(stderr, "COPY IN read in tl-ompss-target.cpp\n");
+#endif
                 target_ctx.copy_in = parse_dependences_ompss_clause(copy_in, scope);
             }
+
+/*
+            PragmaCustomClause copy_in_addr = pragma_line.get_clause("copy_in_addr");
+            if (copy_in_addr.is_defined())
+            {
+#if _DEBUG_FPGA_AUTO_
+                fprintf(stderr, "COPY IN ADDR read in tl-ompss-target.cpp\n");
+#endif
+                //target_ctx.copy_in = target_ctx.copy_in.append(parse_dependences_ompss_clause(copy_in_addr,scope));
+                target_ctx.copy_in_addr = parse_dependences_ompss_clause(copy_in_addr, scope);
+            }
+*/
 
             PragmaCustomClause copy_out = pragma_line.get_clause("copy_out");
             if (copy_out.is_defined())
@@ -94,11 +109,35 @@ namespace TL
                 target_ctx.copy_out = parse_dependences_ompss_clause(copy_out, scope);
             }
 
+/*
+            PragmaCustomClause copy_out_addr = pragma_line.get_clause("copy_out_addr");
+            if (copy_out_addr.is_defined())
+            {
+#if _DEBUG_FPGA_AUTO_
+                fprintf(stderr, "COPY OUT ADDR read in tl-ompss-target.cpp\n");
+#endif
+                //target_ctx.copy_out = target_ctx.copy_in.append(parse_dependences_ompss_clause(copy_out_addr,scope));
+                target_ctx.copy_out_addr = parse_dependences_ompss_clause(copy_out_addr, scope);
+            }
+*/
+
             PragmaCustomClause copy_inout = pragma_line.get_clause("copy_inout");
             if (copy_inout.is_defined())
             {
                 target_ctx.copy_inout = parse_dependences_ompss_clause(copy_inout, scope);
             }
+
+/*
+            PragmaCustomClause copy_inout_addr = pragma_line.get_clause("copy_inout_addr");
+            if (copy_inout_addr.is_defined())
+            {
+#if _DEBUG_FPGA_AUTO_
+                fprintf(stderr, "COPY INOUT ADDR read in tl-ompss-target.cpp\n");
+#endif
+                //target_ctx.copy_inout = target_ctx.copy_inout.append(parse_dependences_ompss_clause(copy_inout_addr,scope));
+                target_ctx.copy_inout_addr = parse_dependences_ompss_clause(copy_inout_addr, scope);
+            }
+*/
 
             PragmaCustomClause ndrange = pragma_line.get_clause("ndrange");
             if (ndrange.is_defined())
@@ -165,6 +204,9 @@ namespace TL
                         if ( !copy_in.is_defined()
                                 && !copy_out.is_defined()
                                 && !copy_inout.is_defined())
+                                //&& !copy_in_addr.is_define()
+                                //&& !copy_out_addr.is_define()
+                                //&& !copy_inout_addr.is_define())
                         {
                             target_ctx.copy_deps = OmpSs::TargetContext::COPY_DEPS;
 
@@ -370,8 +412,12 @@ namespace TL
                     it != list.end();
                     it++)
             {
+                
                 DataReference expr(*it);
 
+#if _DEBUG_FPGA_AUTO_
+                fprintf(stderr,"Is valid the expression?\n");
+#endif
                 std::string warning;
                 if (!expr.is_valid())
                 {
@@ -381,6 +427,9 @@ namespace TL
                     continue;
                 }
 
+#if _DEBUG_FPGA_AUTO_
+                fprintf(stderr,"Is in ompss mode?? %d\n", in_ompss_mode);
+#endif
                 // In OmpSs copies we may fix the data-sharing to something more natural
                 if (in_ompss_mode)
                 {
@@ -441,6 +490,9 @@ namespace TL
                     }
                 }
 
+#if _DEBUG_FPGA_AUTO_
+                fprintf(stderr,"Item inside items Copyiing?? \n");
+#endif
                 TL::OmpSs::CopyItem copy_item(expr, copy_direction);
                 items.append(copy_item);
             }
@@ -452,16 +504,41 @@ namespace TL
                         target_info.append_to_copy_in(items);
                         break;
                     }
+/*
+                case TL::OmpSs::COPY_DIR_IN_ADDR:
+                    {
+                        
+#if _DEBUG_FPGA_AUTO_
+                        fprintf(stderr,"Inserting in target_info copy_in_addr?? \n");
+#endif
+                        target_info.append_to_copy_in_addr(items);
+                        break;
+                    }
+*/
                 case TL::OmpSs::COPY_DIR_OUT:
                     {
                         target_info.append_to_copy_out(items);
                         break;
                     }
+/*
+                case TL::OmpSs::COPY_DIR_OUT_ADDR:
+                    {
+                        target_info.append_to_copy_out_addr(items);
+                        break;
+                    }
+*/
                 case TL::OmpSs::COPY_DIR_INOUT:
                     {
                         target_info.append_to_copy_inout(items);
                         break;
                     }
+/*
+                case TL::OmpSs::COPY_DIR_INOUT_ADDR:
+                    {
+                        target_info.append_to_copy_inout_addr(items);
+                        break;
+                    }
+*/
                 default:
                     {
                         internal_error("Unreachable code", 0);
@@ -553,17 +630,43 @@ namespace TL
                     target_info,
                     in_ompss_mode());
 
+/*
+#if _DEBUG_FPGA_AUTO_
+            fprintf(stderr,"Inserting add_copy_items copy in addr\n");
+#endif
+            add_copy_items(construct, data_sharing_environment,
+                    target_ctx.copy_in_addr,
+                    TL::OmpSs::COPY_DIR_IN_ADDR,
+                    target_info,
+                    in_ompss_mode());
+*/
+
             add_copy_items(construct, data_sharing_environment,
                     target_ctx.copy_out,
                     TL::OmpSs::COPY_DIR_OUT,
                     target_info,
                     in_ompss_mode());
 
+/*
+            add_copy_items(construct, data_sharing_environment,
+                    target_ctx.copy_out_addr,
+                    TL::OmpSs::COPY_DIR_OUT_ADDR,
+                    target_info,
+                    in_ompss_mode());
+*/
+
             add_copy_items(construct, data_sharing_environment,
                     target_ctx.copy_inout,
                     TL::OmpSs::COPY_DIR_INOUT,
                     target_info,
                     in_ompss_mode());
+/*
+            add_copy_items(construct, data_sharing_environment,
+                    target_ctx.copy_inout_addr,
+                    TL::OmpSs::COPY_DIR_INOUT_ADDR,
+                    target_info,
+                    in_ompss_mode());
+*/
 
             target_info.set_file(target_ctx.file);
             target_info.set_name(target_ctx.name);
@@ -656,6 +759,8 @@ namespace TL
                         target_info,
                         in_ompss_mode());
 
+                // copy_deps is not copying _addrs.
+
                 if (!dep_list_weakin.empty()
                         || !dep_list_weakout.empty()
                         || !dep_list_weakinout.empty())
@@ -670,12 +775,23 @@ namespace TL
                         || !target_ctx.copy_in.empty()
                         || !target_ctx.copy_out.empty()
                         || !target_ctx.copy_inout.empty())
+//                        || !target_ctx.copy_in_addr.empty()
+//                        || !target_ctx.copy_out_addr.empty()
+//                        || !target_ctx.copy_inout_addr.empty())
                     && !_allow_shared_without_copies)
             {
                 ObjectList<TL::OmpSs::CopyItem> all_copies;
                 all_copies.append(target_info.get_copy_in());
                 all_copies.append(target_info.get_copy_out());
                 all_copies.append(target_info.get_copy_inout());
+/*
+#if _DEBUG_FPGA_AUTO_
+                fprintf(stderr,"Inserting all copies append copy in addr\n");
+#endif
+                all_copies.append(target_info.get_copy_in_addr());
+                all_copies.append(target_info.get_copy_out_addr());
+                all_copies.append(target_info.get_copy_inout_addr());
+*/
 
                 ObjectList<Symbol> all_copied_syms = all_copies
                     .map<DataReference>(&TL::OmpSs::CopyItem::get_copy_expression)

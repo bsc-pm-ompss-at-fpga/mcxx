@@ -458,6 +458,9 @@ typedef struct compilation_configuration_tag
     // --WL,
     // Added after all linker options
     const char** linker_options_post;
+    // --Wf,
+    // Added to fpga linker options
+    const char** linker_options_fpga;
 
     // Toolchain tools of the target
     const char* target_objcopy;

@@ -90,9 +90,12 @@ namespace TL
                 enum CopyDirectionality
                 {
                     COPY_NONE = 0,
-                    COPY_IN,
-                    COPY_OUT,
-                    COPY_INOUT
+                    COPY_IN   = 1 << 0,
+                    COPY_OUT  = 1 << 1,
+                    COPY_INOUT = COPY_IN | COPY_OUT//,
+//                    COPY_IN_ADDR    = 1 << 2,
+//                    COPY_OUT_ADDR   = 1 << 3,
+//                    COPY_INOUT_ADDR = COPY_IN_ADDR | COPY_OUT_ADDR
                 };
 
                 struct CopyItem

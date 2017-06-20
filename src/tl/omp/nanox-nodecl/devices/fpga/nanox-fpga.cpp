@@ -25,7 +25,9 @@
 --------------------------------------------------------------------*/
 
 #include <errno.h>
+#include <stdlib.h>
 
+#include <fstream>
 #include <fstream>
 
 #include "cxx-diagnostic.h"
@@ -51,11 +53,12 @@
 using namespace TL;
 using namespace TL::Nanox;
 
+
 const std::string DeviceFPGA::HLS_VPREF = "_hls_var_";
 const std::string DeviceFPGA::HLS_I = HLS_VPREF + "i";
 const std::string DeviceFPGA::hls_in = HLS_VPREF + "in";
 const std::string DeviceFPGA::hls_out = HLS_VPREF + "out";
-
+static int _base_acc_num = 0;
 
 static std::string fpga_outline_name(const std::string &name)
 {
@@ -74,16 +77,34 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info,
         Nodecl::NodeclBase &output_statements,
         Nodecl::Utils::SimpleSymbolMap* &symbol_map)
 {
+
     if (IS_FORTRAN_LANGUAGE)
         fatal_error("Fortran for FPGA devices is not supported yet\n");
 
+
     // Unpack DTO
     const std::string& device_outline_name = fpga_outline_name(info._outline_name);
+    const Nodecl::NodeclBase& task_statements = info._task_statements;
     const Nodecl::NodeclBase& original_statements = info._original_statements;
+    bool is_function_task = info._called_task.is_valid();
+
+
+
+
+
+
     const TL::Symbol& arguments_struct = info._arguments_struct;
     const TL::Symbol& called_task = info._called_task;
 
+
+
+
+
+
+
     symbol_map = new Nodecl::Utils::SimpleSymbolMap(&_copied_fpga_functions);
+    _internal_symbol_map = *symbol_map;
+
 
     TL::Symbol current_function = original_statements.retrieve_context().get_related_symbol();
     if (current_function.is_nested_function())
@@ -92,26 +113,69 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info,
             fatal_printf_at(original_statements.get_locus(), "nested functions are not supported\n");
     }
 
-    // Add the user function to the intermediate file -> to HLS
+   // Add the user function to the intermediate file -> to HLS
     if (called_task.is_valid())//is a function task
     {
         if ( (IS_C_LANGUAGE || IS_CXX_LANGUAGE) && !called_task.get_function_code().is_null())
         {
-
-
             if (_copied_fpga_functions.map(called_task) == called_task)
             {
                 //new task-> add it to the list
                 TL::Symbol new_function = SymbolUtils::new_function_symbol_for_deep_copy(
                         called_task,
-                        called_task.get_name() + "_hls");
+                        called_task.get_name());
 
-                _copied_fpga_functions.add_map(called_task, new_function);
-                _fpga_file_code.append (Nodecl::Utils::deep_copy(
-                            called_task.get_function_code(),
-                            called_task.get_scope(),
-                            *symbol_map)
-                        );
+                TL::Symbol new_function_wrapper = SymbolUtils::new_function_symbol_for_deep_copy(
+                        called_task,
+                        called_task.get_name() + "_hls_automatic_mcxx_wrapper");
+
+                 Source instrument_before, called_source, instrument_after;
+
+                 DeviceFPGA::gen_hls_wrapper(called_task, new_function, new_function_wrapper,info._data_items, instrument_before, called_source, instrument_after);
+
+                 Source outline_src;
+                 Source full_src;
+
+                 Nodecl::NodeclBase fun_code =  info._called_task.get_function_code();
+                 outline_src
+                          <<      fun_code.prettyprint()
+                          <<      " "
+                          <<      " "
+                          <<      instrument_before
+                          <<      called_source
+                          <<      instrument_after
+                          ;
+
+                 _copied_fpga_functions.add_map(called_task, new_function_wrapper);
+                 TL::ObjectList<Nodecl::NodeclBase> expand_code; 
+                 TL::Symbol expand_function = original_statements.retrieve_context().get_related_symbol();
+                 Nodecl::NodeclBase code = info._called_task.get_function_code();
+                 
+                 expand_code.append(code);
+
+
+#if _DEBUG_AUTOMATIC_COMPILER_
+    std::cerr << std::endl << std::endl;
+    std::cerr << " ===================================================================0\n"; 
+    std::cerr << "First call to copy_stuff_to_device... going through:\n";
+    std::cerr << " ===================================================================0\n"; 
+    std::cerr << code.prettyprint(); __number_of_calls=1;
+#endif
+                            
+                 copy_stuff_to_device_file_expand(expand_code);
+
+
+#if _DEBUG_AUTOMATIC_COMPILER_
+    std::cerr << " ===================================================================0\n"; 
+    std::cerr << "End First call to copy_stuff_to_device... \n";
+    std::cerr << " ===================================================================0\n"; 
+    std::cerr << std::endl << std::endl;
+#endif
+                 TL::Scope scope = code.retrieve_context();
+                 preappend_list_sources_and_reset(outline_src, full_src, scope);
+
+                 _fpga_source_codes.append(full_src);
+                 _fpga_source_name.append(_acc_num + ":" + _num_acc_instances + ":" +  called_task.get_name() + "_hls_automatic_mcxx");
             }
         }
         else if (IS_FORTRAN_LANGUAGE)
@@ -127,6 +191,8 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info,
     Source unpacked_arguments, private_entities;
 
     TL::ObjectList<OutlineDataItem*> data_items = info._data_items;
+
+
     for (TL::ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
             it != data_items.end();
             it++)
@@ -188,12 +254,6 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info,
                     }
                     unpacked_arguments.append_with_separator(argument, ", ");
 
-                    //Seems that this is not needed anymore
-//                    std::string name = (*it)->get_symbol().get_name();
-//
-//                    private_entities
-//                        << "rdp_" << name << " = " << as_expression( (*it)->get_reduction_info()->get_identity()) << ";"
-//                        ;
                     break;
                 }
             default:
@@ -228,13 +288,10 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info,
             unpacked_function_code,
             unpacked_function_body);
 
+    Nodecl::Utils::append_to_top_level_nodecl(unpacked_function_code);
+
     Source fpga_params;
-    //Only generate scalar parameter passing when it's necessary
-    //FIXME: We are not generating any code to pass parameters right now
-//    if (task_has_scalars(data_items))
-//    {
-//        fpga_params = fpga_param_code(info._data_items, symbol_map, called_task.get_scope());
-//    }
+
 
     Source unpacked_source;
     unpacked_source
@@ -244,22 +301,35 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info,
         << statement_placeholder(outline_placeholder)
         << dummy_final_statements
         ;
-
-    Nodecl::NodeclBase new_unpacked_body =
-        unpacked_source.parse_statement(unpacked_function_body);
-    unpacked_function_body.replace(new_unpacked_body);
-
-    Nodecl::Utils::prepend_to_enclosing_top_level_location(original_statements, unpacked_function_code);
+#if _DEBUG_AUTOMATIC_COMPILER_
+     std::cerr << "unpacked source function:" << unpacked_source.get_source() << std::endl;
+#endif
 
     // Add a declaration of the unpacked function symbol in the original source
     if (IS_CXX_LANGUAGE)
     {
+#if _DEBUG_AUTOMATIC_COMPILER_
+        std::cerr << "unpacked function:" << unpacked_function.get_function_code().prettyprint() << std::endl;
+#endif
+       //DJG TO remove???
+       if (!unpacked_function.is_member())
+       {
+#if _DEBUG_AUTOMATIC_COMPILER_
+        std::cerr << "No member... actually Doing delcaration insertion unpacked function:" << unpacked_function.get_name() << std::endl;
+#endif
         Nodecl::NodeclBase nodecl_decl = Nodecl::CxxDecl::make(
                 /* optative context */ nodecl_null(),
                 unpacked_function,
                 original_statements.get_locus());
-        Nodecl::Utils::prepend_to_enclosing_top_level_location(original_statements, nodecl_decl);
+       Nodecl::Utils::prepend_to_enclosing_top_level_location(original_statements, nodecl_decl);
+       }
     }
+
+
+
+    Nodecl::NodeclBase new_unpacked_body =
+        unpacked_source.parse_statement(unpacked_function_body);
+    unpacked_function_body.replace(new_unpacked_body);
 
     // Create the outline function
     //The outline function has always only one parameter which name is 'args'
@@ -272,6 +342,7 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info,
                 get_user_defined_type(
                     arguments_struct.get_internal_symbol())).get_lvalue_reference_to());
 
+
     TL::Symbol outline_function = SymbolUtils::new_function_symbol(
             current_function,
             device_outline_name,
@@ -283,6 +354,7 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info,
     SymbolUtils::build_empty_body_for_function(outline_function,
             outline_function_code,
             outline_function_body);
+        Nodecl::Utils::append_to_top_level_nodecl(outline_function_code);
 
     Source outline_src;
     Source instrument_before,
@@ -312,12 +384,45 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info,
         << "}"
         ;
 
+#if _DEBUG_AUTOMATIC_COMPILER_
+    std::cerr << "outline function:" << outline_function.get_function_code().prettyprint() << std::endl;
+
+    std::cerr << "outline source code:" << outline_src.get_source() << std::endl;
+#endif
+
     Nodecl::NodeclBase new_outline_body = outline_src.parse_statement(outline_function_body);
     outline_function_body.replace(new_outline_body);
-    Nodecl::Utils::prepend_to_enclosing_top_level_location(original_statements, outline_function_code);
 
     output_statements = Nodecl::EmptyStatement::make(
                 original_statements.get_locus());
+
+
+
+            if (IS_CXX_LANGUAGE)
+            {
+#if _DEBUG_AUTOMATIC_COMPILER_
+                std::cerr << "Doing delcaration insertion unpacked function:" << outline_function.get_name() << std::endl;
+#endif
+                if (!outline_function.is_member())
+                {
+#if _DEBUG_AUTOMATIC_COMPILER_
+                  std::cerr << "No member... actually Doing delcaration insertion unpacked function:" << outline_function.get_name() << std::endl;
+#endif
+                  Nodecl::NodeclBase nodecl_decl = Nodecl::CxxDecl::make(
+                            /* optative context */ nodecl_null(),
+                            outline_function,
+                            original_statements.get_locus());
+#if _DEBUG_AUTOMATIC_COMPILER_
+                  std::cerr << "Before inserting prettyprint:" << original_statements.prettyprint() << std::endl;
+                  std::cerr << "Before inserting get text:" << original_statements.get_text() << std::endl;
+#endif
+                  Nodecl::Utils::prepend_to_enclosing_top_level_location(original_statements, nodecl_decl);
+#if _DEBUG_AUTOMATIC_COMPILER_
+                  std::cerr << "After inserting prettyprint:" << original_statements.prettyprint() << std::endl;
+                  std::cerr << "After inserting get text:" << original_statements.get_text() << std::endl;
+#endif
+                }
+             }
 }
 
 DeviceFPGA::DeviceFPGA()
@@ -325,6 +430,46 @@ DeviceFPGA::DeviceFPGA()
 {
     set_phase_name("Nanox FPGA support");
     set_phase_description("This phase is used by Nanox phases to implement FPGA device support");
+    register_parameter("board_name",
+                "This is the parameter Board Name that appears in the Vivado Design",
+                _board_name,
+                "xilinx.com:zc702:part0:1.1");
+
+        register_parameter("device_name",
+                "This is the parameter the specific fpga device name of the board",
+                _device_name,
+                "xc7z020clg484-1");
+
+    register_parameter("FPGA accelerators frequency",
+                "This is the parameter to indicate the FPGA accelerators frequency",
+                _frequency,
+                "10");
+
+    register_parameter("bitstream_generation",
+                "This is the parameter to activate the bitstream generation:ON/OFF",
+                _bitstream_generation,
+                "OFF");
+
+    register_parameter("vivado_design_path",
+                "This is the parameter to indicate where the automatically generated vivado design will be placed",
+                _vivado_design_path,
+                "$PWD");
+
+    register_parameter("vivado_project_name",
+                "This is the parameter to indicate the vivado project name",
+                _vivado_project_name,
+                "Filename");
+
+    register_parameter("ip_cache_path",
+                "This is the parameter to indicate where the cache of ips is placed",
+                _ip_cache_path,
+                "$PWD/IP_cache");
+
+    register_parameter("dataflow",
+                "This is the parameter to indicate where the user wants to use the dataflow optimization:ON/OFF",
+                _dataflow,
+                "OFF");
+
 }
 
 void DeviceFPGA::pre_run(DTO& dto)
@@ -334,26 +479,22 @@ void DeviceFPGA::pre_run(DTO& dto)
 void DeviceFPGA::run(DTO& dto)
 {
     DeviceProvider::run(dto);
-}
-
-bool DeviceFPGA::task_has_scalars(TL::ObjectList<OutlineDataItem*> & dataitems)
-{
-    for (ObjectList<OutlineDataItem*>::iterator it = dataitems.begin();
-            it != dataitems.end();
-            it++)
+    if (_bitstream_generation=="ON")
     {
-        /*
-         * We happily assume that everything that does not need a copy is a scalar
-         * Which is true as long everything that is not a scalar is going to be copied
-         * We could also use DataReference to check this
-         * FIXME structs should be treated
-         */
-        if((*it)->get_copies().empty())
-        {
-            return true;
-        }
+     _current_base_acc_num = _base_acc_num;
+     std::cerr << "FPGA bitstream generation phase analysis - ON" << std::endl;
+//     std::cerr << "================================================================" << std::endl;
+//     std::cerr << "\t Board Name                  : " << _board_name << std::endl;
+//     std::cerr << "\t Device Name                 : " << _device_name << std::endl;
+//     std::cerr << "\t Frequency                   : " << _frequency << "ns" << std::endl;
+//     std::cerr << "\t Bitstream generation active : " << _bitstream_generation << std::endl;
+//     std::cerr << "\t Vivado design path          : " << _vivado_design_path << std::endl;
+//     std::cerr << "\t Vivado project name         : " << _vivado_project_name << std::endl;
+//     std::cerr << "\t IP cache path               : " << _ip_cache_path << std::endl;
+//     std::cerr << "\t Dataflow active             : " << _dataflow << std::endl;
+//     std::cerr << "================================================================" << std::endl;
     }
-    return false;
+    
 }
 
 void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
@@ -394,6 +535,8 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
     Nodecl::Utils::SimpleSymbolMap param_to_args_map = info._target_info.get_param_arg_map();
 
     std::string acc_num = "-1";
+    _acc_num = "-1";
+    _num_acc_instances = "1";
     if (onto_clause.size() >= 1)
     {
         //TODO
@@ -401,9 +544,9 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
         //can be run in several accelerators
 
         Nodecl::NodeclBase onto_acc = onto_clause[0];
-        if (onto_clause.size() > 1)
+        if (onto_clause.size() > 2)
         {
-            warn_printf_at(onto_acc.get_locus(), "More than one argument in onto clause. Using only first one\n");
+            warn_printf_at(onto_acc.get_locus(), "More than two arguments in onto clause. Using only first two\n");
         }
 
         if (onto_clause[0].is_constant())
@@ -419,6 +562,41 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
                 std::stringstream tmp_str;
                 tmp_str << acc;
                 acc_num = tmp_str.str();
+                _acc_num = acc_num;
+                _num_acc_instances = "1";
+#if _DEBUG_AUTOMATIC_COMPILER_
+                fprintf(stderr," Accelerator base acc:%d\n",_base_acc_num);
+#endif
+
+               if(onto_clause.size() ==1) 
+               {
+                    _base_acc_num++;
+
+               }
+               else { 
+
+                  Nodecl::NodeclBase onto_acc_instances = onto_clause[1];
+
+                  if (onto_clause[1].is_constant())
+                  {
+                      const_value_t *ct_val = onto_acc_instances.get_constant();
+                      if (!const_value_is_integer(ct_val))
+                      {
+                        error_printf_at(onto_acc_instances.get_locus(), "Constant is not integer type in onto clause: num_instances\n");
+                      }
+                      else
+                      {
+                          int acc_instances = const_value_cast_to_signed_int(ct_val);
+                          std::stringstream tmp_str_instances;
+                          tmp_str_instances << acc_instances;
+                          _num_acc_instances = tmp_str_instances.str();
+                          if (!acc_instances)
+                                error_printf_at(onto_acc.get_locus(), "Constant, number of instances, should be an integer longer than 0\n");
+                          _base_acc_num+=acc_instances;
+                      }
+
+                  } 
+               } 
             }
         }
         else
@@ -426,6 +604,9 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
             if (onto_acc.get_symbol().is_valid() ) {
                 acc_num = as_symbol(onto_acc.get_symbol());
                 //as_symbol(param_to_args_map.map(onto_acc.get_symbol()));
+                _acc_num = acc_num;
+               // TODO
+               // _base_acc_num+=atoi(acc_num);
             }
         }
     }
@@ -449,14 +630,29 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
         ancillary_device_description
             << comment("device argument type")
             << "static nanos_fpga_args_t " << args_name << ";"
+            << args_name << ".outline = (void(*)(void*))" << extra_cast << "&" << qualified_name << ";"
+            << args_name << ".acc_num = " << acc_num << ";"
+            ;
+
+        Source ancillary_device_description_2; 
+        ancillary_device_description_2
+            << comment("device argument type")
+            << "static nanos_fpga_args_t " << args_name << ";"
             << args_name << ".outline = (void(*)(void*)) " << extra_cast << " &" << qualified_name << ";"
             << args_name << ".acc_num = " << acc_num << ";"
             ;
+
         device_descriptor
             << "{"
             << /* factory */ "&nanos_fpga_factory, &" << outline_name << "_args"
             << "}"
             ;
+
+#if _DEBUG_AUTOMATIC_COMPILER_
+          std::cerr << "Casting: qualified_name " << qualified_name << std::endl;
+          std::cerr << "Casting: ancillary " << ancillary_device_description_2.get_source()<< std::endl;
+          std::cerr << "Casting: device_descriptor" << device_descriptor.get_source() << std::endl;
+#endif
     }
     else
     {
@@ -470,24 +666,54 @@ bool DeviceFPGA::remove_function_task_from_original_source() const
     return true;
 }
 
+
+void DeviceFPGA::preappend_list_sources_and_reset(Source outline_src, Source& full_src, TL::Scope scope)
+{
+   
+
+        Source each; 
+
+        for (ObjectList<Source>::iterator it4 = _expand_fpga_source_codes.begin(); it4 != _expand_fpga_source_codes.end(); it4++)
+        {
+            full_src << *it4;
+            each << *it4;
+#if _DEBUG_AUTOMATIC_COMPILER_
+    std::cerr << std::endl << std::endl;
+    std::cerr << each.get_source() << "preappend new function called and expanded \n"; 
+    std::cerr << std::endl << std::endl;
+#endif
+
+            each = TL::Source();
+        }
+
+        full_src << outline_src;
+        _expand_fpga_source_codes = TL::ObjectList<Source>();
+
+}
+
 //write/close intermediate files, free temporal nodes, etc.
 void DeviceFPGA::phase_cleanup(DTO& data_flow)
 {
-    //XXX: We may need to create one file per function 
-    //  if we want to work with multiple accelerators
-    if (!_fpga_file_code.is_null())
-    {
+
+ if (!_fpga_source_codes.empty() && (_bitstream_generation=="ON"))
+ {
+   TL::ObjectList<Source>::iterator it;
+   TL::ObjectList<std::string>::iterator it2;
+   for (it = _fpga_source_codes.begin(), it2=_fpga_source_name.begin();
+        it != _fpga_source_codes.end();
+        it++, it2++)
+   {
         std::string original_filename = TL::CompilationProcess::get_current_file().get_filename();
-        std::string new_filename = "hls_" + original_filename;
+        std::string new_filename = (*it2) + ".cpp";
 
         std::ofstream hls_file;
 
         hls_file.open(new_filename.c_str()); //open as output
 
+
         if (! hls_file.is_open())
         {
-            fatal_error("%s: error: cannot open file '%s'. %s\n",
-                    original_filename.c_str(),
+            fatal_error("%s: error: cannot open file %s\n",
                     new_filename.c_str(),
                     strerror(errno));
         }
@@ -495,224 +721,54 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
 
         ObjectList<IncludeLine> includes = CurrentFile::get_top_level_included_files();
 
-        for (ObjectList<IncludeLine>::iterator it = includes.begin(); it != includes.end(); it++)
+        hls_file << "/////////////////// Automatic IP Generated by OmpSs@FPGA compiler \n" 
+                 << "///////////////////\n"
+                 << "// Top IP Function: "<< (*it2) << "_wrapper #Instances: "<<_acc_num << "\n" 
+                 << "///////////////////\n"
+                 << "\n"
+                 << "#include <iostream>\n"
+                 << "#include <string.h>\n"
+                 << "#include <strings.h>\n"
+                 << "#include <hls_stream.h>\n"
+                 << "#include <ap_axi_sdata.h>\n"                 
+                 << "\n"
+                 << "\n"
+                 << "typedef ap_axis<32,1,1,4> axiData;\n"
+                 << "typedef unsigned long long int counter_t;\n"
+                 << "\n"
+                 << "\n"
+                 << std::endl;
+
+        for (ObjectList<IncludeLine>::iterator it3 = includes.begin(); it3 != includes.end(); it3++)
         {
-            hls_file << it->get_preprocessor_line() << std::endl;
-        }
-        hls_file << _fpga_file_code.prettyprint();
-        hls_file.close();
-
-#if 0
-        FILE* ancillary_file = fopen(new_filename.c_str(), "w");
-        if (ancillary_file == NULL)
-        {
-            fatal_error("%s: error: cannot open file '%s'. %s\n",
-                    original_filename.c_str(),
-                    new_filename.c_str(),
-                    strerror(errno));
+            std::string include_file = it3->get_preprocessor_line();
+            std::size_t found= include_file.find("nanos");
+            std::size_t found_itself= include_file.find(TL::CompilationProcess::get_current_file().get_filename());
+            if (std::string::npos==found && std::string::npos==found_itself)
+               hls_file << it3->get_preprocessor_line() << std::endl;
+             
         }
 
+        hls_file << it->get_source(true);
 
-        compilation_configuration_t* configuration = CURRENT_CONFIGURATION;
-        ERROR_CONDITION (configuration == NULL, "The compilation configuration cannot be NULL", 0);
+       hls_file.close();
+      }
 
-        // Make sure phases are loaded (this is needed for codegen)
-        load_compiler_phases(configuration);
-
-        TL::CompilationProcess::add_file(new_filename, "fpga");
-
-        //Remove the intermediate source file
-        ::mark_file_for_cleanup(new_filename.c_str());
-
-        Codegen::CxxBase* phase = reinterpret_cast<Codegen::CxxBase*>(configuration->codegen_phase);
-
-        phase->codegen_top_level(_fpga_file_code, ancillary_file);
-        fclose(ancillary_file);
-#endif
         // Do not forget the clear the code for next files
         _fpga_file_code = Nodecl::List();
+        _fpga_source_codes = TL::ObjectList<Source>();
+       // _expand_fpga_source_codes = TL::ObjectList<Source>();
     }
 }
 
-/*
- * We may need to set scalar arguments here, but not transfers
- */
-Source DeviceFPGA::fpga_param_code(
-        TL::ObjectList<OutlineDataItem*> &data_items,
-        Nodecl::Utils::SymbolMap *symbol_map,//we may not need it
-        Scope sc
-        )
-{
-
-    //Nodecl::Utils::SimpleSymbolMap *ssmap = (Nodecl::Utils::SimpleSymbolMap*)symbol_map;
-    //TL::ObjectList<OutlineDataItem*> data_items = outline_info.get_data_items();
-    Source args_src;
-
-    /*
-     * Get the fpga handle to write the data that we need.
-     *
-     * TODO: Make sure mmap + set arg does not break when we don't have scalar arguments
-     */
-    args_src
-        << "int fd = open(\"/dev/mem\", NANOS_O_RDWR);"    //2=O_RDWR
-//        << "unsigned int acc_addr = NANOS_AXI_BASE_ADDRESS;"
-//        << "printf(\"address: %x\\n\", acc_addr);"
-        << "unsigned int *acc_handle = "
-        << "    (unsigned int *) mmap(0, NANOS_MMAP_SIZE,"     //0=NULL
-        << "    NANOS_PROT_READ|NANOS_PROT_WRITE, NANOS_MAP_SHARED,"           //"        PROT_READ | PROT_WRITE, MAP_SHARED"
-        << "    fd, NANOS_AXI_BASE_ADDRESS);"
-    ;
-
-    //set scalar arguments
-    /* FIXME
-     * We assume that the base address to set scalar parameters
-     * (which appears to be true)
-     * In fact all of this is defined in the 
-     *   impl/pcores/foo_top_v1_00_a/include/xfoo_AXIlite.h
-     * where foo is the name of the function and top_v1_00_a is the version name
-     * This path may change so we are assuming base addres does not
-     */
-
-    /*
-     * Parameter have an offset of 8 bytes with the preceding one (except for 64bit ones)
-     * If any parameter is smaller than 32bit (4byte), padding is added in between
-     * If a paramater is 64bit(aka long long int) another 32bit of padding are added 
-     */
-
-    int argIndex = 0x14/4;  //base address/(sizeof(int)=4)
-    for (TL::ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
-            it != data_items.end();
-            it++)
-    {
-//        print_dataItem_info(*it, sc);
-        Symbol outline_symbol = symbol_map->map((*it)->get_symbol());
-        const TL::ObjectList<OutlineDataItem::CopyItem> &copies = (*it)->get_copies();
-
-        //if copies are empty, we need to set the scalar value
-        if (copies.empty())
-        {
-            const Type & type = (*it)->get_field_type();
-
-            args_src
-                << "acc_handle[" << argIndex << "] = "
-                << outline_symbol.get_name() << ";"
-            ;
-
-            //+1 for field +1 for padding
-            //we are adding an index to int[] => addresses are 4x
-            argIndex+=2;
-            if (type.get_size() >= 8)
-            {
-                argIndex ++;
-            }
-        }
-
-    }
-
-    /*
-     * There should be a control bus mapped at 0x40440000
-     * This is true if function has non-scalar parameters
-     * To start the device we must set the first bt to 1
-     */
-    args_src << "acc_handle[0] = 1;"
-        << "munmap(acc_handle, NANOS_MMAP_SIZE);"
-        << "close(fd);"
-        ;
 
 
-    return args_src;
-}
-
-void DeviceFPGA::add_hls_pragmas(
-        Nodecl::NodeclBase &task,
-        TL::ObjectList<OutlineDataItem*> &data_items
-        )
-{
-    /*
-     * Insert hls pragmas in order to denerate input/output connections
-     * Every parameter needs a directive:
-     * scalar: create plain wire connections:
-     *      #pragma HLS INTERFACE ap_none port=VAR
-     *      #pragma AP resource core=AXI_SLAVE variable=VAR metadata="-bus_bundle AXIlite"
-     *
-     * Array; create fifo port to be handled by axi stream
-     *      #pragma HLS stream variable=VAR <-- NOT NEEDED
-     *      #pragma HLS resource core=AXI4Stream variable=VAR
-     *      #pragma HLS interface ap_fifo port=VAR
-     *
-     * For every task there is a control bus defined to kick the accelerator off:
-     *
-     * #pragma AP resource core=AXI_SLAVE variable=return metadata="-bus_bundle AXIlite" \
-     *      port_map={{ap_start START} {ap_done DONE} {ap_idle IDLE} {ap_return RETURN}}
-     *
-     * All of this stuff must be inside the function body i.e.
-     *
-     * void foo(...)
-     * {
-     *     pragma stuff
-     *     function body
-     * }
-     *
-     */
-
-    //see what kind of ast it really is
-
-    std::cerr << ast_node_type_name(task.get_kind()) 
-        << " in_list: " << task.is_in_list()
-        << " locus: " << task.get_locus()
-        << std::endl;
-
-    //Dig into the tree and find where the function statements are
-    Nodecl::NodeclBase::Children tchildren = task.children();
-    Nodecl::NodeclBase& context = tchildren.front();
-    Nodecl::NodeclBase::Children cchildren = context.children();
-    Nodecl::List list(cchildren.front().get_internal_nodecl());
-    Nodecl::List stlist(list.begin()->children().front().get_internal_nodecl());
-
-    Nodecl::UnknownPragma ctrl_bus = Nodecl::UnknownPragma::make(
-        "AP resource core=AXI_SLAVE variable=return metadata=\"-bus_bundle AXIlite\" port_map={{ap_start START} {ap_done DONE} {ap_idle IDLE} {ap_return RETURN}}");
-    stlist.prepend(ctrl_bus);
-
-
-    //since we are using prepend, everything is going to appar in reverse order
-    //but this may not be a real issue
-//    TL::ObjectList<OutlineDataItem*> data_items = outline_info.get_data_items();
-    for (TL::ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
-            it != data_items.end();
-            it++)
-    {
-        std::string field_name = (*it)->get_field_name();
-        Nodecl::UnknownPragma pragma_node;
-
-        if ((*it)->get_copies().empty())
-        {
-            //set scalar argumenit pragmas
-            pragma_node = Nodecl::UnknownPragma::make("HLS INTERFACE ap_none port=" + field_name);
-            stlist.prepend(pragma_node);
-
-            pragma_node = Nodecl::UnknownPragma::make("AP resource core=AXI_SLAVE variable="
-                    + field_name
-                    + " metadata=\"-bus_bundle AXIlite\"");
-            stlist.prepend(pragma_node);
-        }
-        else
-        {
-            //set array/stream pragmas
-            pragma_node = Nodecl::UnknownPragma::make(
-                    "HLS resource core=AXI4Stream variable=" + field_name);
-            stlist.prepend(pragma_node);
-            pragma_node = Nodecl::UnknownPragma::make(
-                    "HLS interface ap_fifo port=" + field_name);
-            stlist.prepend(pragma_node);
-            
-        }
-    }
-}
-
-static void get_inout_decl(ObjectList<OutlineDataItem*>& data_items, std::string &in_type, std::string &out_type)
+static void get_inout_decl(ObjectList<OutlineDataItem*>& data_items, std::string &in_type, std::string &out_type, std::string &in_addr_type, std::string &out_addr_type)
 {
     in_type = "";
     out_type = "";
+    in_addr_type = "";
+    out_addr_type = "";
     for (ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
             it != data_items.end();
             it++)
@@ -730,7 +786,8 @@ static void get_inout_decl(ObjectList<OutlineDataItem*>& data_items, std::string
                     && out_type == "")
             {
                 out_type = (*it)->get_field_type().get_simple_declaration(scope, "");
-            } else if (copies.front().directionality == OutlineDataItem::COPY_INOUT)
+            } 
+            else if (copies.front().directionality == OutlineDataItem::COPY_INOUT)
             {
                 //If we find an inout, set both input and output types and return
                 out_type = (*it)->get_field_type().get_simple_declaration(scope, "");
@@ -741,7 +798,475 @@ static void get_inout_decl(ObjectList<OutlineDataItem*>& data_items, std::string
     }
 }
 
+
+static std::string get_type_pointer_to(TL::Type type, std::string field_name, TL::Scope scope)
+{
+   TL::Type points_to = type; 
+   size_t position;
+
+   if (points_to.is_pointer())
+      points_to = points_to.points_to();
+   else if (points_to.is_pointer_to_class())
+      points_to = points_to.pointed_class();
+
+   std::string pointed_to_string_simple = points_to.get_simple_declaration(scope,field_name);
+   position=pointed_to_string_simple.rfind(field_name); 
+   std::string reference_type = pointed_to_string_simple.replace(position,field_name.length(),"TO_CHANGE_MCXX");
+
+   return reference_type;
+}
+
+
+static std::string get_element_type_pointer_to(TL::Type type, std::string field_name, TL::Scope scope)
+{
+
+   TL::Type points_to = type; 
+   size_t position;
+
+   while(points_to.is_pointer() || points_to.is_pointer_to_class())
+            if (points_to.is_pointer())
+                     points_to = points_to.points_to();
+            else if (points_to.is_pointer_to_class())
+                     points_to = points_to.pointed_class();
+
+   std::string pointed_to_string_simple = points_to.get_simple_declaration(scope,field_name);
+
+   position=pointed_to_string_simple.rfind(field_name); 
+
+   std::string reference_type = pointed_to_string_simple.substr(0,position);
+
+   return reference_type;
+}
+
+
+
+
+//REMOVED 29/03/2017 static Source get_type_pointer_to_arrays_src(Nodecl::NodeclBase expr)
+static Source get_type_pointer_to_arrays_src(TL::Type copy_type, TL::Type type, bool is_only_pointer)
+{
+    int elems;
+    Source ArrayExpression;
+    std::string  dimension_str;
+//REMOVED 29/03/2017    DataReference datareference(expr);
+//REMOVED 29/03/2017    TL::Type type=expr.get_type();
+
+//REMOVED 29/03/2017    if (!datareference.is_valid())
+//REMOVED 29/03/2017    {
+//REMOVED 29/03/2017        internal_error("invalid data reference (%s)", datareference.get_locus_str().c_str());
+//REMOVED 29/03/2017    }
+
+
+    //if (type.is_pointer()) //it's a shape
+    if (is_only_pointer) //it's a shape
+    {
+       dimension_str = "[1]";
+       ArrayExpression << dimension_str;
+       return ArrayExpression;
+    } else if (copy_type.is_array()) //it's a shape
+    //if (type.is_array()) //it's a shape
+    { 
+#if _DEBUG_AUTOMATIC_COMPILER_
+//REMOVED 29/03/2017       fprintf(stderr, "%s array no region \n",datareference.get_locus_str().c_str());
+#endif
+       int total_dimensions = copy_type.get_num_dimensions();
+       int n_dimensions=0;
+       Nodecl::NodeclBase array_get_expr;
+       while (n_dimensions<total_dimensions-1)
+       {
+         array_get_expr = copy_type.array_get_size();
+         dimension_str = "[" + array_get_expr.prettyprint() + "]";
+         ArrayExpression << dimension_str;
+         n_dimensions++; 
+         copy_type  = copy_type.array_element();
+        // array_get_expr = type.array_get_size();
+        // dimension_str = "[" + array_get_expr.prettyprint() + "]";
+        // ArrayExpression << dimension_str;
+        // n_dimensions++; 
+       }
+#if _DEBUG_AUTOMATIC_COMPILER_
+        std::cerr << std::endl << std::endl;
+        std::cerr << "Expression:" << ArrayExpression.get_source() << std::endl;
+        std::cerr << std::endl << std::endl;
+#endif
+       return ArrayExpression;
+    }
+    else if (copy_type.array_is_region())
+    {
+        Nodecl::NodeclBase cp_size = copy_type.array_get_region_size();
+        dimension_str = "[" + cp_size.prettyprint() + "]";
+        ArrayExpression <<  dimension_str;
+        //elems = const_value_cast_to_4(cp_size.get_constant());
+#if _DEBUG_AUTOMATIC_COMPILER_
+        std::cerr << std::endl << std::endl;
+        std::cerr << "Region Expression:" << ArrayExpression.get_source() << std::endl;
+        std::cerr << std::endl << std::endl;
+#endif
+        return ArrayExpression;
+
+    } 
+#if _DEBUG_AUTOMATIC_COMPILER_
+    fprintf(stderr,"ERROR in dimensions! :%d\n",type.get_num_dimensions());
+#endif
+
+    return ArrayExpression;
+
+}
+
+//REMOVED 29/03/2017 static Source get_type_arrays_src(Nodecl::NodeclBase expr)
+static Source get_type_arrays_src(TL::Type copy_type, TL::Type type, bool is_only_pointer)
+{
+    int elems;
+    Source ArrayExpression;
+    std::string  dimension_str;
+//REMOVED 29/03/2017    DataReference datareference(expr);
+//REMOVED 29/03/2017    TL::Type type=expr.get_type();
+
+//REMOVED 29/03/2017    if (!datareference.is_valid())
+//REMOVED 29/03/2017    {
+//REMOVED 29/03/2017        internal_error("invalid data reference (%s)", datareference.get_locus_str().c_str());
+//REMOVED 29/03/2017    }
+
+    //if (type.is_pointer()) //it's a shape
+    if (is_only_pointer) //it's a shape
+    {
+       dimension_str = "[1]";
+       ArrayExpression << dimension_str;
+       return ArrayExpression;
+    } else if (copy_type.is_array()) //it's a shape
+    { 
+#if _DEBUG_AUTOMATIC_COMPILER_
+//REMOVED 29/03/2017       fprintf(stderr, "%s array no region \n",datareference.get_locus_str().c_str());
+#endif
+       int total_dimensions = copy_type.get_num_dimensions();
+       int n_dimensions=0;
+       Nodecl::NodeclBase array_get_expr;
+       array_get_expr = copy_type.array_get_size();
+       dimension_str = "[" + array_get_expr.prettyprint() + "]";
+       ArrayExpression << dimension_str;
+       n_dimensions++; 
+       while (n_dimensions<total_dimensions)
+       {
+         copy_type  = copy_type.array_element();
+         array_get_expr = copy_type.array_get_size();
+         dimension_str = "[" + array_get_expr.prettyprint() + "]";
+         ArrayExpression << dimension_str;
+         n_dimensions++; 
+       }
+#if _DEBUG_AUTOMATIC_COMPILER_
+        std::cerr << std::endl << std::endl;
+        std::cerr << "Expression:" << ArrayExpression.get_source() << std::endl;
+        std::cerr << std::endl << std::endl;
+#endif
+       return ArrayExpression;
+    }
+    else if (copy_type.array_is_region())
+    {
+        Nodecl::NodeclBase cp_size = copy_type.array_get_region_size();
+        dimension_str = "[" + cp_size.prettyprint() + "]";
+        ArrayExpression <<  dimension_str;
+        //elems = const_value_cast_to_4(cp_size.get_constant());
+#if _DEBUG_AUTOMATIC_COMPILER_
+        std::cerr << std::endl << std::endl;
+        std::cerr << "Region Expression:" << ArrayExpression.get_source() << std::endl;
+        std::cerr << std::endl << std::endl;
+#endif
+        return ArrayExpression;
+
+    } 
+#if _DEBUG_AUTOMATIC_COMPILER_
+    fprintf(stderr,"ERROR in dimensions! :%d\n",type.get_num_dimensions());
+#endif
+
+    return ArrayExpression;
+
+}
+
+//static int get_copy_elements_all_dimensions(Nodecl::NodeclBase expr)
+static int get_copy_elements_all_dimensions(TL::Type type)
+{
+    int elems;
+//REMOVED 29/03/2017    DataReference datareference(expr);
+//REMOVED 29/03/2017    if (!datareference.is_valid())
+//REMOVED 29/03/2017    {
+//REMOVED 29/03/2017        internal_error("invalid data reference (%s)", datareference.get_locus_str().c_str());
+//REMOVED 29/03/2017    }
+//REMOVED 29/03/2017    Type type = datareference.get_data_type();
+//    fprintf(stderr,"num_dimensions:%d\n",type.get_num_dimensions());
+    
+    if (type.is_pointer())
+    {
+#if _DEBUG_AUTOMATIC_COMPILER_
+       fprintf(stderr, "Pointer declaration  is array, num dimensions:\n");
+#endif
+       return 1;
+    } else if (type.array_is_region()) //it's a region
+    {
+#if _DEBUG_AUTOMATIC_COMPILER_
+//REMOVED 29/03/2017        fprintf(stderr, "%s array is region \n",datareference.get_locus_str().c_str());
+#endif
+        Nodecl::NodeclBase cp_size = type.array_get_region_size();
+//        if (!cp_size.is_constant())
+//        {
+//            internal_error("Copy expressions must be known at compile time when working in 'block mode' (%s; %s)",
+//                    datareference.get_locus_str().c_str(), cp_size.prettyprint().c_str());
+//        }
+        elems = const_value_cast_to_4(cp_size.get_constant());
+    }
+    else if (type.is_array()) //it's a shape
+    {
+#if _DEBUG_AUTOMATIC_COMPILER_
+//REMOVED 29/03/2017        fprintf(stderr, "%s array no region \n",datareference.get_locus_str().c_str());
+#endif
+//        Nodecl::NodeclBase lower, upper;
+//        type.array_get_bounds(lower, upper);
+//        if (!lower.is_constant() || !upper.is_constant())
+//        {
+//            internal_error("Copy expressions must be known at compile time when working in 'block mode' (%s)",
+//                    datareference.get_locus_str().c_str());
+//        }
+//        elems = const_value_cast_to_4(upper.get_constant()) - const_value_cast_to_4(lower.get_constant()) + 1;
+//        fprintf(stderr, "%s array no region u:%d l:%d %d \n",datareference.get_locus_str().c_str(), const_value_cast_to_4(upper.get_constant()), const_value_cast_to_4(lower.get_constant()), elems);
+        Nodecl::NodeclBase lower, upper;
+        int n_dimensions = 0;
+        int total_dimensions = type.get_num_dimensions();
+        int n_elems = 1;
+#if _DEBUG_AUTOMATIC_COMPILER_MAX_J
+        fprintf(stderr, "number_of_dimensions %d\n", total_dimensions);
+#endif
+        int size_elem = type.get_size();
+#if _DEBUG_AUTOMATIC_COMPILER_
+        fprintf(stderr, "size %d\n", size_elem);
+#endif
+
+// int TL::Type::vector_num_elements 	( 		) 	const
+        
+        while (n_dimensions<total_dimensions)
+        {
+            type.array_get_bounds(lower, upper);
+            int lower_number = const_value_cast_to_4(lower.get_constant());
+#if _DEBUG_AUTOMATIC_COMPILER_
+            fprintf(stderr, "lower_number %d\n", lower_number);
+#endif
+            int upper_number = const_value_cast_to_4(upper.get_constant());
+#if _DEBUG_AUTOMATIC_COMPILER_
+            fprintf(stderr, "upper_number %d\n", upper_number);
+#endif
+            elems = const_value_cast_to_4(upper.get_constant()) - const_value_cast_to_4(lower.get_constant()) + 1;
+            n_elems = n_elems * elems;
+            type = type.array_element();
+            n_dimensions++;
+        }
+        elems = n_elems;
+
+      
+    }
+    else //it's a trap!
+    {
+         //internal_error("Data copies must be an array region expression (%d)", datareference.get_locus_str().c_str());
+         internal_error("Data copies must be an array region expression ",0);
+    }
+    return elems;
+}
+
+
+//static Source get_copy_elements_all_dimensions_src(Nodecl::NodeclBase expr)
+static Source get_copy_elements_all_dimensions_src(TL::Type copy_type, TL::Type type, bool is_only_pointer)
+{
+    int elems;
+//    TL::Type array_get_expr_type = expr.get_type();
+//   Nodecl::NodeclBase array_get_expr = array_get_expr_type.array_get_size();
+
+    Source ArrayExpression;
+    std::string  dimension_str;
+//REMOVED 29/03/2017    DataReference datareference(expr);
+//REMOVED 29/03/2017    TL::Type array_get_expr_type = expr.get_type();
+//REMOVED 29/03/2017    TL::Type type=expr.get_type();
+    //   type  = datareference.get_data_type();
+
+//REMOVED 29/03/2017    if (!datareference.is_valid())
+//REMOVED 29/03/2017    {
+//REMOVED 29/03/2017        internal_error("invalid data reference (%s)", datareference.get_locus_str().c_str());
+//REMOVED 29/03/2017    }
+
+    //if (type.is_pointer())
+    if (is_only_pointer)
+    {
+#if _DEBUG_AUTOMATIC_COMPILER_
+         fprintf(stderr, "Pointer declaration  is array, num dimensions:\n");
+         std::cerr << type.print_declarator() << std::endl;
+#endif
+         dimension_str = "( 1 )";
+         ArrayExpression << dimension_str;
+       return ArrayExpression;
+    } else if (copy_type.is_array()) //it's a shape
+    { 
+#if _DEBUG_AUTOMATIC_COMPILER_
+//REMOVED 29/03/2017       fprintf(stderr, "%s array no region \n",datareference.get_locus_str().c_str());
+         fprintf(stderr, "Type declaration  is array, num dimensions\n");
+         fprintf(stderr, "Type declaration  is array, num dimensions %d\n" , copy_type.get_num_dimensions());
+#endif
+       int total_dimensions = copy_type.get_num_dimensions();
+       int n_dimensions=0;
+       Nodecl::NodeclBase array_get_expr;
+#if _DEBUG_AUTOMATIC_COMPILER_
+//REMOVED 29/03/2017       fprintf(stderr, "%s array no region \n",datareference.get_locus_str().c_str());
+//         fprintf(stderr, "Type declaration  is array, num dimensions %s\n" , type.array_get_size().prettyprint());
+         std::cerr << "Type declaration  is array, num dimensions " << copy_type.array_get_size().prettyprint() << std::endl;
+         std::cerr << "Type declaration  is array, num dimensions " << copy_type.array_get_size().prettyprint() << std::endl;
+#endif
+       array_get_expr = copy_type.array_get_size();
+       dimension_str = "(" + array_get_expr.prettyprint() + ")";
+       ArrayExpression << dimension_str;
+       n_dimensions++; 
+       while (n_dimensions<total_dimensions)
+       {
+         copy_type  = copy_type.array_element();
+         array_get_expr = copy_type.array_get_size();
+         dimension_str = "(" + array_get_expr.prettyprint() + ")";
+         ArrayExpression << "*" << dimension_str;
+         n_dimensions++; 
+       }
+#if _DEBUG_AUTOMATIC_COMPILER_
+        std::cerr << std::endl << std::endl;
+        std::cerr << "Expression:" << ArrayExpression.get_source() << std::endl;
+        std::cerr << std::endl << std::endl;
+#endif
+       return ArrayExpression;
+    }
+    else if (copy_type.array_is_region())
+    {
+        Nodecl::NodeclBase cp_size = copy_type.array_get_region_size();
+        dimension_str = "(" + cp_size.prettyprint() + ")";
+        ArrayExpression <<  dimension_str;
+        //elems = const_value_cast_to_4(cp_size.get_constant());
+#if _DEBUG_AUTOMATIC_COMPILER_
+        std::cerr << std::endl << std::endl;
+        std::cerr << "Region Expression:" << ArrayExpression.get_source() << std::endl;
+        std::cerr << std::endl << std::endl;
+#endif
+        return ArrayExpression;
+
+    } 
+#if _DEBUG_AUTOMATIC_COMPILER_
+    internal_error("ERROR! :%d\n",type.get_num_dimensions());
+#endif
+
+    return ArrayExpression;
+   
+
+    if (type.array_is_region()) //it's a region
+    {
+#if _DEBUG_AUTOMATIC_COMPILER_
+//REMOVED 29/03/2017         fprintf(stderr, "%s array is region \n",datareference.get_locus_str().c_str());
+#endif
+        Nodecl::NodeclBase cp_size = type.array_get_region_size();
+//        if (!cp_size.is_constant())
+//        {
+//            internal_error("Copy expressions must be known at compile time when working in 'block mode' (%s; %s)",
+//                    datareference.get_locus_str().c_str(), cp_size.prettyprint().c_str());
+//        }
+        elems = const_value_cast_to_4(cp_size.get_constant());
+    }
+    else if (type.is_array()) //it's a shape
+    {
+#if _DEBUG_AUTOMATIC_COMPILER_
+//REMOVED 29/03/2017         fprintf(stderr, "%s array no region \n",datareference.get_locus_str().c_str());
+#endif
+//        Nodecl::NodeclBase lower, upper;
+//        type.array_get_bounds(lower, upper);
+//        if (!lower.is_constant() || !upper.is_constant())
+//        {
+//            internal_error("Copy expressions must be known at compile time when working in 'block mode' (%s)",
+//                    datareference.get_locus_str().c_str());
+//        }
+//        elems = const_value_cast_to_4(upper.get_constant()) - const_value_cast_to_4(lower.get_constant()) + 1;
+//        fprintf(stderr, "%s array no region u:%d l:%d %d \n",datareference.get_locus_str().c_str(), const_value_cast_to_4(upper.get_constant()), const_value_cast_to_4(lower.get_constant()), elems);
+        Nodecl::NodeclBase lower, upper;
+        int n_dimensions = 0;
+        int total_dimensions = type.get_num_dimensions();
+        int n_elems = 1;
+#if _DEBUG_AUTOMATIC_COMPILER_
+        fprintf(stderr, "number_of_dimensions %d\n", total_dimensions);
+#endif
+        int size_elem = type.get_size();
+#if _DEBUG_AUTOMATIC_COMPILER_
+        fprintf(stderr, "size %d\n", size_elem);
+#endif
+
+// int TL::Type::vector_num_elements 	( 		) 	const
+        
+        while (n_dimensions<total_dimensions)
+        {
+            type.array_get_bounds(lower, upper);
+            int lower_number = const_value_cast_to_4(lower.get_constant());
+#if _DEBUG_AUTOMATIC_COMPILER_
+            fprintf(stderr, "lower_number %d\n", lower_number);
+#endif
+            int upper_number = const_value_cast_to_4(upper.get_constant());
+#if _DEBUG_AUTOMATIC_COMPILER_
+            fprintf(stderr, "upper_number %d\n", upper_number);
+#endif
+            elems = const_value_cast_to_4(upper.get_constant()) - const_value_cast_to_4(lower.get_constant()) + 1;
+            n_elems = n_elems * elems;
+            type = type.array_element();
+            n_dimensions++;
+        }
+        elems = n_elems;
+
+      
+    }
+    else //it's a trap!
+    {
+        //internal_error("Data copies must be an array region expression (%d)", datareference.get_locus_str().c_str());
+        internal_error("Data copies must be an array region expression",0);
+    }
+//    return elems;
+}
+
 static int get_copy_elements(Nodecl::NodeclBase expr)
+{
+    int elems;
+    DataReference datareference(expr);
+    if (!datareference.is_valid())
+    {
+        internal_error("invalid data reference (%s)", datareference.get_locus_str().c_str());
+    }
+    Type type = datareference.get_data_type();
+
+    if (type.array_is_region()) //it's a region
+    {
+//        fprintf(stderr, "%s array is region \n",datareference.get_locus_str().c_str());
+        Nodecl::NodeclBase cp_size = type.array_get_region_size();
+//        if (!cp_size.is_constant())
+//        {
+//            internal_error("Copy expressions must be known at compile time when working in 'block mode' (%s; %s)",
+//                    datareference.get_locus_str().c_str(), cp_size.prettyprint().c_str());
+//        }
+        elems = const_value_cast_to_4(cp_size.get_constant());
+    }
+    else if (type.is_array()) //it's a shape
+    {
+//        fprintf(stderr, "%s array no region \n",datareference.get_locus_str().c_str());
+        Nodecl::NodeclBase lower, upper;
+        type.array_get_bounds(lower, upper);
+//        if (!lower.is_constant() || !upper.is_constant())
+//        {
+//            internal_error("Copy expressions must be known at compile time when working in 'block mode' (%s)",
+//                    datareference.get_locus_str().c_str());
+//        }
+        elems = const_value_cast_to_4(upper.get_constant()) - const_value_cast_to_4(lower.get_constant()) + 1;
+//        fprintf(stderr, "%s array no region u:%d l:%d %d \n",datareference.get_locus_str().c_str(), const_value_cast_to_4(upper.get_constant()), const_value_cast_to_4(lower.get_constant()), elems);
+
+      
+    }
+    else //it's a trap!
+    {
+        internal_error("Data copies must be an array region expression (%d)", datareference.get_locus_str().c_str());
+    }
+    return elems;
+}
+
+static int get_copy_elements_type(Nodecl::NodeclBase expr)
 {
     int elems;
     DataReference datareference(expr);
@@ -759,7 +1284,7 @@ static int get_copy_elements(Nodecl::NodeclBase expr)
 //            internal_error("Copy expressions must be known at compile time when working in 'block mode' (%s; %s)",
 //                    datareference.get_locus_str().c_str(), cp_size.prettyprint().c_str());
 //        }
-        elems = const_value_cast_to_4(cp_size.get_constant());
+        elems = const_value_cast_to_1(cp_size.get_constant());
     }
     else if (type.is_array()) //it's a shape
     {
@@ -770,7 +1295,7 @@ static int get_copy_elements(Nodecl::NodeclBase expr)
 //            internal_error("Copy expressions must be known at compile time when working in 'block mode' (%s)",
 //                    datareference.get_locus_str().c_str());
 //        }
-        elems = const_value_cast_to_4(upper.get_constant()) - const_value_cast_to_4(lower.get_constant()) + 1;
+        elems = const_value_cast_to_1(upper.get_constant()) - const_value_cast_to_1(lower.get_constant()) + 1;
     }
     else //it's a trap!
     {
@@ -779,25 +1304,53 @@ static int get_copy_elements(Nodecl::NodeclBase expr)
     return elems;
 }
 
+static int find_parameter_position(const ObjectList<Symbol> param_list, const Symbol &param_symbol)
+{
+
+     const std::string field_name_ref = param_symbol.get_name();
+     int position = 0;
+    for (ObjectList<Symbol>::const_iterator it = param_list.begin(); it != param_list.end();
+            it++)
+    {
+          const std::string field_name = it->get_name();
+#if _DEBUG_AUTOMATIC_COMPILER_
+          std::cerr << "Symbol name parameter function: " << field_name << " ref_name : "<< field_name_ref << std::endl;
+#endif
+          if (field_name == field_name_ref) return position;
+          position ++;
+    }
+
+    return -1;
+}
+
+static int num_parameters(const ObjectList<Symbol> param_list)
+{
+
+   ObjectList<Symbol>::const_iterator it_start = param_list.begin();
+   ObjectList<Symbol>::const_iterator it_end = param_list.end();
+   return it_end - it_start;
+
+}
+
 
 /*
  * Create wrapper function for HLS to unpack streamed arguments
  * 
  */
-Nodecl::NodeclBase DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDataItem*>& data_items)
+void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_symbol_original, const Symbol &func_symbol, ObjectList<OutlineDataItem*>& data_items, Source &wrapper_before, Source &called_source, Source &wrapper_after)
 {
     //Check that we are calling a function task (this checking may be performed earlyer in the code)
-    if (!func_symbol.is_function())
+    if (!func_symbol_original.is_function())
     {
         fatal_error("Only function-tasks are supperted at this moment");
     }
-    Scope fun_scope = func_symbol.get_scope();
-//    const ObjectList<Symbol> &param_list = func_symbol.get_function_parameters();
-    /*
-     * FIXME We suppose that all the input or the output arrays
-     * are of the same type
-     * Otherwise we must convert (~cast, raw type conversion) for each type
-     */
+    Scope fun_scope = func_symbol_original.get_scope();
+
+    ObjectList<Symbol> param_list = called_task.get_function_parameters();
+    int size = num_parameters(param_list);
+    char function_parameters_passed[size];
+    memset(function_parameters_passed, 0, size);
+
 
     /*
      * The wrapper function must have:
@@ -807,37 +1360,20 @@ Nodecl::NodeclBase DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, Object
      *      IN THE SAME ORDER AS THE ORIGINAL FUNCTION as long as we are generating
      *      scalar parameter passing based on original function task parameters
      */
+
     //Source wrapper_params;
-    std::string in_dec, out_dec;
-    get_inout_decl(data_items, in_dec, out_dec);
+    std::string in_dec, out_dec, in_addr_dec, out_addr_dec;
+    get_inout_decl(data_items, in_dec, out_dec, in_addr_dec, out_addr_dec);
     Source pragmas_src;
-    //call to task_has_scalars is not the optimal, but it is much more simple and readable
-    //than checking inside another loop
-    if (task_has_scalars(data_items))
-    {
-        pragmas_src
-            << "#pragma HLS resource core=AXI_SLAVE variable=return metadata=\"-bus_bundle AXIlite\" "
-            << "port_map={{ap_start START} {ap_done DONE} {ap_idle IDLE} {ap_return RETURN}}\n";
-        ;
-    }
+
     Source args;
-    if (in_dec != "")
-    {
-        args << in_dec << hls_in;
-        //add stream parameter pragma
-        pragmas_src
-            << "#pragma HLS resource core=AXI4Stream variable=" << hls_in << "\n"
-            << "#pragma HLS interface ap_fifo port=" << hls_in << "\n"
-        ;
-    }
-    if (out_dec != "")
-    {
-        args.append_with_separator(out_dec + hls_out, ",");
-        pragmas_src
-            << "#pragma HLS resource core=AXI4Stream variable=" << hls_out << "\n"
-            << "#pragma HLS interface ap_fifo port=" << hls_out << "\n"
-        ;
-    }
+    args << " hls::stream<axiData> &" << STR_INPUTSTREAM <<", hls::stream<axiData> &"<< STR_OUTPUTSTREAM <<", counter_t *"<<STR_DATA<< " ";
+    pragmas_src
+        << "#pragma HLS interface ap_ctrl_none port=return\n"
+        << "#pragma HLS interface axis port=" << STR_INPUTSTREAM <<"\n"
+        << "#pragma HLS interface axis port="<< STR_OUTPUTSTREAM <<"\n"
+        << "#pragma HLS INTERFACE m_axi port="<<STR_DATA<<"\n"
+        ; 
 
     /*
      * Generate wrapper code
@@ -850,11 +1386,47 @@ Nodecl::NodeclBase DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, Object
      * Scalar parameters are going to be copied as long as no unpacking is needed
      */
     Source copies_src;
-    Source in_copies, out_copies;
+    Source in_copies, out_copies, out_copies_addr;
+    Source in_copies_aux, out_copies_aux;
     Source fun_params;
+    Source fun_params_wrapper;
     Source local_decls;
+    Source profiling_0;
+    Source profiling_1;
+    Source profiling_2;
+    Source profiling_3;
+    Source sync_output_code;
+    Source generic_initial_code;
+
+    in_copies_aux 
+           << "     __cached_id = "<<STR_INPUTSTREAM<<".read().data;"
+           << "     __cached = __cached_id & 15; "
+           << "     __param_id = __cached_id >> 8; "
+           << "     __laddr = "<<STR_INPUTSTREAM<<".read().data;"
+           << "	    __haddr = "<<STR_INPUTSTREAM<<".read().data;"
+           << "     switch(__param_id){"
+           ;
+
+    out_copies_aux 
+           << "     __cached_id = __cached_id_out[__i];"
+           << "     __cached = __cached_id & 15; "
+           << "     __param_id = __cached_id >> 8; "
+           << "     __laddr = __laddr_out[__i];"
+           << "     __haddr = __haddr_out[__i];"
+           << "     switch(__param_id){"
+           ;
+
+
+
     int in_offset  = 0;
     int out_offset = 0;
+    int n_params_id = 0;
+    int n_params_in=0; 
+    int n_params_out=0; 
+    int n_params_out_addr=0; 
+
+
+// Go through all the parameters. The iteration below goes through the copies.
 
     for (ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
             it != data_items.end();
@@ -864,35 +1436,79 @@ Nodecl::NodeclBase DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, Object
 
         fun_params.append_with_separator((*it)->get_field_name(), ",");
         const std::string &field_name = (*it)->get_field_name();
+#if _DEBUG_AUTOMATIC_COMPILER_
+        std::cerr << std::endl << std::endl;
+        std::cerr << "Variable: " << field_name << std::endl;
+        std::cerr << std::endl << std::endl;
+#endif
         const Scope &scope = (*it)->get_symbol().get_scope();
         const ObjectList<OutlineDataItem::CopyItem> &copies = (*it)->get_copies();
         if (!copies.empty())
         {
             Nodecl::NodeclBase expr = copies.front().expression;
+            TL::Symbol symbol_copy= (*it)->get_field_symbol();
+            Nodecl::NodeclBase expr_base = (*it)->get_base_address_expression();
             if (copies.size() > 1)
             {
                 internal_error("Only one copy per object (in/out/inout) is allowed (%s)",
                         expr.get_locus_str().c_str());
             }
+            const Type& field_type = (*it)->get_field_type().no_ref();
+            const Type &type = expr.get_type().no_ref();
+            std::string field_simple_decl = field_type.get_simple_declaration(scope, field_name);
+#if _DEBUG_AUTOMATIC_COMPILER_
+            std::cerr << "filed type declaration: " << field_simple_decl  << std::endl;
+#endif
+            std::string type_simple_decl = type.get_simple_declaration(scope, field_name);
+            size_t position=type_simple_decl.find("["); 
+            bool   is_only_pointer = (position == std::string::npos);
+#if _DEBUG_AUTOMATIC_COMPILER_
+            std::cerr << "type declaration: " << type_simple_decl << " position: "<< position << std::endl;
+#endif
 
-            /*
-             * emit copy code
-             * - Create local variable (known size in compile time)
-             * - Create create copy loop + update param offset
-             */
+              
 
-            //get copy size (must be known at compile time)
-            int n_elements = get_copy_elements(expr);
+            DataReference datareference(expr);
+#if _DEBUG_AUTOMATIC_COMPILER_
+           std::cerr << std::endl << std::endl;
+           std::cerr << "expresion of copies.front " << expr.prettyprint()<< std::endl;
+           std::cerr << std::endl << std::endl;
+#endif
 
-            const Type &field_type = (*it)->get_field_type();
+            int n_elements;
+            Source dimensions_array; 
+            Source dimensions_pointer_array;
+            Source n_elements_src;
             Type elem_type;
-            if (field_type.is_pointer())
+            Type basic_elem_type;
+            std::string basic_elem_type_name;
+
+
+
+            if (field_type.is_pointer() || field_type.is_array() || field_type.array_is_region())
+            { 
+              n_elements_src = get_copy_elements_all_dimensions_src(type, field_type, is_only_pointer); 
+              dimensions_array = get_type_arrays_src(type, field_type, is_only_pointer); 
+              dimensions_pointer_array = get_type_pointer_to_arrays_src(type, field_type, is_only_pointer); 
+            }
+            else {
+                    internal_error("ERROR!\n",0);
+            }
+
+
+
+            if (is_only_pointer)
             {
                 elem_type = field_type.points_to();
+                basic_elem_type=field_type.basic_type();
+                basic_elem_type_name= basic_elem_type.print_declarator();
             }
-            else if (field_type.is_array())
+            else if (type.is_array())
             {
-                elem_type = field_type.array_element();
+                elem_type = type.array_element();
+                basic_elem_type=type.basic_type();
+                basic_elem_type_name= basic_elem_type.print_declarator();
+                
             }
             else
             {
@@ -901,74 +1517,445 @@ Nodecl::NodeclBase DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, Object
             }
 
             std::string par_simple_decl = elem_type.get_simple_declaration(scope, field_name);
-            local_decls
-                << par_simple_decl << "[" << n_elements << "];\n";
+            TL::Type basic_par_type= field_type.basic_type();
+            std::string basic_par_type_decl= basic_par_type.print_declarator();
+#if _DEBUG_AUTOMATIC_COMPILER_
+            std::cerr << "BASIC PAR TYPE DECL :" << basic_par_type_decl << std::endl;
+#endif
+            std::string par_decl = field_type.get_declaration(scope, field_name);
+            TL::Type field_type_points_to;
+            if (field_type.is_pointer())
+                     field_type_points_to = field_type.points_to();
+            else if (field_type.is_pointer_to_class())
+                     field_type_points_to = field_type.pointed_class();
+            std::string pointed_to_string = field_type_points_to.print_declarator();
+            std::string pointed_to_string_simple = field_type_points_to.get_simple_declaration(scope,field_name);
+            position=par_simple_decl.rfind(field_name); 
+            std::string type_par_decl = par_simple_decl.substr(0,position); 
+            size_t position_pointer=par_decl.find(" "); 
+            std::string type_basic_par_decl = get_element_type_pointer_to(field_type,field_name,scope);
 
-            if (copies.front().directionality == OutlineDataItem::COPY_IN
-                    or copies.front().directionality == OutlineDataItem::COPY_INOUT)
+
+
+            if (copies.front().directionality == OutlineDataItem::COPY_INOUT)
             {
-                in_copies
-                    << "for (" << HLS_I << "=0;" << HLS_I << "<" << n_elements << "; " << HLS_I << "++)"
-                    << "{"
-                    << "  " << field_name << "[" << HLS_I << "] = " << hls_in << "[" << HLS_I << "+" << in_offset << "];"
-                    << "}"
-                ;
-                in_offset += n_elements;
+ 
+                const std::string field_port_name_i = STR_PREFIX +field_name+"_i";
+                const std::string field_port_name_o = STR_PREFIX +field_name+"_o";
+                local_decls
+                   << type_basic_par_decl << " " << field_name << dimensions_array <<";\n";
+                
+                const std::string field_name_param_i = type_basic_par_decl +  "*" + field_port_name_i;
+                const std::string field_name_param_o = type_basic_par_decl + "*" + field_port_name_o;
+                         
+
+                fun_params_wrapper.append_with_separator(field_name_param_i, ",");
+                fun_params_wrapper.append_with_separator(field_name_param_o, ",");
+                pragmas_src
+                   << "#pragma HLS INTERFACE m_axi port=" << field_port_name_i << "\n"
+                   << "#pragma HLS INTERFACE m_axi port=" << field_port_name_o << "\n";
+
+
+                TL::Symbol param_symbol = (*it)->get_field_symbol();
+                int param_id= find_parameter_position(param_list, param_symbol);
+                function_parameters_passed[param_id]=1; 
+
+                in_copies_aux
+                    << "     case "<< param_id <<":"
+                     "        memcpy(" << field_name << ", (const "<< type_basic_par_decl <<"*)("<< field_port_name_i<<"+__laddr/sizeof("<< type_basic_par_decl << ")), " << n_elements_src << " * sizeof("<< type_basic_par_decl << ") );"
+                    << "      __cached_id_out["<<n_params_out<<"] = __cached_id;"
+                    << "      __laddr_out["<<n_params_out<<"] = __laddr;"
+                    << "      __haddr_out["<<n_params_out<<"] = __haddr;"
+                    << "     break;" ;
+                n_params_in++;
+
+
+
+
+
+                out_copies_aux
+                    << "     case "<< param_id <<":"
+                    << "        memcpy( "<<field_port_name_o <<  "+__laddr/sizeof("<< type_basic_par_decl<< "),  (const "<< type_basic_par_decl <<" *)"<< field_name << ", " << n_elements_src << " * sizeof("<< type_basic_par_decl << ") );"
+                    << "        break;" ;
+                n_params_out++;
+
+                n_params_id++;
+
             }
-            if (copies.front().directionality == OutlineDataItem::COPY_OUT
-                    or copies.front().directionality == OutlineDataItem::COPY_INOUT)
+
+            if (copies.front().directionality == OutlineDataItem::COPY_IN)
             {
-                out_copies
-                    << "for (" << HLS_I << "=0;" << HLS_I << "<" << n_elements << "; " << HLS_I << "++)"
-                    //<< "for (i=0; i<" << n_elements << "; i++)"
-                    << "{"
-                    << "  "  << hls_out << "[" << HLS_I << "+" << out_offset << "] = " << field_name << "[" << HLS_I << "];"
-                    << "}"
+                local_decls
+                   << type_basic_par_decl << " " << field_name << dimensions_array <<";\n";
+
+                const std::string field_port_name = STR_PREFIX+field_name;
+                const std::string field_name_param = type_basic_par_decl + "*" +field_port_name;
+
+                fun_params_wrapper.append_with_separator(field_name_param, ",");
+                pragmas_src
+                   << "#pragma HLS INTERFACE m_axi port=" << field_port_name << "\n";
+
+                TL::Symbol param_symbol = (*it)->get_field_symbol();
+                int param_id= find_parameter_position(param_list, param_symbol);
+                function_parameters_passed[param_id]=1; 
+
+
+
+                in_copies_aux
+                    << "     case "<< param_id <<":"
+                    << "        memcpy(" << field_name << ", (const "<< type_basic_par_decl << "*)("<< field_port_name<<"+__laddr/sizeof("<< type_basic_par_decl << ")), " << n_elements_src << " * sizeof("<< type_basic_par_decl<< ") );"
+                    << "       break;" ;
+                n_params_in++;
+                n_params_id++;
                 ;
-                out_offset += n_elements;
+            }
+            if (copies.front().directionality == OutlineDataItem::COPY_OUT)
+            {
+                const std::string field_port_name = STR_PREFIX+field_name;
+                const std::string field_name_param = type_basic_par_decl+ "*" +field_port_name;
+                local_decls
+                   << type_basic_par_decl << " " << field_name << dimensions_array <<";\n";
+
+                fun_params_wrapper.append_with_separator(field_name_param, ",");
+                pragmas_src
+                   << "#pragma HLS INTERFACE m_axi port=" << field_port_name << "\n";
+
+                TL::Symbol param_symbol = (*it)->get_field_symbol();
+                int param_id= find_parameter_position(param_list, param_symbol);
+                function_parameters_passed[param_id]=1; 
+
+                in_copies_aux
+                    << "     case "<< param_id <<":"
+                    << "        __cached_id_out["<<n_params_out<<"] = __cached_id;"
+                    << "        __laddr_out["<<n_params_out<<"] = __laddr;"
+                    << "        __haddr_out["<<n_params_out<<"] = __haddr;"
+                    << "        break;" ;
+
+                out_copies_aux
+                    << "     case "<< param_id <<":"
+                    << "        memcpy( "<<field_port_name <<  "+__laddr/sizeof("<< type_basic_par_decl<< "),  (const "<< type_basic_par_decl <<" *)"<< field_name << ", " << n_elements_src << " * sizeof("<< type_basic_par_decl << ") );"
+                    << "        break;" ;
+                n_params_out++;
+
+                n_params_id++;
+                ;
             }
         }
         else
         {
-            //generate scalar parameter code
-            Source par_src;
+            int n_elements; //= get_copy_elements_all_dimensions(expr);
+            Source dimensions_array; // = get_type_arrays(expr); 
+            Source dimensions_pointer_array; // = get_type_arrays(expr); 
 
-            par_src
-                << (*it)->get_field_type().get_simple_declaration(scope, field_name)
-            ;
-            args.append_with_separator(par_src, ",");
-            pragmas_src
-                << "#pragma HLS INTERFACE ap_none port=" <<  field_name << "\n"
-                << "#pragma AP resource core=AXI_SLAVE variable=" << field_name << " metadata=\"-bus_bundle AXIlite\"\n"
-            ;
+            Source n_elements_src;
+            
+
+            const Type &field_type = (*it)->get_field_type();
+            std::string field_simple_decl = field_type.get_simple_declaration(scope, field_name);
+            std::string type_simple_decl = field_type.get_simple_declaration(scope, field_name);
+            size_t position=type_simple_decl.find("["); 
+            bool   is_only_pointer = (position == std::string::npos);
+
+
+            Type elem_type;
+            Type basic_elem_type;
+            std::string basic_elem_type_name;
+             if (field_type.is_pointer() || field_type.is_array()) 
+            {
+              if (field_type.is_pointer())
+                {
+                elem_type = field_type.points_to();
+                basic_elem_type=field_type.basic_type();
+                basic_elem_type_name= basic_elem_type.print_declarator();
+
+              } else if (field_type.is_array()) {
+                elem_type = field_type.array_element();
+                basic_elem_type=field_type.basic_type();
+                basic_elem_type_name= basic_elem_type.print_declarator();
+                }
+              else 
+              {
+                      internal_error("Reference not valid",0);
+
+               }
+                std::string par_simple_decl = elem_type.get_simple_declaration(scope, field_name);
+                TL::Type basic_par_type= field_type.basic_type();
+                std::string basic_par_type_decl= basic_par_type.print_declarator();
+                std::string par_decl = field_type.get_declaration(scope, field_name);
+
+            TL::Type field_type_points_to;
+            if (field_type.is_pointer())
+                     field_type_points_to = field_type.points_to();
+            else if (field_type.is_pointer_to_class())
+                     field_type_points_to = field_type.pointed_class();
+            std::string pointed_to_string = field_type_points_to.print_declarator();
+            std::string pointed_to_string_simple = field_type_points_to.get_simple_declaration(scope,field_name);
+                position=par_decl.rfind(field_name); 
+                std::string type_par_decl = par_decl.substr(0,position); 
+                size_t position_pointer=par_decl.find(" "); 
+            //    std::string type_basic_par_decl = par_decl.substr(0,position_pointer); 
+            std::string type_basic_par_decl = get_element_type_pointer_to(field_type,field_name,scope);
+            std::string type_mcxx_par_decl = get_type_pointer_to(field_type,field_name,scope);
+
+            position = type_mcxx_par_decl.find("TO_CHANGE_MCXX");
+            const std::string field_port_name = STR_PREFIX+field_name;
+            std::string name_parameter_dimension = "*"+field_port_name;
+            std::string declaration_param_wrapper = type_mcxx_par_decl;
+            declaration_param_wrapper.replace(position,14,name_parameter_dimension);
+
+            std::string local_variable= "(*"+field_name +")";
+            std::string declaration_local_wrapper = type_mcxx_par_decl;
+            declaration_local_wrapper.replace(position,14,local_variable);
+
+            std::string casting_sizeof = type_mcxx_par_decl;
+            casting_sizeof.replace(position,14,""); 
+            std::string casting_pointer = type_mcxx_par_decl;
+            casting_pointer.replace(position,14,"(*)"); 
+
+
+          
+
+                const std::string field_name_param = declaration_param_wrapper;
+                fun_params_wrapper.append_with_separator(field_name_param, ",");
+                pragmas_src
+                   << "#pragma HLS INTERFACE m_axi port=" << field_port_name << "\n";
+
+                local_decls
+                   << declaration_local_wrapper <<";\n";
+
+                TL::Symbol param_symbol = (*it)->get_field_symbol();
+                int param_id= find_parameter_position(param_list, param_symbol);
+                function_parameters_passed[param_id]=1; 
+
+                in_copies_aux
+                    << "     case "<< param_id <<":"
+                    << "                 " << field_name << " = (" << casting_pointer << ")(" << field_port_name<<"+__laddr/sizeof("<< casting_sizeof << "));"
+                    << "                   break;" ;
+
+                n_params_in++;
+                n_params_id++;
+            }
+
         }
     }
-    Nodecl::NodeclBase fun_code =  func_symbol.get_function_code();
-    Source wrapper_src;
-    wrapper_src
-        << "void core_hw_accelerator(" << args<< "){"
-    ;
-    local_decls << "unsigned int " << HLS_I << ";";
 
+    int param_pos = 0; 
+    for (ObjectList<Symbol>::const_iterator it = param_list.begin(); it != param_list.end();
+            it++, param_pos++)
+    {
+      if (function_parameters_passed[param_pos]) continue;
+
+            const Scope &scope = it->get_scope();
+            int n_elements; //= get_copy_elements_all_dimensions(expr);
+            Source dimensions_array; // = get_type_arrays(expr); 
+            Source dimensions_pointer_array; // = get_type_arrays(expr); 
+
+            Source n_elements_src;
+            
+
+            const Type &field_type = it->get_type();
+            Type elem_type;
+            Type basic_elem_type; //=field_type.basic_type();
+            std::string basic_elem_type_name; //= basic_elem_type.print_declarator();
+            const std::string &field_name = it->get_name();
+            std::string type_simple_decl = field_type.get_simple_declaration(scope, field_name);
+            size_t position=type_simple_decl.find("["); 
+            bool   is_only_pointer = (position == std::string::npos);
+
+            if (field_type.is_pointer() || field_type.is_array() || field_type.array_is_region())
+            { 
+              n_elements_src = get_copy_elements_all_dimensions_src(field_type, field_type, is_only_pointer); 
+              dimensions_array = get_type_arrays_src(field_type, field_type, is_only_pointer); 
+              dimensions_pointer_array = get_type_pointer_to_arrays_src(field_type, field_type, is_only_pointer); 
+            }
+            else {
+                    internal_error("ERROR!\n",0);
+            }
+
+            if (field_type.is_pointer() || field_type.is_array()) 
+            {
+                if (field_type.is_pointer())
+                {
+                elem_type = field_type.points_to();
+                basic_elem_type=field_type.basic_type();
+                basic_elem_type_name= basic_elem_type.print_declarator();
+
+                } else{
+                elem_type = field_type.array_element();
+                basic_elem_type=field_type.basic_type();
+                basic_elem_type_name= basic_elem_type.print_declarator();
+
+                }
+                std::string par_simple_decl = elem_type.get_simple_declaration(scope, field_name);
+                TL::Type basic_par_type= field_type.basic_type();
+                std::string basic_par_type_decl= basic_par_type.print_declarator();
+                std::string par_decl = field_type.get_declaration(scope, field_name);
+            TL::Type field_type_points_to;
+            if (field_type.is_pointer())
+                     field_type_points_to = field_type.points_to();
+            else if (field_type.is_pointer_to_class())
+                     field_type_points_to = field_type.pointed_class();
+            std::string pointed_to_string = field_type_points_to.print_declarator();
+            std::string pointed_to_string_simple = field_type_points_to.get_simple_declaration(scope,field_name);
+                size_t position=par_decl.rfind(field_name); 
+                std::string type_par_decl = par_decl.substr(0,position); 
+                size_t position_pointer=par_decl.find(" "); 
+            //    std::string type_basic_par_decl = par_decl.substr(0,position_pointer); 
+            std::string type_basic_par_decl = get_element_type_pointer_to(field_type,field_name,scope);
+
+                const std::string field_port_name = STR_PREFIX+field_name;
+                //const std::string field_name_param = type_basic_par_decl+ "*" +field_port_name;
+                const std::string field_name_param = type_basic_par_decl+ "*" +field_port_name;
+                // DJG ONE ONLY PORT - REMOVING PORTS PER ARGUMENT
+                fun_params_wrapper.append_with_separator(field_name_param, ",");
+                pragmas_src
+                   << "#pragma HLS INTERFACE m_axi port=" << field_port_name << "\n";
+
+                local_decls
+                   << type_basic_par_decl << "*" << field_name << dimensions_pointer_array <<";\n";
+                function_parameters_passed[param_pos]=1; 
+
+                in_copies_aux
+                    << "     case "<< param_pos <<":"
+                    << "                 " << field_name << " = (" << type_basic_par_decl <<" * "<<dimensions_pointer_array << ")(" << field_port_name<<"+__laddr/sizeof("<< type_basic_par_decl<< "));"
+                    << "                   break;" ;
+
+                n_params_in++;
+                n_params_id++;
+
+        }
+    }
+
+
+
+
+
+    in_copies       << " for (__i=0; __i<" << n_params_id << "; __i++) {"
+                    << in_copies_aux
+                    << "    default:;"
+                    << "    }"
+                    << "   }"
+                    ;
+
+    if (n_params_out)
+    {
+       out_copies       << " for (__i=0; __i<("<< n_params_out <<"); __i++) {"
+                        << out_copies_aux
+                        << "    default:;"
+                        << "    }"
+                        << "   }"
+                        ;
+    }
+
+
+
+    Nodecl::NodeclBase fun_code =  func_symbol_original.get_function_code();
+    Source wrapper_src;
+
+
+    // DJG ONE ONLY PORT - REMOVING PORTS PER ARGUMENT
     wrapper_src
+        << "void " <<func_symbol.get_name()<<" (" << args<< "," << fun_params_wrapper << "){"
+    ;
+
+    local_decls
+        << "   counter_t  __counter_reg[4]={0xA,0xBAD,0xC0FFE,0xDEAD};"
+        << "   unsigned int __i;"
+	<< "   unsigned int __addrRd, __addrWr, __haddrRd, __haddrWr, __comp_needed;"
+	<< "   unsigned int __cached_id, __cached, __acc_id;"
+	<< "   unsigned int __laddr, __haddr;"
+        << "   unsigned int __param_id, __n_params_in, __n_params_out;";
+   if (n_params_out)
+   {
+    local_decls
+        << "   unsigned int __cached_id_out["<<n_params_out<<"];"
+        << "   unsigned int __laddr_out["<<n_params_out<<"];"
+        << "   unsigned int __haddr_out["<<n_params_out<<"];"
+    ;
+   }
+    local_decls
+        << "\n"
+        << "\n"
+    ;
+
+    profiling_0 
+        << "   memcpy(&__counter_reg[0],(const counter_t *)("<<STR_DATA<<"+__addrRd/sizeof(counter_t)),sizeof(counter_t)); "
+        << "\n"
+        << "\n"
+      ;
+        
+    profiling_1 
+        << "   memcpy(&__counter_reg[1],(const counter_t *)("<<STR_DATA<<"+__addrRd/sizeof(counter_t)),sizeof(counter_t)); "
+        << "\n"
+        << "\n"
+      ;
+    profiling_2 
+        << "   memcpy(&__counter_reg[2],(const counter_t *)("<<STR_DATA<<"+__addrRd/sizeof(counter_t)),sizeof(counter_t)); "
+        << "\n"
+        << "\n"
+      ;
+
+    profiling_3 
+        << "   memcpy(&__counter_reg[3],(const counter_t *)("<<STR_DATA<<"+__addrRd/sizeof(counter_t)),sizeof(counter_t)); "
+        << "   memcpy((void *)("<<STR_DATA<<"+__addrWr/sizeof(counter_t)), __counter_reg, 4*sizeof(counter_t));"
+        << "\n"
+        << "\n"
+        ;
+
+    generic_initial_code 
+        << "   __addrRd = "<<STR_INPUTSTREAM<<".read().data;"
+	<< "   __haddrRd = "<<STR_INPUTSTREAM<<".read().data; // 64-bit compatible\n"
+	<< "   __addrWr = "<<STR_INPUTSTREAM<<".read().data;"
+	<< "   __haddrWr = "<<STR_INPUTSTREAM<<".read().data; // 64-bit compatible\n"
+        << "   __acc_id = "<<STR_INPUTSTREAM<<".read().data;"
+	<< "   __comp_needed = "<<STR_INPUTSTREAM<<".read().data;"
+        ;
+
+
+
+    sync_output_code
+        <<  "    axiData __output = {0, 0, 0, 0, 0, 0, 0};"
+        <<  "    memcpy(&__output.data, (void *)("<<STR_DATA<<"+__addrWr/sizeof(counter_t)), sizeof(unsigned int));"
+        <<  "    __output.keep = 0xFF;"
+        <<  "    // __output.data = 0xCA5A;"
+        <<  "    __output.dest = __acc_id;"
+        <<  "    __output.last = 1;"
+        <<  "    "<<STR_OUTPUTSTREAM<<".write(__output);"
+        << "\n"
+        << "\n"
+       ;
+
+    
+ 
+
+    wrapper_before
+        << wrapper_src
         << pragmas_src
         << local_decls
+        << generic_initial_code 
+        << profiling_0
         << in_copies
-        << func_symbol.get_name() << "(" << fun_params << ");"
+        << out_copies_addr
+        << profiling_1
+    ;
+    called_source    
+        << "if (__comp_needed)\n"
+        <<     func_symbol_original.get_name() << "(" << fun_params << ");"
+    ;
+    wrapper_after
+        << profiling_2
         << out_copies
+        << profiling_3
+        << sync_output_code
         << "}"
     ;
-    //parse source
-    ReferenceScope refscope(func_symbol.get_scope());
-    Nodecl::NodeclBase wrapper_node = wrapper_src.parse_global(refscope);
-
-    return wrapper_node;
 
 }
 
 void DeviceFPGA::copy_stuff_to_device_file(
         const TL::ObjectList<Nodecl::NodeclBase>& stuff_to_be_copied)
 {
+    
     for (TL::ObjectList<Nodecl::NodeclBase>::const_iterator it = stuff_to_be_copied.begin();
             it != stuff_to_be_copied.end();
             ++it)
@@ -977,16 +1964,122 @@ void DeviceFPGA::copy_stuff_to_device_file(
                 || it->is<Nodecl::TemplateFunctionCode>())
         {
             TL::Symbol function = it->get_symbol();
-            TL::Symbol new_function = SymbolUtils::new_function_symbol(function, function.get_name() + "_hls");
+            TL::Symbol new_function = SymbolUtils::new_function_symbol(function, function.get_name());
 
-            _copied_fpga_functions.add_map(function, new_function);
-            _fpga_file_code.append(Nodecl::Utils::deep_copy(*it, *it, _copied_fpga_functions));
+              _copied_fpga_functions.add_map(function, new_function);
+              _fpga_file_code.append(Nodecl::Utils::deep_copy(*it, *it, _copied_fpga_functions));
+
+            TL::ObjectList<Nodecl::Symbol> symbol_stuff_to_be_copied= Nodecl::Utils::get_nonlocal_symbols_first_occurrence(*it);
+
+    for (TL::ObjectList<Nodecl::Symbol>::const_iterator its = symbol_stuff_to_be_copied.begin();
+            its != symbol_stuff_to_be_copied.end();
+            ++its)
+    {
+        TL::Symbol sym = its->get_symbol();
+        if (sym.is_function())
+        {
+            Nodecl::NodeclBase code = sym.get_function_code();
+            TL::ObjectList<Nodecl::NodeclBase> expand_code; 
+            expand_code.append(code);
+            copy_stuff_to_device_file(expand_code);
+        }
+    }
+         
         }
         else
         {
             _fpga_file_code.append(Nodecl::Utils::deep_copy(*it, *it));
         }
     }
+}
+
+void DeviceFPGA::copy_stuff_to_device_file_expand( const TL::ObjectList<Nodecl::NodeclBase> stuff_to_be_copied)
+{
+    __number_of_calls++;
+    for (TL::ObjectList<Nodecl::NodeclBase>::const_iterator it = stuff_to_be_copied.begin();
+            it != stuff_to_be_copied.end();
+            ++it)
+    {
+        if (it->is<Nodecl::FunctionCode>()
+                || it->is<Nodecl::TemplateFunctionCode>())
+        {
+            TL::Symbol function = it->get_symbol();
+            Nodecl::NodeclBase code_function = function.get_function_code();
+            Source outline_src_function_caller;
+            outline_src_function_caller<< code_function.prettyprint();
+
+
+
+
+            TL::ObjectList<Nodecl::Symbol> symbol_stuff_to_be_copied= Nodecl::Utils::get_nonlocal_symbols_first_occurrence(*it);
+
+    for (TL::ObjectList<Nodecl::Symbol>::const_iterator its = symbol_stuff_to_be_copied.begin();
+            its != symbol_stuff_to_be_copied.end();
+            ++its)
+    {
+        TL::Symbol sym = its->get_symbol();
+
+        std::string original_filename = TL::CompilationProcess::get_current_file().get_filename();
+        if (sym.is_function() && (sym.get_filename()==original_filename))
+        {
+
+
+            Nodecl::NodeclBase code = sym.get_function_code();
+            TL::ObjectList<Nodecl::NodeclBase> expand_code; 
+            ObjectList<Source> outline_code;
+            TL::Source outline_src_function_1l;
+
+            if (code.is_null()) 
+            {
+#if _DEBUG_AUTOMATIC_COMPILER_
+               std::cerr << "NOT VALID!!!!!\n" << std::endl << std::endl;
+               std::cerr << "Name: " << sym.get_name() << std::endl << std::endl;
+#endif
+            }
+            else {
+
+               outline_src_function_1l<< code.prettyprint();
+
+#if _DEBUG_AUTOMATIC_COMPILER_
+    std::cerr << std::endl << std::endl;
+    std::cerr << " ===================================================================0\n"; 
+    std::cerr << "call   " << __number_of_calls << ": Adding function to expand_fpga_source_codes:" + sym.get_name() + " new function called and expanded\n";
+    std::cerr << " ===================================================================0\n"; 
+#endif
+
+            //outline_code.insert(outline_src_function_1l);
+            ObjectList<Source> result;
+           
+            result.insert(outline_src_function_1l);
+            for (ObjectList<Source>::const_iterator it_expand =_expand_fpga_source_codes.begin();
+                    it_expand !=_expand_fpga_source_codes.end();
+                    it_expand++)
+            {
+                if (!((it_expand->get_source()) == outline_src_function_1l.get_source()))
+                {
+ 
+                    result.append(*it_expand);
+                }
+            }
+
+            _expand_fpga_source_codes = result;
+
+            //expand_code.append(code);
+            expand_code.insert(code);
+            copy_stuff_to_device_file_expand(expand_code);
+          }
+
+        }
+        else
+        {
+
+        }
+    }
+         
+        }
+        else ;
+    }
+    __number_of_calls--;
 }
 
 EXPORT_PHASE(TL::Nanox::DeviceFPGA);

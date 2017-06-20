@@ -773,16 +773,35 @@ namespace TL { namespace OmpSs {
         {
             there_are_copies = true;
         }
+/*
+        void visit(const Nodecl::OmpSs::CopyInAddr& copy_in_addr)
+        {
+            there_are_copies = true;
+        }
+*/
 
         void visit(const Nodecl::OmpSs::CopyOut& copy_out)
         {
             there_are_copies = true;
         }
+/*
+        void visit(const Nodecl::OmpSs::CopyOutAddr& copy_out_addr)
+        {
+            there_are_copies = true;
+        }
 
+*/
         void visit(const Nodecl::OmpSs::CopyInout& copy_inout)
         {
             there_are_copies = true;
         }
+
+/*
+        void visit(const Nodecl::OmpSs::CopyInoutAddr& copy_inout_addr)
+        {
+            there_are_copies = true;
+        }
+*/
     };
 
     struct ReportExecEnvironmentDependences : public Nodecl::ExhaustiveVisitor<void>
@@ -915,6 +934,18 @@ namespace TL { namespace OmpSs {
             report_copy(copy_in.get_input_copies(), TL::OmpSs::COPY_DIR_IN);
         }
 
+/*
+        void visit(const Nodecl::OmpSs::CopyInAddr& copy_in_addr)
+        {
+            report_copy(copy_in_addr.get_input_addr_copies(), TL::OmpSs::COPY_DIR_IN_ADDR);
+        }
+
+        void visit(const Nodecl::OmpSs::CopyOutAddr& copy_out_addr)
+        {
+            report_copy(copy_out_addr.get_output_addr_copies(), TL::OmpSs::COPY_DIR_OUT_ADDR);
+        }
+*/
+
         void visit(const Nodecl::OmpSs::CopyOut& copy_out)
         {
             report_copy(copy_out.get_output_copies(), TL::OmpSs::COPY_DIR_OUT);
@@ -924,6 +955,13 @@ namespace TL { namespace OmpSs {
         {
             report_copy(copy_inout.get_inout_copies(), TL::OmpSs::COPY_DIR_INOUT);
         }
+
+/*
+        void visit(const Nodecl::OmpSs::CopyInoutAddr& copy_inout_addr)
+        {
+            report_copy(copy_inout_addr.get_inout_addr_copies(), TL::OmpSs::COPY_DIR_INOUT_ADDR);
+        }
+*/
     };
 
     struct ReportExecEnvironmentTarget : public Nodecl::ExhaustiveVisitor<void>
@@ -1095,7 +1133,7 @@ namespace TL { namespace OmpSs {
         const locus_t* locus = enclosing_stmt.get_locus();
 
         TL::ObjectList<Nodecl::NodeclBase> target_items,
-            /* copies information */ copy_in, copy_out, copy_inout,
+            /* copies information */ copy_in, copy_out, copy_inout, //copy_in_addr, copy_out_addr, copy_inout_addr,
             /* dependences information */ in_deps, concurrent_deps, out_deps,
             /* data-sharing information */ shared_symbols, shared_and_alloca_exprs,
             /* more data-sharings */ firstprivate_symbols, alloca_exprs;
@@ -1116,11 +1154,13 @@ namespace TL { namespace OmpSs {
             {
                 concurrent_deps.append(lhs_expr.shallow_copy());
                 copy_inout.append(lhs_expr.shallow_copy());
+                // TODO: copy_inout_addr??
             }
             else
             {
                 out_deps.append(lhs_expr.shallow_copy());
                 copy_out.append(lhs_expr.shallow_copy());
+                // TODO: copy_out addr??
             }
         }
 
@@ -1161,6 +1201,7 @@ namespace TL { namespace OmpSs {
                             sym_nodecl.shallow_copy(),
                             sym.get_type().points_to().get_lvalue_reference_to(),
                             locus));
+                // TODO: copy_in_addr ???
 
                 shared_and_alloca_exprs.append(
                         Nodecl::Dereference::make(
@@ -1254,6 +1295,16 @@ namespace TL { namespace OmpSs {
                         locus));
         }
 
+/*
+        if (!copy_in_addr.empty())
+        {
+            target_items.append(
+                    Nodecl::OmpSs::CopyInAddr::make(
+                        Nodecl::List::make(copy_in_addr),
+                        locus));
+        }
+*/
+
         if (!copy_out.empty())
         {
             target_items.append(
@@ -1261,6 +1312,16 @@ namespace TL { namespace OmpSs {
                         Nodecl::List::make(copy_out),
                         locus));
         }
+
+/*
+        if (!copy_out_addr.empty())
+        {
+            target_items.append(
+                    Nodecl::OmpSs::CopyOutAddr::make(
+                        Nodecl::List::make(copy_out_addr),
+                        locus));
+        }
+*/
 
 
         if (!copy_inout.empty())
@@ -1270,6 +1331,16 @@ namespace TL { namespace OmpSs {
                         Nodecl::List::make(copy_inout),
                         locus));
         }
+
+/*
+        if (!copy_inout_addr.empty())
+        {
+            target_items.append(
+                    Nodecl::OmpSs::CopyInoutAddr::make(
+                        Nodecl::List::make(copy_inout_addr),
+                        locus));
+        }
+*/
 
         // The inline tasks are always SMP tasks
         exec_environment.append(Nodecl::OmpSs::Target::make(
