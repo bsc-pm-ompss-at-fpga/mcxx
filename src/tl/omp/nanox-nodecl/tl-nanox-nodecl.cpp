@@ -1,23 +1,23 @@
 /*--------------------------------------------------------------------
   (C) Copyright 2006-2014 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
-  
+
   This file is part of Mercurium C/C++ source-to-source compiler.
-  
+
   See AUTHORS file in the top level directory for information
   regarding developers and contributors.
-  
+
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
   version 3 of the License, or (at your option) any later version.
-  
+
   Mercurium C/C++ source-to-source compiler is distributed in the hope
   that it will be useful, but WITHOUT ANY WARRANTY; without even the
   implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
   PURPOSE.  See the GNU Lesser General Public License for more
   details.
-  
+
   You should have received a copy of the GNU Lesser General Public
   License along with Mercurium C/C++ source-to-source compiler; if
   not, write to the Free Software Foundation, Inc., 675 Mass Ave,
@@ -66,13 +66,13 @@ namespace TL { namespace Nanox {
                 _ompss_mode_str,
                 "0").connect(std::bind(&Lowering::set_ompss_mode, this, std::placeholders::_1));
 
-        register_parameter("instrument", 
-                "Enables Nanos++ instrumentation", 
+        register_parameter("instrument",
+                "Enables Nanos++ instrumentation",
                 _instrumentation_str,
                 "0").connect(std::bind(&Lowering::set_instrumentation, this, std::placeholders::_1));
 
-        register_parameter("nanos-debug", 
-                "Enables Nanos++ debugging features", 
+        register_parameter("nanos-debug",
+                "Enables Nanos++ debugging features",
                 _nanos_debug_str,
                 "0").connect(std::bind(&Lowering::set_nanos_debug, this, std::placeholders::_1));
 
@@ -178,28 +178,73 @@ namespace TL { namespace Nanox {
     void Lowering::emit_nanos_requirements(Nodecl::NodeclBase global_node)
     {
         Source src;
-        if (seen_task_with_priorities)
+        if (Nanos::Version::interface_is_at_least("master", 5040))
         {
-            src << "__attribute__((common)) char nanos_need_priorities_;"
-                ;
-        }
+            Source weak_fun_defs;
+            bool at_least_one_weak_fun_def = false;
 
-        if (seen_opencl_task)
-        {
-            src << "__attribute__((common)) char ompss_uses_opencl;"
-                ;
-        }
+            if (seen_task_with_priorities)
+            {
+                at_least_one_weak_fun_def = true;
+                weak_fun_defs  <<  "__attribute__((weak)) void nanos_needs_priorities_fun(void) {}";
+            }
 
-        if (seen_cuda_task)
-        {
-            src << "__attribute__((common)) char ompss_uses_cuda;"
-                ;
-        }
+            if (seen_opencl_task)
+            {
+                at_least_one_weak_fun_def = true;
+                weak_fun_defs  <<  "__attribute__((weak)) void nanos_needs_opencl_fun(void) {}";
+            }
 
-        if (seen_gpu_cublas_handle)
+            if (seen_cuda_task)
+            {
+                at_least_one_weak_fun_def = true;
+                weak_fun_defs  <<  "__attribute__((weak)) void nanos_needs_cuda_fun(void) {}";
+            }
+
+            if (seen_gpu_cublas_handle)
+            {
+                at_least_one_weak_fun_def = true;
+                weak_fun_defs  <<  "__attribute__((weak)) void nanos_needs_cublas_fun(void) {}";
+            }
+
+            if (seen_fpga_task)
+            {
+                at_least_one_weak_fun_def = true;
+                weak_fun_defs  <<  "__attribute__((weak)) void nanos_needs_fpga_fun(void) {}";
+            }
+
+            if (at_least_one_weak_fun_def)
+            {
+                if (IS_CXX_LANGUAGE)
+                {
+                    src << "extern \"C\""
+                        << "{"
+                        ;
+                }
+
+                src << weak_fun_defs;
+
+                if (IS_CXX_LANGUAGE)
+                {
+                    src << "}";
+                }
+            }
+        }
+        else
         {
-            src << "__attribute__((common)) char gpu_cublas_init;"
-                ;
+            if (seen_task_with_priorities)
+                src << "__attribute__((common)) char nanos_need_priorities_;";
+
+            if (seen_opencl_task)
+                src << "__attribute__((common)) char ompss_uses_opencl;";
+
+            if (seen_cuda_task)
+                src << "__attribute__((common)) char ompss_uses_cuda;";
+
+            if (seen_gpu_cublas_handle)
+                src << "__attribute__((common)) char gpu_cublas_init;";
+
+            // Nanos++ FPGA do not support this mechanism
         }
 
         if (!Nanos::Version::interface_is_at_least("master", 5028))
@@ -276,7 +321,7 @@ namespace TL { namespace Nanox {
             _ancillary_file = fopen(file_name.c_str(), "w");
             if (_ancillary_file == NULL)
             {
-                fatal_error("%s: error: cannot open file '%s'. %s\n", 
+                fatal_error("%s: error: cannot open file '%s'. %s\n",
                         TL::CompilationProcess::get_current_file().get_filename().c_str(),
                         file_name.c_str(),
                         strerror(errno));
