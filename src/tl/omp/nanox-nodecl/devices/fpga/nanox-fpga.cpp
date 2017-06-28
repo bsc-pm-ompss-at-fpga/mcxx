@@ -735,7 +735,7 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
                  << "#include <ap_axi_sdata.h>\n"
                  << "\n"
                  << "\n"
-                 << "typedef ap_axis<32,1,1,4> axiData;\n"
+                 << "typedef ap_axis<64,1,1,5> axiData;\n"
                  << "typedef unsigned long long int counter_t;\n"
                  << "\n"
                  << "\n"
@@ -1369,7 +1369,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     Source pragmas_src;
 
     Source args;
-    args << " hls::stream<axiData> &" << STR_INPUTSTREAM <<", hls::stream<axiData> &"<< STR_OUTPUTSTREAM <<", counter_t *"<<STR_DATA<< " ";
+    args << "hls::stream<axiData> &" << STR_INPUTSTREAM <<", hls::stream<axiData> &"<< STR_OUTPUTSTREAM <<", counter_t *"<<STR_DATA<< ", ap_uint<32> accID";
     pragmas_src
         << "#pragma HLS interface ap_ctrl_none port=return\n"
         << "#pragma HLS interface axis port=" << STR_INPUTSTREAM <<"\n"
@@ -1402,19 +1402,17 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
     in_copies_aux
            << "     __cached_id = "<<STR_INPUTSTREAM<<".read().data;"
-           << "     __cached = __cached_id & 15; "
-           << "     __param_id = __cached_id >> 8; "
-           << "     __laddr = "<<STR_INPUTSTREAM<<".read().data;"
-           << "	    __haddr = "<<STR_INPUTSTREAM<<".read().data;"
+           << "     __cached = __cached_id;"
+           << "     __param_id = __cached_id >> 32; "
+           << "     __addr = "<<STR_INPUTSTREAM<<".read().data;"
            << "     switch(__param_id){"
            ;
 
     out_copies_aux
            << "     __cached_id = __cached_id_out[__i];"
-           << "     __cached = __cached_id & 15; "
-           << "     __param_id = __cached_id >> 8; "
-           << "     __laddr = __laddr_out[__i];"
-           << "     __haddr = __haddr_out[__i];"
+           << "     __cached = __cached_id; "
+           << "     __param_id = __cached_id >> 32; "
+           << "     __addr = __addr_out[__i];"
            << "     switch(__param_id){"
            ;
 
@@ -1564,10 +1562,9 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 in_copies_aux
                     << "     case "<< param_id <<":"
-                     "        memcpy(" << field_name << ", (const "<< type_basic_par_decl <<"*)("<< field_port_name_i<<"+__laddr/sizeof("<< type_basic_par_decl << ")), " << n_elements_src << " * sizeof("<< type_basic_par_decl << ") );"
+                     "        memcpy(" << field_name << ", (const "<< type_basic_par_decl <<"*)("<< field_port_name_i<<"+__addr/sizeof("<< type_basic_par_decl << ")), " << n_elements_src << " * sizeof("<< type_basic_par_decl << ") );"
                     << "      __cached_id_out["<<n_params_out<<"] = __cached_id;"
-                    << "      __laddr_out["<<n_params_out<<"] = __laddr;"
-                    << "      __haddr_out["<<n_params_out<<"] = __haddr;"
+                    << "      __addr_out["<<n_params_out<<"] = __addr;"
                     << "     break;" ;
                 n_params_in++;
 
@@ -1577,7 +1574,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 out_copies_aux
                     << "     case "<< param_id <<":"
-                    << "        memcpy( "<<field_port_name_o <<  "+__laddr/sizeof("<< type_basic_par_decl<< "),  (const "<< type_basic_par_decl <<" *)"<< field_name << ", " << n_elements_src << " * sizeof("<< type_basic_par_decl << ") );"
+                    << "        memcpy( "<<field_port_name_o <<  "+__addr/sizeof("<< type_basic_par_decl<< "),  (const "<< type_basic_par_decl <<" *)"<< field_name << ", " << n_elements_src << " * sizeof("<< type_basic_par_decl << ") );"
                     << "        break;" ;
                 n_params_out++;
 
@@ -1605,7 +1602,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 in_copies_aux
                     << "     case "<< param_id <<":"
-                    << "        memcpy(" << field_name << ", (const "<< type_basic_par_decl << "*)("<< field_port_name<<"+__laddr/sizeof("<< type_basic_par_decl << ")), " << n_elements_src << " * sizeof("<< type_basic_par_decl<< ") );"
+                    << "        memcpy(" << field_name << ", (const "<< type_basic_par_decl << "*)("<< field_port_name<<"+__addr/sizeof("<< type_basic_par_decl << ")), " << n_elements_src << " * sizeof("<< type_basic_par_decl<< ") );"
                     << "       break;" ;
                 n_params_in++;
                 n_params_id++;
@@ -1629,13 +1626,12 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                 in_copies_aux
                     << "     case "<< param_id <<":"
                     << "        __cached_id_out["<<n_params_out<<"] = __cached_id;"
-                    << "        __laddr_out["<<n_params_out<<"] = __laddr;"
-                    << "        __haddr_out["<<n_params_out<<"] = __haddr;"
+                    << "        __addr_out["<<n_params_out<<"] = __addr;"
                     << "        break;" ;
 
                 out_copies_aux
                     << "     case "<< param_id <<":"
-                    << "        memcpy( "<<field_port_name <<  "+__laddr/sizeof("<< type_basic_par_decl<< "),  (const "<< type_basic_par_decl <<" *)"<< field_name << ", " << n_elements_src << " * sizeof("<< type_basic_par_decl << ") );"
+                    << "        memcpy( "<<field_port_name <<  "+__addr/sizeof("<< type_basic_par_decl<< "),  (const "<< type_basic_par_decl <<" *)"<< field_name << ", " << n_elements_src << " * sizeof("<< type_basic_par_decl << ") );"
                     << "        break;" ;
                 n_params_out++;
 
@@ -1863,16 +1859,15 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     local_decls
         << "   counter_t  __counter_reg[4]={0xA,0xBAD,0xC0FFE,0xDEAD};"
         << "   unsigned int __i;"
-	<< "   unsigned int __addrRd, __addrWr, __haddrRd, __haddrWr, __comp_needed;"
-	<< "   unsigned int __cached_id, __cached, __acc_id;"
-	<< "   unsigned int __laddr, __haddr;"
+	<< "   unsigned long long __addrRd, __addrWr, __accHeader, __comp_needed;"
+	<< "   unsigned int __cached, __destID;"
+	<< "   unsigned long long __addr, __cached_id;"
         << "   unsigned int __param_id, __n_params_in, __n_params_out;";
    if (n_params_out)
    {
     local_decls
-        << "   unsigned int __cached_id_out["<<n_params_out<<"];"
-        << "   unsigned int __laddr_out["<<n_params_out<<"];"
-        << "   unsigned int __haddr_out["<<n_params_out<<"];"
+        << "   unsigned long long __cached_id_out["<<n_params_out<<"];"
+        << "   unsigned long long __addr_out["<<n_params_out<<"];"
     ;
    }
     local_decls
@@ -1906,21 +1901,20 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
     generic_initial_code
         << "   __addrRd = "<<STR_INPUTSTREAM<<".read().data;"
-	<< "   __haddrRd = "<<STR_INPUTSTREAM<<".read().data; // 64-bit compatible\n"
 	<< "   __addrWr = "<<STR_INPUTSTREAM<<".read().data;"
-	<< "   __haddrWr = "<<STR_INPUTSTREAM<<".read().data; // 64-bit compatible\n"
-        << "   __acc_id = "<<STR_INPUTSTREAM<<".read().data;"
-	<< "   __comp_needed = "<<STR_INPUTSTREAM<<".read().data;"
+	<< "   __accHeader = "<<STR_INPUTSTREAM<<".read().data;"
+	<< "   __comp_needed = __accHeader;"
+    << "   __destID = __accHeader>>32;"
         ;
 
 
 
     sync_output_code
         <<  "    axiData __output = {0, 0, 0, 0, 0, 0, 0};"
-        <<  "    memcpy(&__output.data, (void *)("<<STR_DATA<<"+__addrWr/sizeof(counter_t)), sizeof(unsigned int));"
+        <<  "    //memcpy(&__output.data, (void *)("<<STR_DATA<<"+__addrWr/sizeof(counter_t)), sizeof(unsigned int));"
         <<  "    __output.keep = 0xFF;"
-        <<  "    // __output.data = 0xCA5A;"
-        <<  "    __output.dest = __acc_id;"
+        <<  "    __output.data = accID;"
+        <<  "    __output.dest = __destID;"
         <<  "    __output.last = 1;"
         <<  "    "<<STR_OUTPUTSTREAM<<".write(__output);"
         << "\n"
