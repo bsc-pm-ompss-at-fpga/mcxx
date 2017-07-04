@@ -1727,7 +1727,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 in_copies_aux
                     << "     case "<< param_id <<":"
-                    << "                 " << field_name << " = (" << casting_pointer << ")(" << field_port_name<<"+__laddr/sizeof("<< casting_sizeof << "));"
+                    << "                 " << field_name << " = (" << casting_pointer << ")(" << field_port_name<<"+__addr/sizeof("<< casting_sizeof << "));"
                     << "                   break;" ;
 
                 n_params_in++;
@@ -1815,7 +1815,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 in_copies_aux
                     << "     case "<< param_pos <<":"
-                    << "                 " << field_name << " = (" << type_basic_par_decl <<" * "<<dimensions_pointer_array << ")(" << field_port_name<<"+__laddr/sizeof("<< type_basic_par_decl<< "));"
+                    << "                 " << field_name << " = (" << type_basic_par_decl <<" * "<<dimensions_pointer_array << ")(" << field_port_name<<"+__addr/sizeof("<< type_basic_par_decl<< "));"
                     << "                   break;" ;
 
                 n_params_in++;
