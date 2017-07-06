@@ -53,449 +53,393 @@
 using namespace TL;
 using namespace TL::Nanox;
 
-
 const std::string DeviceFPGA::HLS_VPREF = "_hls_var_";
 const std::string DeviceFPGA::HLS_I = HLS_VPREF + "i";
 const std::string DeviceFPGA::hls_in = HLS_VPREF + "in";
 const std::string DeviceFPGA::hls_out = HLS_VPREF + "out";
 static int _base_acc_num = 0;
 
-static std::string fpga_outline_name(const std::string &name)
-{
-    return "fpga_" + name;
+static std::string fpga_outline_name(const std::string &name) {
+	return "fpga_" + name;
 }
 
-UNUSED_PARAMETER static void print_ast_dot(const Nodecl::NodeclBase &node)
-{
-    std::cerr << std::endl << std::endl;
-    ast_dump_graphviz(nodecl_get_ast(node.get_internal_nodecl()), stderr);
-    std::cerr << std::endl << std::endl;
+UNUSED_PARAMETER static void print_ast_dot(const Nodecl::NodeclBase &node) {
+	std::cerr << std::endl << std::endl;
+	ast_dump_graphviz(nodecl_get_ast(node.get_internal_nodecl()), stderr);
+	std::cerr << std::endl << std::endl;
 }
 
-void DeviceFPGA::create_outline(CreateOutlineInfo &info,
-        Nodecl::NodeclBase &outline_placeholder,
-        Nodecl::NodeclBase &output_statements,
-        Nodecl::Utils::SimpleSymbolMap* &symbol_map)
-{
+void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &outline_placeholder, Nodecl::NodeclBase &output_statements, Nodecl::Utils::SimpleSymbolMap* &symbol_map) {
+	
+	if (IS_FORTRAN_LANGUAGE)
+		fatal_error("Fortran for FPGA devices is not supported yet\n");
 
-    if (IS_FORTRAN_LANGUAGE)
-        fatal_error("Fortran for FPGA devices is not supported yet\n");
+	// Unpack DTO
+	Lowering* lowering = info._lowering;
+	const std::string& device_outline_name = fpga_outline_name(info._outline_name);
+	const Nodecl::NodeclBase& task_statements = info._task_statements;
+	const Nodecl::NodeclBase& original_statements = info._original_statements;
+	bool is_function_task = info._called_task.is_valid();
 
+	const TL::Symbol& arguments_struct = info._arguments_struct;
+	const TL::Symbol& called_task = info._called_task;
 
-    // Unpack DTO
-    Lowering* lowering = info._lowering;
-    const std::string& device_outline_name = fpga_outline_name(info._outline_name);
-    const Nodecl::NodeclBase& task_statements = info._task_statements;
-    const Nodecl::NodeclBase& original_statements = info._original_statements;
-    bool is_function_task = info._called_task.is_valid();
+	lowering->seen_fpga_task = true;
 
+	symbol_map = new Nodecl::Utils::SimpleSymbolMap(&_copied_fpga_functions);
+	_internal_symbol_map = *symbol_map;
 
+	TL::Symbol current_function = original_statements.retrieve_context().get_related_symbol();
+	if (current_function.is_nested_function()) {
+		if (IS_C_LANGUAGE || IS_CXX_LANGUAGE)
+			fatal_printf_at(original_statements.get_locus(), "nested functions are not supported\n");
+	}
 
+	// Add the user function to the intermediate file -> to HLS
+	if (called_task.is_valid()) { //is a function task
+		if ( (IS_C_LANGUAGE || IS_CXX_LANGUAGE) && !called_task.get_function_code().is_null()) {
+			if (_copied_fpga_functions.map(called_task) == called_task) {
+				//new task-> add it to the list
+				TL::Symbol new_function = SymbolUtils::new_function_symbol_for_deep_copy(called_task, called_task.get_name());
 
+				TL::Symbol new_function_wrapper = SymbolUtils::new_function_symbol_for_deep_copy(called_task, called_task.get_name() + "_hls_automatic_mcxx_wrapper");
 
+				Source instrument_before, called_source, instrument_after;
 
-    const TL::Symbol& arguments_struct = info._arguments_struct;
-    const TL::Symbol& called_task = info._called_task;
+				DeviceFPGA::gen_hls_wrapper(called_task, new_function, new_function_wrapper, info._data_items, instrument_before, called_source, instrument_after);
 
+				Source outline_src;
+				Source full_src;
 
+				Nodecl::NodeclBase fun_code = info._called_task.get_function_code();
+				outline_src
+					<< fun_code.prettyprint()
+					<< " "
+					<< " "
+					<< instrument_before
+					<< called_source
+					<< instrument_after
+				;
 
+				_copied_fpga_functions.add_map(called_task, new_function_wrapper);
+				TL::ObjectList<Nodecl::NodeclBase> expand_code;
+				TL::Symbol expand_function = original_statements.retrieve_context().get_related_symbol();
+				Nodecl::NodeclBase code = info._called_task.get_function_code();
 
-
-
-    lowering->seen_fpga_task = true;
-
-    symbol_map = new Nodecl::Utils::SimpleSymbolMap(&_copied_fpga_functions);
-    _internal_symbol_map = *symbol_map;
-
-
-    TL::Symbol current_function = original_statements.retrieve_context().get_related_symbol();
-    if (current_function.is_nested_function())
-    {
-        if (IS_C_LANGUAGE || IS_CXX_LANGUAGE)
-            fatal_printf_at(original_statements.get_locus(), "nested functions are not supported\n");
-    }
-
-   // Add the user function to the intermediate file -> to HLS
-    if (called_task.is_valid())//is a function task
-    {
-        if ( (IS_C_LANGUAGE || IS_CXX_LANGUAGE) && !called_task.get_function_code().is_null())
-        {
-            if (_copied_fpga_functions.map(called_task) == called_task)
-            {
-                //new task-> add it to the list
-                TL::Symbol new_function = SymbolUtils::new_function_symbol_for_deep_copy(
-                        called_task,
-                        called_task.get_name());
-
-                TL::Symbol new_function_wrapper = SymbolUtils::new_function_symbol_for_deep_copy(
-                        called_task,
-                        called_task.get_name() + "_hls_automatic_mcxx_wrapper");
-
-                 Source instrument_before, called_source, instrument_after;
-
-                 DeviceFPGA::gen_hls_wrapper(called_task, new_function, new_function_wrapper,info._data_items, instrument_before, called_source, instrument_after);
-
-                 Source outline_src;
-                 Source full_src;
-
-                 Nodecl::NodeclBase fun_code =  info._called_task.get_function_code();
-                 outline_src
-                          <<      fun_code.prettyprint()
-                          <<      " "
-                          <<      " "
-                          <<      instrument_before
-                          <<      called_source
-                          <<      instrument_after
-                          ;
-
-                 _copied_fpga_functions.add_map(called_task, new_function_wrapper);
-                 TL::ObjectList<Nodecl::NodeclBase> expand_code;
-                 TL::Symbol expand_function = original_statements.retrieve_context().get_related_symbol();
-                 Nodecl::NodeclBase code = info._called_task.get_function_code();
-
-                 expand_code.append(code);
-
+				expand_code.append(code);
 
 #if _DEBUG_AUTOMATIC_COMPILER_
-    std::cerr << std::endl << std::endl;
-    std::cerr << " ===================================================================0\n";
-    std::cerr << "First call to copy_stuff_to_device... going through:\n";
-    std::cerr << " ===================================================================0\n";
-    std::cerr << code.prettyprint(); __number_of_calls=1;
+				std::cerr << std::endl << std::endl;
+				std::cerr << " ===================================================================0\n";
+				std::cerr << "First call to copy_stuff_to_device... going through:\n";
+				std::cerr << " ===================================================================0\n";
+				std::cerr << code.prettyprint(); __number_of_calls=1;
 #endif
 
-                 copy_stuff_to_device_file_expand(expand_code);
-
+				copy_stuff_to_device_file_expand(expand_code);
 
 #if _DEBUG_AUTOMATIC_COMPILER_
-    std::cerr << " ===================================================================0\n";
-    std::cerr << "End First call to copy_stuff_to_device... \n";
-    std::cerr << " ===================================================================0\n";
-    std::cerr << std::endl << std::endl;
+				std::cerr << " ===================================================================0\n";
+				std::cerr << "End First call to copy_stuff_to_device... \n";
+				std::cerr << " ===================================================================0\n";
+				std::cerr << std::endl << std::endl;
 #endif
-                 TL::Scope scope = code.retrieve_context();
-                 preappend_list_sources_and_reset(outline_src, full_src, scope);
 
-                 _fpga_source_codes.append(full_src);
-                 _fpga_source_name.append(_acc_num + ":" + _num_acc_instances + ":" +  called_task.get_name() + "_hls_automatic_mcxx");
-            }
-        }
-        else if (IS_FORTRAN_LANGUAGE)
-        {
-            fatal_error("There is no fortran support for FPGA devices\n");
-        }
-        else
-        {
-            fatal_error("Inline tasks not supported yet\n");
-        }
+				TL::Scope scope = code.retrieve_context();
+				preappend_list_sources_and_reset(outline_src, full_src, scope);
 
-    }
-    Source unpacked_arguments, private_entities;
+				_fpga_source_codes.append(full_src);
+				_fpga_source_name.append(_acc_num + ":" + _num_acc_instances + ":" +  called_task.get_name() + "_hls_automatic_mcxx");
+			}
+		} else if (IS_FORTRAN_LANGUAGE) {
+			fatal_error("There is no fortran support for FPGA devices\n");
+		} else {
+			fatal_error("Inline tasks not supported yet\n");
+		}
+	}
+
+	Source unpacked_arguments, private_entities;
 
     TL::ObjectList<OutlineDataItem*> data_items = info._data_items;
 
+	for (TL::ObjectList<OutlineDataItem*>::iterator it = data_items.begin(); it != data_items.end(); it++) {
+		switch ((*it)->get_sharing()) {
+			case OutlineDataItem::SHARING_PRIVATE:
+				break;
+			case OutlineDataItem::SHARING_SHARED:
+			case OutlineDataItem::SHARING_CAPTURE:
+			case OutlineDataItem::SHARING_CAPTURE_ADDRESS:
+				{
+					TL::Type param_type = (*it)->get_in_outline_type();
+					Source argument;
 
-    for (TL::ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
-            it != data_items.end();
-            it++)
-    {
-        switch ((*it)->get_sharing())
-        {
-            case OutlineDataItem::SHARING_PRIVATE:
-                {
-                    break;
-                }
-            case OutlineDataItem::SHARING_SHARED:
-            case OutlineDataItem::SHARING_CAPTURE:
-            case OutlineDataItem::SHARING_CAPTURE_ADDRESS:
-                {
-                    TL::Type param_type = (*it)->get_in_outline_type();
+					if (IS_C_LANGUAGE || IS_CXX_LANGUAGE) {
+						// Normal shared items are passed by reference from a pointer,
+						// derreference here
+						if ((*it)->get_sharing() == OutlineDataItem::SHARING_SHARED && !(IS_CXX_LANGUAGE && (*it)->get_symbol().get_name() == "this")) {
+							argument << "*(args." << (*it)->get_field_name() << ")";
+						} else {
+							// Any other thing is passed by value
+							argument << "args." << (*it)->get_field_name();
+						}
 
-                    Source argument;
-                    if (IS_C_LANGUAGE || IS_CXX_LANGUAGE)
-                    {
-                        // Normal shared items are passed by reference from a pointer,
-                        // derreference here
-                        if ((*it)->get_sharing() == OutlineDataItem::SHARING_SHARED
-                                && !(IS_CXX_LANGUAGE && (*it)->get_symbol().get_name() == "this"))
-                        {
-                            argument << "*(args." << (*it)->get_field_name() << ")";
-                        }
-                        // Any other thing is passed by value
-                        else
-                        {
-                            argument << "args." << (*it)->get_field_name();
-                        }
+						if (IS_CXX_LANGUAGE && (*it)->get_allocation_policy() == OutlineDataItem::ALLOCATION_POLICY_TASK_MUST_DESTROY) {
+							internal_error("Not yet implemented: call the destructor", 0);
+						}
+					} else {
+						internal_error("running error", 0);
+					}
 
-                        if (IS_CXX_LANGUAGE
-                                && (*it)->get_allocation_policy() == OutlineDataItem::ALLOCATION_POLICY_TASK_MUST_DESTROY)
-                        {
-                            internal_error("Not yet implemented: call the destructor", 0);
-                        }
-                    }
-                    else
-                    {
-                        internal_error("running error", 0);
-                    }
+					unpacked_arguments.append_with_separator(argument, ", ");
+					break;
+				}
+			case OutlineDataItem::SHARING_REDUCTION:
+				{
+					WARNING_MESSAGE("Reductions are not tested for FPGA", "");
+					// Pass the original reduced variable as if it were a shared
+					Source argument;
 
-                    unpacked_arguments.append_with_separator(argument, ", ");
-                    break;
-                }
-            case OutlineDataItem::SHARING_REDUCTION:
-                {
-                    WARNING_MESSAGE("Reductions are not tested for FPGA", "");
-                    // Pass the original reduced variable as if it were a shared
-                    Source argument;
-                    if (IS_C_LANGUAGE || IS_CXX_LANGUAGE)
-                    {
-                        argument << "*(args." << (*it)->get_field_name() << ")";
-                    }
-                    else
-                    {
-                        internal_error("running error", 0);
-                    }
-                    unpacked_arguments.append_with_separator(argument, ", ");
+					if (IS_C_LANGUAGE || IS_CXX_LANGUAGE) {
+						argument << "*(args." << (*it)->get_field_name() << ")";
+					} else {
+						internal_error("running error", 0);
+					}
 
-                    break;
-                }
-            default:
-                {
-                    std::cerr << "Warning: Cannot copy function code to the device file" << std::endl;
-                }
-        }
-    }
+					unpacked_arguments.append_with_separator(argument, ", ");
+					break;
+				}
+			default:
+				{
+					std::cerr << "Warning: Cannot copy function code to the device file" << std::endl;
+				}
+		}
+	}
 
+	// Create the new unpacked function
+	TL::Source dummy_init_statements, dummy_final_statements;
+	TL::Symbol unpacked_function = new_function_symbol_unpacked(
+		current_function,
+		device_outline_name + "_unpacked",
+		info,
+		symbol_map,
+		dummy_init_statements,
+		dummy_final_statements);
 
+	// The unpacked function must not be static and must have external linkage because
+	// this function is called from the original source
+	symbol_entity_specs_set_is_static(unpacked_function.get_internal_symbol(), 0);
+	if (IS_C_LANGUAGE) {
+	 symbol_entity_specs_set_linkage_spec(unpacked_function.get_internal_symbol(), "\"C\"");
+	}
 
-    // Create the new unpacked function
-    TL::Source dummy_init_statements, dummy_final_statements;
-    TL::Symbol unpacked_function = new_function_symbol_unpacked(
-            current_function,
-            device_outline_name + "_unpacked",
-            info,
-            symbol_map,
-            dummy_init_statements,
-            dummy_final_statements);
+	Nodecl::NodeclBase unpacked_function_code, unpacked_function_body;
+	SymbolUtils::build_empty_body_for_function(
+		unpacked_function,
+		unpacked_function_code,
+		unpacked_function_body);
 
-    // The unpacked function must not be static and must have external linkage because
-    // this function is called from the original source
-    symbol_entity_specs_set_is_static(unpacked_function.get_internal_symbol(), 0);
-    if (IS_C_LANGUAGE)
-    {
-        symbol_entity_specs_set_linkage_spec(unpacked_function.get_internal_symbol(), "\"C\"");
-    }
+	Nodecl::Utils::append_to_top_level_nodecl(unpacked_function_code);
 
-    Nodecl::NodeclBase unpacked_function_code, unpacked_function_body;
-    SymbolUtils::build_empty_body_for_function(unpacked_function,
-            unpacked_function_code,
-            unpacked_function_body);
+	Source fpga_params;
 
-    Nodecl::Utils::append_to_top_level_nodecl(unpacked_function_code);
-
-    Source fpga_params;
-
-
-    Source unpacked_source;
-    unpacked_source
-        << dummy_init_statements
-        << private_entities
-        << fpga_params
-        << statement_placeholder(outline_placeholder)
-        << dummy_final_statements
-        ;
-#if _DEBUG_AUTOMATIC_COMPILER_
-     std::cerr << "unpacked source function:" << unpacked_source.get_source() << std::endl;
-#endif
-
-    // Add a declaration of the unpacked function symbol in the original source
-    if (IS_CXX_LANGUAGE)
-    {
-#if _DEBUG_AUTOMATIC_COMPILER_
-        std::cerr << "unpacked function:" << unpacked_function.get_function_code().prettyprint() << std::endl;
-#endif
-       //DJG TO remove???
-       if (!unpacked_function.is_member())
-       {
-#if _DEBUG_AUTOMATIC_COMPILER_
-        std::cerr << "No member... actually Doing delcaration insertion unpacked function:" << unpacked_function.get_name() << std::endl;
-#endif
-        Nodecl::NodeclBase nodecl_decl = Nodecl::CxxDecl::make(
-                /* optative context */ nodecl_null(),
-                unpacked_function,
-                original_statements.get_locus());
-       Nodecl::Utils::prepend_to_enclosing_top_level_location(original_statements, nodecl_decl);
-       }
-    }
-
-
-
-    Nodecl::NodeclBase new_unpacked_body =
-        unpacked_source.parse_statement(unpacked_function_body);
-    unpacked_function_body.replace(new_unpacked_body);
-
-    // Create the outline function
-    //The outline function has always only one parameter which name is 'args'
-    ObjectList<std::string> structure_name;
-    structure_name.append("args");
-
-    //The type of this parameter is an struct (i. e. user defined type)
-    ObjectList<TL::Type> structure_type;
-    structure_type.append(TL::Type(
-                get_user_defined_type(
-                    arguments_struct.get_internal_symbol())).get_lvalue_reference_to());
-
-
-    TL::Symbol outline_function = SymbolUtils::new_function_symbol(
-            current_function,
-            device_outline_name,
-            TL::Type::get_void_type(),
-            structure_name,
-            structure_type);
-
-    Nodecl::NodeclBase outline_function_code, outline_function_body;
-    SymbolUtils::build_empty_body_for_function(outline_function,
-            outline_function_code,
-            outline_function_body);
-        Nodecl::Utils::append_to_top_level_nodecl(outline_function_code);
-
-    Source outline_src;
-    Source instrument_before,
-           instrument_after;
-
-    if (instrumentation_enabled())
-    {
-        get_instrumentation_code(
-                info._called_task,
-                outline_function,
-                outline_function_body,
-                info._task_label,
-                original_statements.get_locus(),
-                instrument_before,
-                instrument_after);
-    }
-
-    outline_src
-        << "{"
-        <<      instrument_before
-        <<      unpacked_function.get_qualified_name_for_expression(
-                   /* in_dependent_context */
-                   (current_function.get_type().is_template_specialized_type()
-                    && current_function.get_type().is_dependent())
-                ) << "(" << unpacked_arguments << ");"
-        <<      instrument_after
-        << "}"
-        ;
+	Source unpacked_source;
+	unpacked_source
+		<< dummy_init_statements
+		<< private_entities
+		<< fpga_params
+		<< statement_placeholder(outline_placeholder)
+		<< dummy_final_statements
+	;
 
 #if _DEBUG_AUTOMATIC_COMPILER_
-    std::cerr << "outline function:" << outline_function.get_function_code().prettyprint() << std::endl;
-
-    std::cerr << "outline source code:" << outline_src.get_source() << std::endl;
+	std::cerr << "unpacked source function:" << unpacked_source.get_source() << std::endl;
 #endif
 
-    Nodecl::NodeclBase new_outline_body = outline_src.parse_statement(outline_function_body);
-    outline_function_body.replace(new_outline_body);
+	// Add a declaration of the unpacked function symbol in the original source
+	if (IS_CXX_LANGUAGE) {
 
-    output_statements = Nodecl::EmptyStatement::make(
-                original_statements.get_locus());
-
-
-
-            if (IS_CXX_LANGUAGE)
-            {
 #if _DEBUG_AUTOMATIC_COMPILER_
-                std::cerr << "Doing delcaration insertion unpacked function:" << outline_function.get_name() << std::endl;
+		std::cerr << "unpacked function:" << unpacked_function.get_function_code().prettyprint() << std::endl;
 #endif
-                if (!outline_function.is_member())
-                {
+
+	//DJG TO remove???
+	if (!unpacked_function.is_member()) {
+
 #if _DEBUG_AUTOMATIC_COMPILER_
-                  std::cerr << "No member... actually Doing delcaration insertion unpacked function:" << outline_function.get_name() << std::endl;
+		std::cerr << "No member... actually Doing delcaration insertion unpacked function:" << unpacked_function.get_name() << std::endl;
 #endif
-                  Nodecl::NodeclBase nodecl_decl = Nodecl::CxxDecl::make(
-                            /* optative context */ nodecl_null(),
-                            outline_function,
-                            original_statements.get_locus());
+
+		Nodecl::NodeclBase nodecl_decl = Nodecl::CxxDecl::make(
+			/* optative context */ nodecl_null(),
+			unpacked_function,
+			original_statements.get_locus());
+		Nodecl::Utils::prepend_to_enclosing_top_level_location(original_statements, nodecl_decl);
+		}
+	}
+
+	Nodecl::NodeclBase new_unpacked_body = unpacked_source.parse_statement(unpacked_function_body);
+	unpacked_function_body.replace(new_unpacked_body);
+
+	// Create the outline function
+	//The outline function has always only one parameter which name is 'args'
+	ObjectList<std::string> structure_name;
+	structure_name.append("args");
+
+	//The type of this parameter is an struct (i. e. user defined type)
+	ObjectList<TL::Type> structure_type;
+	structure_type.append(TL::Type(
+		get_user_defined_type(
+			arguments_struct.get_internal_symbol())).get_lvalue_reference_to());
+
+	TL::Symbol outline_function = SymbolUtils::new_function_symbol(
+		current_function,
+		device_outline_name,
+		TL::Type::get_void_type(),
+		structure_name,
+		structure_type);
+
+	Nodecl::NodeclBase outline_function_code, outline_function_body;
+	SymbolUtils::build_empty_body_for_function(
+		outline_function,
+		outline_function_code,
+		outline_function_body);
+
+	Nodecl::Utils::append_to_top_level_nodecl(outline_function_code);
+
+	Source outline_src;
+	Source instrument_before, instrument_after;
+
+	if (instrumentation_enabled()) {
+		get_instrumentation_code(
+			info._called_task,
+			outline_function,
+			outline_function_body,
+			info._task_label,
+			original_statements.get_locus(),
+			instrument_before,
+			instrument_after);
+	}
+
+	outline_src
+		<< "{"
+		<< instrument_before
+		<< unpacked_function.get_qualified_name_for_expression(
+			/* in_dependent_context */
+			(current_function.get_type().is_template_specialized_type()
+			&& current_function.get_type().is_dependent()))
+		<< "(" << unpacked_arguments << ");"
+		<< instrument_after
+		<< "}"
+	;
+
 #if _DEBUG_AUTOMATIC_COMPILER_
-                  std::cerr << "Before inserting prettyprint:" << original_statements.prettyprint() << std::endl;
-                  std::cerr << "Before inserting get text:" << original_statements.get_text() << std::endl;
+	std::cerr << "outline function:" << outline_function.get_function_code().prettyprint() << std::endl;
+	std::cerr << "outline source code:" << outline_src.get_source() << std::endl;
 #endif
-                  Nodecl::Utils::prepend_to_enclosing_top_level_location(original_statements, nodecl_decl);
+
+	Nodecl::NodeclBase new_outline_body = outline_src.parse_statement(outline_function_body);
+	outline_function_body.replace(new_outline_body);
+
+	output_statements = Nodecl::EmptyStatement::make(original_statements.get_locus());
+
+	if (IS_CXX_LANGUAGE) {
+
 #if _DEBUG_AUTOMATIC_COMPILER_
-                  std::cerr << "After inserting prettyprint:" << original_statements.prettyprint() << std::endl;
-                  std::cerr << "After inserting get text:" << original_statements.get_text() << std::endl;
+		std::cerr << "Doing delcaration insertion unpacked function:" << outline_function.get_name() << std::endl;
 #endif
-                }
-             }
+
+		if (!outline_function.is_member()) {
+
+#if _DEBUG_AUTOMATIC_COMPILER_
+			std::cerr << "No member... actually Doing delcaration insertion unpacked function:" << outline_function.get_name() << std::endl;
+#endif
+
+			Nodecl::NodeclBase nodecl_decl = Nodecl::CxxDecl::make(
+				/* optative context */ nodecl_null(),
+				outline_function,
+				original_statements.get_locus());
+
+#if _DEBUG_AUTOMATIC_COMPILER_
+			std::cerr << "Before inserting prettyprint:" << original_statements.prettyprint() << std::endl;
+			std::cerr << "Before inserting get text:" << original_statements.get_text() << std::endl;
+#endif
+
+			Nodecl::Utils::prepend_to_enclosing_top_level_location(original_statements, nodecl_decl);
+
+#if _DEBUG_AUTOMATIC_COMPILER_
+			std::cerr << "After inserting prettyprint:" << original_statements.prettyprint() << std::endl;
+			std::cerr << "After inserting get text:" << original_statements.get_text() << std::endl;
+#endif
+
+		}
+	}
 }
 
-DeviceFPGA::DeviceFPGA()
-    : DeviceProvider(std::string("fpga"))
-{
-    set_phase_name("Nanox FPGA support");
-    set_phase_description("This phase is used by Nanox phases to implement FPGA device support");
-    register_parameter("board_name",
-                "This is the parameter Board Name that appears in the Vivado Design",
-                _board_name,
-                "xilinx.com:zc702:part0:1.1");
+DeviceFPGA::DeviceFPGA():DeviceProvider(std::string("fpga")) {
+	set_phase_name("Nanox FPGA support");
+	set_phase_description("This phase is used by Nanox phases to implement FPGA device support");
+	register_parameter("board_name",
+		"This is the parameter Board Name that appears in the Vivado Design",
+		_board_name,
+		"xilinx.com:zc702:part0:1.1");
 
-        register_parameter("device_name",
-                "This is the parameter the specific fpga device name of the board",
-                _device_name,
-                "xc7z020clg484-1");
+	register_parameter("device_name",
+		"This is the parameter the specific fpga device name of the board",
+		_device_name,
+		"xc7z020clg484-1");
 
-    register_parameter("FPGA accelerators frequency",
-                "This is the parameter to indicate the FPGA accelerators frequency",
-                _frequency,
-                "10");
-
-    register_parameter("bitstream_generation",
-                "This is the parameter to activate the bitstream generation:ON/OFF",
-                _bitstream_generation,
-                "OFF");
-
-    register_parameter("vivado_design_path",
-                "This is the parameter to indicate where the automatically generated vivado design will be placed",
-                _vivado_design_path,
-                "$PWD");
-
-    register_parameter("vivado_project_name",
-                "This is the parameter to indicate the vivado project name",
-                _vivado_project_name,
-                "Filename");
-
-    register_parameter("ip_cache_path",
-                "This is the parameter to indicate where the cache of ips is placed",
-                _ip_cache_path,
-                "$PWD/IP_cache");
-
-    register_parameter("dataflow",
-                "This is the parameter to indicate where the user wants to use the dataflow optimization:ON/OFF",
-                _dataflow,
-                "OFF");
+	register_parameter("FPGA accelerators frequency",
+		"This is the parameter to indicate the FPGA accelerators frequency",
+		_frequency,
+		"10");
+	
+	register_parameter("bitstream_generation",
+		"This is the parameter to activate the bitstream generation:ON/OFF",
+		_bitstream_generation,
+		"OFF");
+	
+	register_parameter("vivado_design_path",
+		"This is the parameter to indicate where the automatically generated vivado design will be placed",
+		_vivado_design_path,
+		"$PWD");
+	
+	register_parameter("vivado_project_name",
+		"This is the parameter to indicate the vivado project name",
+		_vivado_project_name,
+		"Filename");
+	
+	register_parameter("ip_cache_path",
+		"This is the parameter to indicate where the cache of ips is placed",
+		_ip_cache_path,
+		"$PWD/IP_cache");
+	
+	register_parameter("dataflow",
+		"This is the parameter to indicate where the user wants to use the dataflow optimization:ON/OFF",
+		_dataflow,
+		"OFF");
 
 }
 
-void DeviceFPGA::pre_run(DTO& dto)
-{
+void DeviceFPGA::pre_run(DTO& dto) {
 }
 
-void DeviceFPGA::run(DTO& dto)
-{
-    DeviceProvider::run(dto);
-    if (_bitstream_generation=="ON")
-    {
-     _current_base_acc_num = _base_acc_num;
-     std::cerr << "FPGA bitstream generation phase analysis - ON" << std::endl;
-//     std::cerr << "================================================================" << std::endl;
-//     std::cerr << "\t Board Name                  : " << _board_name << std::endl;
-//     std::cerr << "\t Device Name                 : " << _device_name << std::endl;
-//     std::cerr << "\t Frequency                   : " << _frequency << "ns" << std::endl;
-//     std::cerr << "\t Bitstream generation active : " << _bitstream_generation << std::endl;
-//     std::cerr << "\t Vivado design path          : " << _vivado_design_path << std::endl;
-//     std::cerr << "\t Vivado project name         : " << _vivado_project_name << std::endl;
-//     std::cerr << "\t IP cache path               : " << _ip_cache_path << std::endl;
-//     std::cerr << "\t Dataflow active             : " << _dataflow << std::endl;
-//     std::cerr << "================================================================" << std::endl;
-    }
+void DeviceFPGA::run(DTO& dto) {
+	DeviceProvider::run(dto);
+
+	if (_bitstream_generation == "ON") {
+		_current_base_acc_num = _base_acc_num;
+		std::cerr << "FPGA bitstream generation phase analysis - ON" << std::endl;
+		//std::cerr << "================================================================" << std::endl;
+		//std::cerr << "\t Board Name                  : " << _board_name << std::endl;
+		//std::cerr << "\t Device Name                 : " << _device_name << std::endl;
+		//std::cerr << "\t Frequency                   : " << _frequency << "ns" << std::endl;
+		//std::cerr << "\t Bitstream generation active : " << _bitstream_generation << std::endl;
+		//std::cerr << "\t Vivado design path          : " << _vivado_design_path << std::endl;
+		//std::cerr << "\t Vivado project name         : " << _vivado_project_name << std::endl;
+		//std::cerr << "\t IP cache path               : " << _ip_cache_path << std::endl;
+		//std::cerr << "\t Dataflow active             : " << _dataflow << std::endl;
+		//std::cerr << "================================================================" << std::endl;
+	}
 
 }
 
@@ -617,8 +561,6 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
         //warning??
     }
 
-
-
     if (!IS_FORTRAN_LANGUAGE)
     {
         // Extra cast for solving some issues of GCC 4.6.* and lowers (this
@@ -672,7 +614,6 @@ bool DeviceFPGA::remove_function_task_from_original_source() const
 void DeviceFPGA::preappend_list_sources_and_reset(Source outline_src, Source& full_src, TL::Scope scope)
 {
 
-
         Source each;
 
         for (ObjectList<Source>::iterator it4 = _expand_fpga_source_codes.begin(); it4 != _expand_fpga_source_codes.end(); it4++)
@@ -712,7 +653,6 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
 
         hls_file.open(new_filename.c_str()); //open as output
 
-
         if (! hls_file.is_open())
         {
             fatal_error("%s: error: cannot open file %s\n",
@@ -720,14 +660,14 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
                     strerror(errno));
         }
 
-
         ObjectList<IncludeLine> includes = CurrentFile::get_top_level_included_files();
 
-        hls_file << "/////////////////// Automatic IP Generated by OmpSs@FPGA compiler \n"
+        hls_file << "/////////////////// Automatic IP Generated by OmpSs@FPGA compiler\n"
                  << "///////////////////\n"
-                 << "// Top IP Function: "<< (*it2) << "_wrapper #Instances: "<<_acc_num << "\n"
+                 << "// Top IP Function: "<< (*it2) << "_wrapper AccID: " << _acc_num << " #Instances: "<<_num_acc_instances << "\n"
                  << "///////////////////\n"
                  << "\n"
+				 << "#include <stdint.h>\n"
                  << "#include <iostream>\n"
                  << "#include <string.h>\n"
                  << "#include <strings.h>\n"
@@ -736,19 +676,17 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
                  << "\n"
                  << "\n"
                  << "typedef ap_axis<64,1,1,5> axiData;\n"
-                 << "typedef unsigned long long int counter_t;\n"
+                 << "typedef uint64_t counter_t;\n"
                  << "\n"
                  << "\n"
                  << std::endl;
 
-        for (ObjectList<IncludeLine>::iterator it3 = includes.begin(); it3 != includes.end(); it3++)
-        {
+        for (ObjectList<IncludeLine>::iterator it3 = includes.begin(); it3 != includes.end(); it3++) {
             std::string include_file = it3->get_preprocessor_line();
             std::size_t found= include_file.find("nanos");
             std::size_t found_itself= include_file.find(TL::CompilationProcess::get_current_file().get_filename());
             if (std::string::npos==found && std::string::npos==found_itself)
                hls_file << it3->get_preprocessor_line() << std::endl;
-
         }
 
         hls_file << it->get_source(true);
@@ -762,8 +700,6 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
        // _expand_fpga_source_codes = TL::ObjectList<Source>();
     }
 }
-
-
 
 static void get_inout_decl(ObjectList<OutlineDataItem*>& data_items, std::string &in_type, std::string &out_type, std::string &in_addr_type, std::string &out_addr_type)
 {
@@ -841,8 +777,6 @@ static std::string get_element_type_pointer_to(TL::Type type, std::string field_
 }
 
 
-
-
 //REMOVED 29/03/2017 static Source get_type_pointer_to_arrays_src(Nodecl::NodeclBase expr)
 static Source get_type_pointer_to_arrays_src(TL::Type copy_type, TL::Type type, bool is_only_pointer)
 {
@@ -856,7 +790,6 @@ static Source get_type_pointer_to_arrays_src(TL::Type copy_type, TL::Type type, 
 //REMOVED 29/03/2017    {
 //REMOVED 29/03/2017        internal_error("invalid data reference (%s)", datareference.get_locus_str().c_str());
 //REMOVED 29/03/2017    }
-
 
     //if (type.is_pointer()) //it's a shape
     if (is_only_pointer) //it's a shape
@@ -1339,20 +1272,19 @@ static int num_parameters(const ObjectList<Symbol> param_list)
  * Create wrapper function for HLS to unpack streamed arguments
  *
  */
-void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_symbol_original, const Symbol &func_symbol, ObjectList<OutlineDataItem*>& data_items, Source &wrapper_before, Source &called_source, Source &wrapper_after)
-{
+void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_symbol_original, const Symbol &func_symbol, ObjectList<OutlineDataItem*>& data_items, Source &wrapper_before, Source &called_source, Source &wrapper_after) {
     //Check that we are calling a function task (this checking may be performed earlyer in the code)
-    if (!func_symbol_original.is_function())
-    {
-        fatal_error("Only function-tasks are supperted at this moment");
-    }
-    Scope fun_scope = func_symbol_original.get_scope();
 
+    if (!func_symbol_original.is_function()) {
+        fatal_error("Only function-tasks are supported at this moment");
+    }
+
+    Scope func_scope = func_symbol_original.get_scope();
     ObjectList<Symbol> param_list = called_task.get_function_parameters();
     int size = num_parameters(param_list);
     char function_parameters_passed[size];
-    memset(function_parameters_passed, 0, size);
 
+    memset(function_parameters_passed, 0, size);
 
     /*
      * The wrapper function must have:
@@ -1369,13 +1301,16 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     Source pragmas_src;
 
     Source args;
-    args << "hls::stream<axiData> &" << STR_INPUTSTREAM <<", hls::stream<axiData> &"<< STR_OUTPUTSTREAM <<", counter_t *"<<STR_DATA<< ", ap_uint<32> accID";
-    pragmas_src
-        << "#pragma HLS interface ap_ctrl_none port=return\n"
-        << "#pragma HLS interface axis port=" << STR_INPUTSTREAM <<"\n"
-        << "#pragma HLS interface axis port="<< STR_OUTPUTSTREAM <<"\n"
-        << "#pragma HLS INTERFACE m_axi port="<<STR_DATA<<"\n"
-        ;
+    args
+		<< "hls::stream<axiData> &" << STR_INPUTSTREAM << ", hls::stream<axiData> &" << STR_OUTPUTSTREAM << ", counter_t *" << STR_DATA << ", ap_uint<32> accID"
+	;
+
+	pragmas_src
+		<< "#pragma HLS INTERFACE ap_ctrl_none port=return\n"
+		<< "#pragma HLS INTERFACE axis port=" << STR_INPUTSTREAM << "\n"
+		<< "#pragma HLS INTERFACE axis port=" << STR_OUTPUTSTREAM << "\n"
+		<< "#pragma HLS INTERFACE m_axi port=" << STR_DATA << "\n"
+	;
 
     /*
      * Generate wrapper code
@@ -1400,682 +1335,622 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     Source sync_output_code;
     Source generic_initial_code;
 
-    in_copies_aux
-           << "     __cached_id = "<<STR_INPUTSTREAM<<".read().data;"
-           << "     __cached = __cached_id;"
-           << "     __param_id = __cached_id >> 32; "
-           << "     __addr = "<<STR_INPUTSTREAM<<".read().data;"
-           << "     switch(__param_id){"
-           ;
+	in_copies_aux
+		<< "\t\t__cached_id = " << STR_INPUTSTREAM << ".read().data;"
+		<< "\t\t__cached = __cached_id;"
+		<< "\t\t__param_id = __cached_id >> 32;"
+		<< "\t\t__addr = " << STR_INPUTSTREAM << ".read().data;"
+		<< "\t\tswitch (__param_id) {"
+	;
 
-    out_copies_aux
-           << "     __cached_id = __cached_id_out[__i];"
-           << "     __cached = __cached_id; "
-           << "     __param_id = __cached_id >> 32; "
-           << "     __addr = __addr_out[__i];"
-           << "     switch(__param_id){"
-           ;
+	out_copies_aux
+		<< "\t__cached_id = __cached_id_out[__i];"
+		<< "\t__cached = __cached_id; "
+		<< "\t__param_id = __cached_id >> 32;"
+		<< "\t__addr = __addr_out[__i];"
+		<< "\tswitch (__param_id) {"
+	;
 
-
-
-    int in_offset  = 0;
+    int in_offset = 0;
     int out_offset = 0;
     int n_params_id = 0;
-    int n_params_in=0;
-    int n_params_out=0;
-    int n_params_out_addr=0;
-
+    int n_params_in = 0;
+    int n_params_out = 0;
+    int n_params_out_addr = 0;
 
 // Go through all the parameters. The iteration below goes through the copies.
 
-    for (ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
-            it != data_items.end();
-            it++)
-    {
+	for (ObjectList<OutlineDataItem*>::iterator it = data_items.begin(); it != data_items.end(); it++) {
 
+		fun_params.append_with_separator((*it)->get_field_name(), ", ");
+		const std::string &field_name = (*it)->get_field_name();
 
-        fun_params.append_with_separator((*it)->get_field_name(), ",");
-        const std::string &field_name = (*it)->get_field_name();
 #if _DEBUG_AUTOMATIC_COMPILER_
-        std::cerr << std::endl << std::endl;
-        std::cerr << "Variable: " << field_name << std::endl;
-        std::cerr << std::endl << std::endl;
+		std::cerr << std::endl << std::endl;
+		std::cerr << "Variable: " << field_name << std::endl;
+		std::cerr << std::endl << std::endl;
 #endif
+
         const Scope &scope = (*it)->get_symbol().get_scope();
         const ObjectList<OutlineDataItem::CopyItem> &copies = (*it)->get_copies();
-        if (!copies.empty())
-        {
+
+        if (!copies.empty()) {
             Nodecl::NodeclBase expr = copies.front().expression;
             TL::Symbol symbol_copy= (*it)->get_field_symbol();
             Nodecl::NodeclBase expr_base = (*it)->get_base_address_expression();
-            if (copies.size() > 1)
-            {
-                internal_error("Only one copy per object (in/out/inout) is allowed (%s)",
-                        expr.get_locus_str().c_str());
-            }
-            const Type& field_type = (*it)->get_field_type().no_ref();
-            const Type &type = expr.get_type().no_ref();
-            std::string field_simple_decl = field_type.get_simple_declaration(scope, field_name);
+
+			if (copies.size() > 1) {
+				internal_error("Only one copy per object (in/out/inout) is allowed (%s)",
+				expr.get_locus_str().c_str());
+			}
+
+			const Type& field_type = (*it)->get_field_type().no_ref();
+			const Type &type = expr.get_type().no_ref();
+			std::string field_simple_decl = field_type.get_simple_declaration(scope, field_name);
+
 #if _DEBUG_AUTOMATIC_COMPILER_
-            std::cerr << "filed type declaration: " << field_simple_decl  << std::endl;
-#endif
-            std::string type_simple_decl = type.get_simple_declaration(scope, field_name);
-            size_t position=type_simple_decl.find("[");
-            bool   is_only_pointer = (position == std::string::npos);
-#if _DEBUG_AUTOMATIC_COMPILER_
-            std::cerr << "type declaration: " << type_simple_decl << " position: "<< position << std::endl;
+			std::cerr << "filed type declaration: " << field_simple_decl << std::endl;
 #endif
 
+			std::string type_simple_decl = type.get_simple_declaration(scope, field_name);
+			size_t position = type_simple_decl.find("[");
+			bool   is_only_pointer = (position == std::string::npos);
 
-
-            DataReference datareference(expr);
 #if _DEBUG_AUTOMATIC_COMPILER_
-           std::cerr << std::endl << std::endl;
-           std::cerr << "expresion of copies.front " << expr.prettyprint()<< std::endl;
-           std::cerr << std::endl << std::endl;
+			std::cerr << "type declaration: " << type_simple_decl << " position: " << position << std::endl;
 #endif
 
-            int n_elements;
-            Source dimensions_array;
-            Source dimensions_pointer_array;
-            Source n_elements_src;
-            Type elem_type;
-            Type basic_elem_type;
-            std::string basic_elem_type_name;
+			DataReference datareference(expr);
 
-
-
-            if (field_type.is_pointer() || field_type.is_array() || field_type.array_is_region())
-            {
-              n_elements_src = get_copy_elements_all_dimensions_src(type, field_type, is_only_pointer);
-              dimensions_array = get_type_arrays_src(type, field_type, is_only_pointer);
-              dimensions_pointer_array = get_type_pointer_to_arrays_src(type, field_type, is_only_pointer);
-            }
-            else {
-                    internal_error("ERROR!\n",0);
-            }
-
-
-
-            if (is_only_pointer)
-            {
-                elem_type = field_type.points_to();
-                basic_elem_type=field_type.basic_type();
-                basic_elem_type_name= basic_elem_type.print_declarator();
-            }
-            else if (type.is_array())
-            {
-                elem_type = type.array_element();
-                basic_elem_type=type.basic_type();
-                basic_elem_type_name= basic_elem_type.print_declarator();
-
-            }
-            else
-            {
-                internal_error("invalid type for input/output, only pointer and array is allowed (%d)",
-                        expr.get_locus_str().c_str());
-            }
-
-            std::string par_simple_decl = elem_type.get_simple_declaration(scope, field_name);
-            TL::Type basic_par_type= field_type.basic_type();
-            std::string basic_par_type_decl= basic_par_type.print_declarator();
 #if _DEBUG_AUTOMATIC_COMPILER_
-            std::cerr << "BASIC PAR TYPE DECL :" << basic_par_type_decl << std::endl;
+			std::cerr << std::endl << std::endl;
+			std::cerr << "expresion of copies.front " << expr.prettyprint() << std::endl;
+			std::cerr << std::endl << std::endl;
 #endif
-            std::string par_decl = field_type.get_declaration(scope, field_name);
-            TL::Type field_type_points_to;
-            if (field_type.is_pointer())
-                     field_type_points_to = field_type.points_to();
-            else if (field_type.is_pointer_to_class())
-                     field_type_points_to = field_type.pointed_class();
-            std::string pointed_to_string = field_type_points_to.print_declarator();
-            std::string pointed_to_string_simple = field_type_points_to.get_simple_declaration(scope,field_name);
-            position=par_simple_decl.rfind(field_name);
-            std::string type_par_decl = par_simple_decl.substr(0,position);
-            size_t position_pointer=par_decl.find(" ");
-            std::string type_basic_par_decl = get_element_type_pointer_to(field_type,field_name,scope);
 
-
-
-            if (copies.front().directionality == OutlineDataItem::COPY_INOUT)
-            {
-
-                const std::string field_port_name_i = STR_PREFIX +field_name+"_i";
-                const std::string field_port_name_o = STR_PREFIX +field_name+"_o";
-                local_decls
-                   << type_basic_par_decl << " " << field_name << dimensions_array <<";\n";
-
-                const std::string field_name_param_i = type_basic_par_decl +  "*" + field_port_name_i;
-                const std::string field_name_param_o = type_basic_par_decl + "*" + field_port_name_o;
-
-
-                fun_params_wrapper.append_with_separator(field_name_param_i, ",");
-                fun_params_wrapper.append_with_separator(field_name_param_o, ",");
-                pragmas_src
-                   << "#pragma HLS INTERFACE m_axi port=" << field_port_name_i << "\n"
-                   << "#pragma HLS INTERFACE m_axi port=" << field_port_name_o << "\n";
-
-
-                TL::Symbol param_symbol = (*it)->get_field_symbol();
-                int param_id= find_parameter_position(param_list, param_symbol);
-                function_parameters_passed[param_id]=1;
-
-                in_copies_aux
-                    << "     case "<< param_id <<":"
-                     "        memcpy(" << field_name << ", (const "<< type_basic_par_decl <<"*)("<< field_port_name_i<<"+__addr/sizeof("<< type_basic_par_decl << ")), " << n_elements_src << " * sizeof("<< type_basic_par_decl << ") );"
-                    << "      __cached_id_out["<<n_params_out<<"] = __cached_id;"
-                    << "      __addr_out["<<n_params_out<<"] = __addr;"
-                    << "     break;" ;
-                n_params_in++;
-
-
-
-
-
-                out_copies_aux
-                    << "     case "<< param_id <<":"
-                    << "        memcpy( "<<field_port_name_o <<  "+__addr/sizeof("<< type_basic_par_decl<< "),  (const "<< type_basic_par_decl <<" *)"<< field_name << ", " << n_elements_src << " * sizeof("<< type_basic_par_decl << ") );"
-                    << "        break;" ;
-                n_params_out++;
-
-                n_params_id++;
-
-            }
-
-            if (copies.front().directionality == OutlineDataItem::COPY_IN)
-            {
-                local_decls
-                   << type_basic_par_decl << " " << field_name << dimensions_array <<";\n";
-
-                const std::string field_port_name = STR_PREFIX+field_name;
-                const std::string field_name_param = type_basic_par_decl + "*" +field_port_name;
-
-                fun_params_wrapper.append_with_separator(field_name_param, ",");
-                pragmas_src
-                   << "#pragma HLS INTERFACE m_axi port=" << field_port_name << "\n";
-
-                TL::Symbol param_symbol = (*it)->get_field_symbol();
-                int param_id= find_parameter_position(param_list, param_symbol);
-                function_parameters_passed[param_id]=1;
-
-
-
-                in_copies_aux
-                    << "     case "<< param_id <<":"
-                    << "        memcpy(" << field_name << ", (const "<< type_basic_par_decl << "*)("<< field_port_name<<"+__addr/sizeof("<< type_basic_par_decl << ")), " << n_elements_src << " * sizeof("<< type_basic_par_decl<< ") );"
-                    << "       break;" ;
-                n_params_in++;
-                n_params_id++;
-                ;
-            }
-            if (copies.front().directionality == OutlineDataItem::COPY_OUT)
-            {
-                const std::string field_port_name = STR_PREFIX+field_name;
-                const std::string field_name_param = type_basic_par_decl+ "*" +field_port_name;
-                local_decls
-                   << type_basic_par_decl << " " << field_name << dimensions_array <<";\n";
-
-                fun_params_wrapper.append_with_separator(field_name_param, ",");
-                pragmas_src
-                   << "#pragma HLS INTERFACE m_axi port=" << field_port_name << "\n";
-
-                TL::Symbol param_symbol = (*it)->get_field_symbol();
-                int param_id= find_parameter_position(param_list, param_symbol);
-                function_parameters_passed[param_id]=1;
-
-                in_copies_aux
-                    << "     case "<< param_id <<":"
-                    << "        __cached_id_out["<<n_params_out<<"] = __cached_id;"
-                    << "        __addr_out["<<n_params_out<<"] = __addr;"
-                    << "        break;" ;
-
-                out_copies_aux
-                    << "     case "<< param_id <<":"
-                    << "        memcpy( "<<field_port_name <<  "+__addr/sizeof("<< type_basic_par_decl<< "),  (const "<< type_basic_par_decl <<" *)"<< field_name << ", " << n_elements_src << " * sizeof("<< type_basic_par_decl << ") );"
-                    << "        break;" ;
-                n_params_out++;
-
-                n_params_id++;
-                ;
-            }
-        }
-        else
-        {
-            int n_elements; //= get_copy_elements_all_dimensions(expr);
-            Source dimensions_array; // = get_type_arrays(expr);
-            Source dimensions_pointer_array; // = get_type_arrays(expr);
-
-            Source n_elements_src;
-
-
-            const Type &field_type = (*it)->get_field_type();
-            std::string field_simple_decl = field_type.get_simple_declaration(scope, field_name);
-            std::string type_simple_decl = field_type.get_simple_declaration(scope, field_name);
-            size_t position=type_simple_decl.find("[");
-            bool   is_only_pointer = (position == std::string::npos);
-
-
-            Type elem_type;
-            Type basic_elem_type;
-            std::string basic_elem_type_name;
-             if (field_type.is_pointer() || field_type.is_array())
-            {
-              if (field_type.is_pointer())
-                {
-                elem_type = field_type.points_to();
-                basic_elem_type=field_type.basic_type();
-                basic_elem_type_name= basic_elem_type.print_declarator();
-
-              } else if (field_type.is_array()) {
-                elem_type = field_type.array_element();
-                basic_elem_type=field_type.basic_type();
-                basic_elem_type_name= basic_elem_type.print_declarator();
-                }
-              else
-              {
-                      internal_error("Reference not valid",0);
-
-               }
-                std::string par_simple_decl = elem_type.get_simple_declaration(scope, field_name);
-                TL::Type basic_par_type= field_type.basic_type();
-                std::string basic_par_type_decl= basic_par_type.print_declarator();
-                std::string par_decl = field_type.get_declaration(scope, field_name);
-
-            TL::Type field_type_points_to;
-            if (field_type.is_pointer())
-                     field_type_points_to = field_type.points_to();
-            else if (field_type.is_pointer_to_class())
-                     field_type_points_to = field_type.pointed_class();
-            std::string pointed_to_string = field_type_points_to.print_declarator();
-            std::string pointed_to_string_simple = field_type_points_to.get_simple_declaration(scope,field_name);
-                position=par_decl.rfind(field_name);
-                std::string type_par_decl = par_decl.substr(0,position);
-                size_t position_pointer=par_decl.find(" ");
-            //    std::string type_basic_par_decl = par_decl.substr(0,position_pointer);
-            std::string type_basic_par_decl = get_element_type_pointer_to(field_type,field_name,scope);
-            std::string type_mcxx_par_decl = get_type_pointer_to(field_type,field_name,scope);
-
-            position = type_mcxx_par_decl.find("TO_CHANGE_MCXX");
-            const std::string field_port_name = STR_PREFIX+field_name;
-            std::string name_parameter_dimension = "*"+field_port_name;
-            std::string declaration_param_wrapper = type_mcxx_par_decl;
-            declaration_param_wrapper.replace(position,14,name_parameter_dimension);
-
-            std::string local_variable= "(*"+field_name +")";
-            std::string declaration_local_wrapper = type_mcxx_par_decl;
-            declaration_local_wrapper.replace(position,14,local_variable);
-
-            std::string casting_sizeof = type_mcxx_par_decl;
-            casting_sizeof.replace(position,14,"");
-            std::string casting_pointer = type_mcxx_par_decl;
-            casting_pointer.replace(position,14,"(*)");
-
-
-
-
-                const std::string field_name_param = declaration_param_wrapper;
-                fun_params_wrapper.append_with_separator(field_name_param, ",");
-                pragmas_src
-                   << "#pragma HLS INTERFACE m_axi port=" << field_port_name << "\n";
-
-                local_decls
-                   << declaration_local_wrapper <<";\n";
-
-                TL::Symbol param_symbol = (*it)->get_field_symbol();
-                int param_id= find_parameter_position(param_list, param_symbol);
-                function_parameters_passed[param_id]=1;
-
-                in_copies_aux
-                    << "     case "<< param_id <<":"
-                    << "                 " << field_name << " = (" << casting_pointer << ")(" << field_port_name<<"+__addr/sizeof("<< casting_sizeof << "));"
-                    << "                   break;" ;
-
-                n_params_in++;
-                n_params_id++;
-            }
-
-        }
-    }
-
-    int param_pos = 0;
-    for (ObjectList<Symbol>::const_iterator it = param_list.begin(); it != param_list.end();
-            it++, param_pos++)
-    {
-      if (function_parameters_passed[param_pos]) continue;
-
-            const Scope &scope = it->get_scope();
-            int n_elements; //= get_copy_elements_all_dimensions(expr);
-            Source dimensions_array; // = get_type_arrays(expr);
-            Source dimensions_pointer_array; // = get_type_arrays(expr);
-
-            Source n_elements_src;
-
-
-            const Type &field_type = it->get_type();
-            Type elem_type;
-            Type basic_elem_type; //=field_type.basic_type();
-            std::string basic_elem_type_name; //= basic_elem_type.print_declarator();
-            const std::string &field_name = it->get_name();
-            std::string type_simple_decl = field_type.get_simple_declaration(scope, field_name);
-            size_t position=type_simple_decl.find("[");
-            bool   is_only_pointer = (position == std::string::npos);
-
-            if (field_type.is_pointer() || field_type.is_array() || field_type.array_is_region())
-            {
-              n_elements_src = get_copy_elements_all_dimensions_src(field_type, field_type, is_only_pointer);
-              dimensions_array = get_type_arrays_src(field_type, field_type, is_only_pointer);
-              dimensions_pointer_array = get_type_pointer_to_arrays_src(field_type, field_type, is_only_pointer);
-            }
-            else {
-                    internal_error("ERROR!\n",0);
-            }
-
-            if (field_type.is_pointer() || field_type.is_array())
-            {
-                if (field_type.is_pointer())
-                {
-                elem_type = field_type.points_to();
-                basic_elem_type=field_type.basic_type();
-                basic_elem_type_name= basic_elem_type.print_declarator();
-
-                } else{
-                elem_type = field_type.array_element();
-                basic_elem_type=field_type.basic_type();
-                basic_elem_type_name= basic_elem_type.print_declarator();
-
-                }
-                std::string par_simple_decl = elem_type.get_simple_declaration(scope, field_name);
-                TL::Type basic_par_type= field_type.basic_type();
-                std::string basic_par_type_decl= basic_par_type.print_declarator();
-                std::string par_decl = field_type.get_declaration(scope, field_name);
-            TL::Type field_type_points_to;
-            if (field_type.is_pointer())
-                     field_type_points_to = field_type.points_to();
-            else if (field_type.is_pointer_to_class())
-                     field_type_points_to = field_type.pointed_class();
-            std::string pointed_to_string = field_type_points_to.print_declarator();
-            std::string pointed_to_string_simple = field_type_points_to.get_simple_declaration(scope,field_name);
-                size_t position=par_decl.rfind(field_name);
-                std::string type_par_decl = par_decl.substr(0,position);
-                size_t position_pointer=par_decl.find(" ");
-            //    std::string type_basic_par_decl = par_decl.substr(0,position_pointer);
-            std::string type_basic_par_decl = get_element_type_pointer_to(field_type,field_name,scope);
-
-                const std::string field_port_name = STR_PREFIX+field_name;
-                //const std::string field_name_param = type_basic_par_decl+ "*" +field_port_name;
-                const std::string field_name_param = type_basic_par_decl+ "*" +field_port_name;
-                // DJG ONE ONLY PORT - REMOVING PORTS PER ARGUMENT
-                fun_params_wrapper.append_with_separator(field_name_param, ",");
-                pragmas_src
-                   << "#pragma HLS INTERFACE m_axi port=" << field_port_name << "\n";
-
-                local_decls
-                   << type_basic_par_decl << "*" << field_name << dimensions_pointer_array <<";\n";
-                function_parameters_passed[param_pos]=1;
-
-                in_copies_aux
-                    << "     case "<< param_pos <<":"
-                    << "                 " << field_name << " = (" << type_basic_par_decl <<" * "<<dimensions_pointer_array << ")(" << field_port_name<<"+__addr/sizeof("<< type_basic_par_decl<< "));"
-                    << "                   break;" ;
-
-                n_params_in++;
-                n_params_id++;
-
-        }
-    }
-
-
-
-
-
-    in_copies       << " for (__i=0; __i<" << n_params_id << "; __i++) {"
-                    << in_copies_aux
-                    << "    default:;"
-                    << "    }"
-                    << "   }"
-                    ;
-
-    if (n_params_out)
-    {
-       out_copies       << " for (__i=0; __i<("<< n_params_out <<"); __i++) {"
-                        << out_copies_aux
-                        << "    default:;"
-                        << "    }"
-                        << "   }"
-                        ;
-    }
-
-
-
-    Nodecl::NodeclBase fun_code =  func_symbol_original.get_function_code();
-    Source wrapper_src;
-
-
-    // DJG ONE ONLY PORT - REMOVING PORTS PER ARGUMENT
-    wrapper_src
-        << "void " <<func_symbol.get_name()<<" (" << args<< "," << fun_params_wrapper << "){"
-    ;
-
-    local_decls
-        << "   counter_t  __counter_reg[4]={0xA,0xBAD,0xC0FFE,0xDEAD};"
-        << "   unsigned int __i;"
-	<< "   unsigned long long __addrRd, __addrWr, __accHeader, __comp_needed;"
-	<< "   unsigned int __cached, __destID;"
-	<< "   unsigned long long __addr, __cached_id;"
-        << "   unsigned int __param_id, __n_params_in, __n_params_out;";
-   if (n_params_out)
-   {
-    local_decls
-        << "   unsigned long long __cached_id_out["<<n_params_out<<"];"
-        << "   unsigned long long __addr_out["<<n_params_out<<"];"
-    ;
-   }
-    local_decls
-        << "\n"
-        << "\n"
-    ;
-
-    profiling_0
-        << "   memcpy(&__counter_reg[0],(const counter_t *)("<<STR_DATA<<"+__addrRd/sizeof(counter_t)),sizeof(counter_t)); "
-        << "\n"
-        << "\n"
-      ;
-
-    profiling_1
-        << "   memcpy(&__counter_reg[1],(const counter_t *)("<<STR_DATA<<"+__addrRd/sizeof(counter_t)),sizeof(counter_t)); "
-        << "\n"
-        << "\n"
-      ;
-    profiling_2
-        << "   memcpy(&__counter_reg[2],(const counter_t *)("<<STR_DATA<<"+__addrRd/sizeof(counter_t)),sizeof(counter_t)); "
-        << "\n"
-        << "\n"
-      ;
-
-    profiling_3
-        << "   memcpy(&__counter_reg[3],(const counter_t *)("<<STR_DATA<<"+__addrRd/sizeof(counter_t)),sizeof(counter_t)); "
-        << "   memcpy((void *)("<<STR_DATA<<"+__addrWr/sizeof(counter_t)), __counter_reg, 4*sizeof(counter_t));"
-        << "\n"
-        << "\n"
-        ;
-
-    generic_initial_code
-        << "   __addrRd = "<<STR_INPUTSTREAM<<".read().data;"
-	<< "   __addrWr = "<<STR_INPUTSTREAM<<".read().data;"
-	<< "   __accHeader = "<<STR_INPUTSTREAM<<".read().data;"
-	<< "   __comp_needed = __accHeader;"
-    << "   __destID = __accHeader>>32;"
-        ;
-
-
-
-    sync_output_code
-        <<  "    axiData __output = {0, 0, 0, 0, 0, 0, 0};"
-        <<  "    //memcpy(&__output.data, (void *)("<<STR_DATA<<"+__addrWr/sizeof(counter_t)), sizeof(unsigned int));"
-        <<  "    __output.keep = 0xFF;"
-        <<  "    __output.data = accID;"
-        <<  "    __output.dest = __destID;"
-        <<  "    __output.last = 1;"
-        <<  "    "<<STR_OUTPUTSTREAM<<".write(__output);"
-        << "\n"
-        << "\n"
-       ;
-
-
-
-
-    wrapper_before
-        << wrapper_src
-        << pragmas_src
-        << local_decls
-        << generic_initial_code
-        << profiling_0
-        << in_copies
-        << out_copies_addr
-        << profiling_1
-    ;
-    called_source
-        << "if (__comp_needed)\n"
-        <<     func_symbol_original.get_name() << "(" << fun_params << ");"
-    ;
-    wrapper_after
-        << profiling_2
-        << out_copies
-        << profiling_3
-        << sync_output_code
-        << "}"
-    ;
+			int n_elements;
+			Source dimensions_array;
+			Source dimensions_pointer_array;
+			Source n_elements_src;
+			Type elem_type;
+			Type basic_elem_type;
+			std::string basic_elem_type_name;
+			
+			if (field_type.is_pointer() || field_type.is_array() || field_type.array_is_region()) {
+			  n_elements_src = get_copy_elements_all_dimensions_src(type, field_type, is_only_pointer);
+			  dimensions_array = get_type_arrays_src(type, field_type, is_only_pointer);
+			  dimensions_pointer_array = get_type_pointer_to_arrays_src(type, field_type, is_only_pointer);
+			} else {
+				internal_error("ERROR!\n",0);
+			}
+			
+			if (is_only_pointer) {
+			    elem_type = field_type.points_to();
+			    basic_elem_type=field_type.basic_type();
+			    basic_elem_type_name= basic_elem_type.print_declarator();
+			} else if (type.is_array()) {
+			    elem_type = type.array_element();
+			    basic_elem_type=type.basic_type();
+			    basic_elem_type_name= basic_elem_type.print_declarator();
+			} else {
+				internal_error("invalid type for input/output, only pointer and array is allowed (%d)",
+				expr.get_locus_str().c_str());
+			}
+			
+			std::string par_simple_decl = elem_type.get_simple_declaration(scope, field_name);
+			TL::Type basic_par_type= field_type.basic_type();
+			std::string basic_par_type_decl= basic_par_type.print_declarator();
+
+#if _DEBUG_AUTOMATIC_COMPILER_
+			std::cerr << "BASIC PAR TYPE DECL :" << basic_par_type_decl << std::endl;
+#endif
+
+			std::string par_decl = field_type.get_declaration(scope, field_name);
+			TL::Type field_type_points_to;
+
+			if (field_type.is_pointer()) {
+				field_type_points_to = field_type.points_to();
+			} else if (field_type.is_pointer_to_class()) {
+				field_type_points_to = field_type.pointed_class();
+			}
+
+			std::string pointed_to_string = field_type_points_to.print_declarator();
+			std::string pointed_to_string_simple = field_type_points_to.get_simple_declaration(scope, field_name);
+			position=par_simple_decl.rfind(field_name);
+			std::string type_par_decl = par_simple_decl.substr(0, position);
+			size_t position_pointer = par_decl.find(" ");
+			std::string type_basic_par_decl = get_element_type_pointer_to(field_type, field_name, scope);
+
+			if (copies.front().directionality == OutlineDataItem::COPY_INOUT) {
+
+				const std::string field_port_name_i = STR_PREFIX + field_name + "_i";
+				const std::string field_port_name_o = STR_PREFIX + field_name + "_o";
+
+				local_decls
+					<< "\t" << type_basic_par_decl << " " << field_name << dimensions_array << ";"
+				;
+
+				const std::string field_name_param_i = type_basic_par_decl + "*" + field_port_name_i;
+				const std::string field_name_param_o = type_basic_par_decl + "*" + field_port_name_o;
+
+				fun_params_wrapper.append_with_separator(field_name_param_i, ", ");
+				fun_params_wrapper.append_with_separator(field_name_param_o, ", ");
+
+				pragmas_src
+					<< "#pragma HLS INTERFACE m_axi port=" << field_port_name_i << "\n"
+					<< "#pragma HLS INTERFACE m_axi port=" << field_port_name_o << "\n"
+				;
+
+				TL::Symbol param_symbol = (*it)->get_field_symbol();
+				int param_id = find_parameter_position(param_list, param_symbol);
+				function_parameters_passed[param_id] = 1;
+
+				in_copies_aux
+					<< "\t\t\tcase " << param_id << ":\t"
+					<< "\t\t\t\tmemcpy(" << field_name << ", (const " << type_basic_par_decl << "*)(" << field_port_name_i << " + __addr/sizeof(" << type_basic_par_decl << ")), " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
+					<< "\t\t\t\t__cached_id_out[" << n_params_out << "] = __cached_id;"
+					<< "\t\t\t\t__addr_out[" << n_params_out << "] = __addr;"
+					<< "\t\t\t\tbreak;"
+				;
+
+				n_params_in++;
+
+				out_copies_aux
+					<< "\tcase " << param_id << ":\n"
+					<< "\t\tmemcpy( " << field_port_name_o <<  " + __addr/sizeof(" << type_basic_par_decl << "), (const " << type_basic_par_decl << " *)" << field_name << ", " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
+					<< "\tbreak;"
+				;
+
+				n_params_out++;
+
+				n_params_id++;
+
+			}
+
+			if (copies.front().directionality == OutlineDataItem::COPY_IN) {
+				const std::string field_port_name = STR_PREFIX + field_name;
+				const std::string field_name_param = type_basic_par_decl + "*" + field_port_name;
+
+				local_decls
+			    	<< "\t" << type_basic_par_decl << " " << field_name << dimensions_array << ";"
+				;
+
+				fun_params_wrapper.append_with_separator(field_name_param, ", ");
+
+				pragmas_src
+					<< "#pragma HLS INTERFACE m_axi port=" << field_port_name << "\n"
+				;
+
+				TL::Symbol param_symbol = (*it)->get_field_symbol();
+				int param_id = find_parameter_position(param_list, param_symbol);
+				function_parameters_passed[param_id] = 1;
+
+				in_copies_aux
+					<< "\t\t\tcase " << param_id << ":\n"
+					<< "\t\t\t\tmemcpy(" << field_name << ", (const " << type_basic_par_decl << "*)(" << field_port_name << " + __addr/sizeof(" << type_basic_par_decl << ")), " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
+					<< "\t\t\t\tbreak;"
+				;
+
+				n_params_in++;
+				n_params_id++;
+			}
+
+			if (copies.front().directionality == OutlineDataItem::COPY_OUT) {
+				const std::string field_port_name = STR_PREFIX + field_name;
+				const std::string field_name_param = type_basic_par_decl + "*" + field_port_name;
+
+				local_decls
+					<< "\t" << type_basic_par_decl << " " << field_name << dimensions_array << ";"
+				;
+
+				fun_params_wrapper.append_with_separator(field_name_param, ", ");
+
+				pragmas_src
+					<< "#pragma HLS INTERFACE m_axi port=" << field_port_name << "\n"
+				;
+
+				TL::Symbol param_symbol = (*it)->get_field_symbol();
+				int param_id = find_parameter_position(param_list, param_symbol);
+				function_parameters_passed[param_id] = 1;
+
+				in_copies_aux
+					<< "\t\t\tcase " << param_id << ":\n"
+					<< "\t\t\t\t__cached_id_out[" << n_params_out << "] = __cached_id;"
+					<< "\t\t\t\t__addr_out[" << n_params_out << "] = __addr;"
+					<< "\t\t\t\tbreak;"
+				;
+
+				out_copies_aux
+					<< "\tcase " << param_id << ":\n"
+					<< "\t\tmemcpy( " << field_port_name <<  " + __addr/sizeof(" << type_basic_par_decl << "), (const " << type_basic_par_decl << " *)" << field_name << ", " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
+					<< "\tbreak;"
+				;
+
+				n_params_out++;
+				n_params_id++;
+			}
+		} else {
+			int n_elements; //= get_copy_elements_all_dimensions(expr);
+			Source dimensions_array; // = get_type_arrays(expr);
+			Source dimensions_pointer_array; // = get_type_arrays(expr);
+			Source n_elements_src;
+
+			const Type &field_type = (*it)->get_field_type();
+			std::string field_simple_decl = field_type.get_simple_declaration(scope, field_name);
+			std::string type_simple_decl = field_type.get_simple_declaration(scope, field_name);
+			size_t position=type_simple_decl.find("[");
+			bool   is_only_pointer = (position == std::string::npos);
+
+			Type elem_type;
+			Type basic_elem_type;
+			std::string basic_elem_type_name;
+
+			if (field_type.is_pointer() || field_type.is_array()) {
+				if (field_type.is_pointer()) {
+					elem_type = field_type.points_to();
+					basic_elem_type=field_type.basic_type();
+					basic_elem_type_name= basic_elem_type.print_declarator();
+				} else if (field_type.is_array()) {
+					elem_type = field_type.array_element();
+					basic_elem_type=field_type.basic_type();
+					basic_elem_type_name= basic_elem_type.print_declarator();
+				} else {
+					internal_error("Reference not valid", 0);
+				}
+				
+				std::string par_simple_decl = elem_type.get_simple_declaration(scope, field_name);
+				TL::Type basic_par_type = field_type.basic_type();
+				std::string basic_par_type_decl = basic_par_type.print_declarator();
+				std::string par_decl = field_type.get_declaration(scope, field_name);
+
+				TL::Type field_type_points_to;
+
+				if (field_type.is_pointer()) {
+					field_type_points_to = field_type.points_to();
+				} else if (field_type.is_pointer_to_class()) {
+					field_type_points_to = field_type.pointed_class();
+				}
+
+				std::string pointed_to_string = field_type_points_to.print_declarator();
+				std::string pointed_to_string_simple = field_type_points_to.get_simple_declaration(scope, field_name);
+				position = par_decl.rfind(field_name);
+				std::string type_par_decl = par_decl.substr(0, position);
+				size_t position_pointer=par_decl.find(" ");
+				//    std::string type_basic_par_decl = par_decl.substr(0,position_pointer);
+				std::string type_basic_par_decl = get_element_type_pointer_to(field_type, field_name, scope);
+				std::string type_mcxx_par_decl = get_type_pointer_to(field_type, field_name, scope);
+
+				position = type_mcxx_par_decl.find("TO_CHANGE_MCXX");
+				const std::string field_port_name = STR_PREFIX + field_name;
+				std::string name_parameter_dimension = "*" + field_port_name;
+				std::string declaration_param_wrapper = type_mcxx_par_decl;
+				declaration_param_wrapper.replace(position, 14, name_parameter_dimension);
+
+				std::string local_variable = "(*" + field_name + ")";
+				std::string declaration_local_wrapper = type_mcxx_par_decl;
+				declaration_local_wrapper.replace(position, 14, local_variable);
+
+				std::string casting_sizeof = type_mcxx_par_decl;
+				casting_sizeof.replace(position, 14, "");
+				std::string casting_pointer = type_mcxx_par_decl;
+				casting_pointer.replace(position, 14, "(*)");
+
+				const std::string field_name_param = declaration_param_wrapper;
+				fun_params_wrapper.append_with_separator(field_name_param, ", ");
+
+				pragmas_src
+					<< "#pragma HLS INTERFACE m_axi port=" << field_port_name << "\n"
+				;
+
+				local_decls
+					<< "\t" << declaration_local_wrapper << ";"
+				;
+
+				TL::Symbol param_symbol = (*it)->get_field_symbol();
+				int param_id= find_parameter_position(param_list, param_symbol);
+				function_parameters_passed[param_id] = 1;
+				
+				in_copies_aux
+					<< "\t\t\tcase " << param_id << ":\n"
+					<< "\t\t\t\t" << field_name << " = (" << casting_pointer << ")(" << field_port_name << " + __addr/sizeof(" << casting_sizeof << "));"
+					<< "\t\t\t\tbreak;"
+				;
+
+				n_params_in++;
+				n_params_id++;
+			}
+		}
+	}
+
+	int param_pos = 0;
+	for (ObjectList<Symbol>::const_iterator it = param_list.begin(); it != param_list.end(); it++, param_pos++) {
+
+		if (function_parameters_passed[param_pos]){
+			continue;
+		}
+
+		const Scope &scope = it->get_scope();
+		int n_elements; //= get_copy_elements_all_dimensions(expr);
+		Source dimensions_array; // = get_type_arrays(expr);
+		Source dimensions_pointer_array; // = get_type_arrays(expr);
+		Source n_elements_src;
+
+		const Type &field_type = it->get_type();
+		Type elem_type;
+		Type basic_elem_type; //=field_type.basic_type();
+		std::string basic_elem_type_name; //= basic_elem_type.print_declarator();
+		const std::string &field_name = it->get_name();
+		std::string type_simple_decl = field_type.get_simple_declaration(scope, field_name);
+		size_t position=type_simple_decl.find("[");
+		bool   is_only_pointer = (position == std::string::npos);
+
+		if (field_type.is_pointer() || field_type.is_array() || field_type.array_is_region()) {
+			n_elements_src = get_copy_elements_all_dimensions_src(field_type, field_type, is_only_pointer);
+			dimensions_array = get_type_arrays_src(field_type, field_type, is_only_pointer);
+			dimensions_pointer_array = get_type_pointer_to_arrays_src(field_type, field_type, is_only_pointer);
+		} else {
+			internal_error("ERROR!\n",0);
+		}
+
+		if (field_type.is_pointer() || field_type.is_array()) {
+			if (field_type.is_pointer()) {
+				elem_type = field_type.points_to();
+				basic_elem_type=field_type.basic_type();
+				basic_elem_type_name= basic_elem_type.print_declarator();
+			} else {
+				elem_type = field_type.array_element();
+				basic_elem_type=field_type.basic_type();
+				basic_elem_type_name= basic_elem_type.print_declarator();
+			}
+
+			std::string par_simple_decl = elem_type.get_simple_declaration(scope, field_name);
+			TL::Type basic_par_type= field_type.basic_type();
+			std::string basic_par_type_decl= basic_par_type.print_declarator();
+			std::string par_decl = field_type.get_declaration(scope, field_name);
+			TL::Type field_type_points_to;
+
+			if (field_type.is_pointer()) {
+				field_type_points_to = field_type.points_to();
+			} else if (field_type.is_pointer_to_class()) {
+				field_type_points_to = field_type.pointed_class();
+			}
+
+			std::string pointed_to_string = field_type_points_to.print_declarator();
+			std::string pointed_to_string_simple = field_type_points_to.get_simple_declaration(scope, field_name);
+			size_t position = par_decl.rfind(field_name);
+			std::string type_par_decl = par_decl.substr(0, position);
+			size_t position_pointer = par_decl.find(" ");
+			//    std::string type_basic_par_decl = par_decl.substr(0,position_pointer);
+			std::string type_basic_par_decl = get_element_type_pointer_to(field_type, field_name, scope);
+
+			const std::string field_port_name = STR_PREFIX + field_name;
+			//const std::string field_name_param = type_basic_par_decl+ "*" +field_port_name;
+			const std::string field_name_param = type_basic_par_decl + "*" + field_port_name;
+			// DJG ONE ONLY PORT - REMOVING PORTS PER ARGUMENT
+			fun_params_wrapper.append_with_separator(field_name_param, ", ");
+
+			pragmas_src
+				<< "#pragma HLS INTERFACE m_axi port=" << field_port_name << "\n"
+			;
+
+			local_decls
+				<< "\t" << type_basic_par_decl << "*" << field_name << dimensions_pointer_array << ";"
+			;
+
+			function_parameters_passed[param_pos] = 1;
+
+			in_copies_aux
+				<< "\t\t\tcase " << param_pos << ":\n"
+				<< "\t\t\t\t" << field_name << " = (" << type_basic_par_decl << " * " << dimensions_pointer_array << ")(" << field_port_name << " + __addr/sizeof(" << type_basic_par_decl << "));"
+				<< "\t\t\t\tbreak;"
+			;
+
+			n_params_in++;
+			n_params_id++;
+
+		}
+	}
+
+	in_copies       
+		<< "\tfor (__i = 0; __i < " << n_params_id << "; __i++) {"
+		<< in_copies_aux
+		<< "\t\t\tdefault:;"
+		<< "\t\t}"
+		<< "\t}"
+	;
+
+	if (n_params_out) {
+		out_copies
+			<< "\tfor (__i = 0; __i < (" << n_params_out << "); __i++) {"
+			<< out_copies_aux
+			<< "\t\tdefault:;"
+			<< "\t\t}"
+			<< "\t}"
+			<< "\n"
+		;
+	}
+
+	Nodecl::NodeclBase fun_code = func_symbol_original.get_function_code();
+	Source wrapper_src;
+
+	// DJG ONE ONLY PORT - REMOVING PORTS PER ARGUMENT
+	wrapper_src
+		<< "void " << func_symbol.get_name() << "(" << args << ", " << fun_params_wrapper << ") {"
+	;
+
+	local_decls
+		<< "\tcounter_t  __counter_reg[4] = {0xA, 0xBAD, 0xC0FFE, 0xDEAD};"
+		<< "\tunsigned int __i;"
+		<< "\tunsigned long long __addrRd, __addrWr, __accHeader, __comp_needed;"
+		<< "\tunsigned int __cached, __destID;"
+		<< "\tunsigned long long __addr, __cached_id;"
+		<< "\tunsigned int __param_id, __n_params_in, __n_params_out;"
+	;
+
+	if (n_params_out) {
+		local_decls
+			<< "\tunsigned long long __cached_id_out[" << n_params_out << "];"
+			<< "\tunsigned long long __addr_out[" << n_params_out << "];"
+		;
+	}
+
+	profiling_0
+		<< "\tmemcpy(&__counter_reg[0], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)), sizeof(counter_t)); "
+	;
+
+	profiling_1
+		<< "\tmemcpy(&__counter_reg[1], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)), sizeof(counter_t)); "
+	;
+
+	profiling_2
+		<< "\tmemcpy(&__counter_reg[2], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)), sizeof(counter_t)); "
+	;
+
+	profiling_3
+		<< "\tmemcpy(&__counter_reg[3], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)), sizeof(counter_t)); "
+		<< "\tmemcpy((void *)(" << STR_DATA << " + __addrWr/sizeof(counter_t)), __counter_reg, 4*sizeof(counter_t));"
+	;
+
+	generic_initial_code
+		<< "\t__addrRd = " << STR_INPUTSTREAM << ".read().data;"
+		<< "\t__addrWr = " << STR_INPUTSTREAM << ".read().data;"
+		<< "\t__accHeader = " << STR_INPUTSTREAM << ".read().data;"
+		<< "\t__comp_needed = __accHeader;"
+		<< "\t__destID = __accHeader>>32;"
+	;
+
+	sync_output_code
+		<<  "\taxiData __output = \{0, 0, 0, 0, 0, 0, 0\};"
+		<<  "\t//memcpy(&__output.data, (void *)(" << STR_DATA << " + __addrWr/sizeof(counter_t)), sizeof(unsigned int));"
+		<<  "\t__output.keep = 0xFF;"
+		<<  "\t__output.data = accID;"
+		<<  "\t__output.dest = __destID;"
+		<<  "\t__output.last = 1;"
+		<<  "\t" << STR_OUTPUTSTREAM << ".write(__output);"
+	;
+
+	wrapper_before
+		<< wrapper_src
+		<< pragmas_src
+		<< "\n"
+		<< local_decls
+		<< "\n"
+		<< generic_initial_code
+		<< "\n"
+		<< profiling_0
+		<< "\n"
+		<< in_copies
+		<< "\n"
+		//<< out_copies_addr
+		<< profiling_1
+		<< "\n"
+	;
+
+	called_source
+		<< "\tif (__comp_needed)\n"
+		<< "\t\t" << func_symbol_original.get_name() << "(" << fun_params << ");"
+	    << "\n"
+	;
+
+	wrapper_after
+		<< profiling_2
+		<< "\n"
+		<< out_copies
+		<< profiling_3
+		<< "\n"
+		<< sync_output_code
+		<< "}"
+	;
 
 }
 
-void DeviceFPGA::copy_stuff_to_device_file(
-        const TL::ObjectList<Nodecl::NodeclBase>& stuff_to_be_copied)
-{
+void DeviceFPGA::copy_stuff_to_device_file(const TL::ObjectList<Nodecl::NodeclBase>& stuff_to_be_copied) {
 
-    for (TL::ObjectList<Nodecl::NodeclBase>::const_iterator it = stuff_to_be_copied.begin();
-            it != stuff_to_be_copied.end();
-            ++it)
-    {
-        if (it->is<Nodecl::FunctionCode>()
-                || it->is<Nodecl::TemplateFunctionCode>())
-        {
-            TL::Symbol function = it->get_symbol();
-            TL::Symbol new_function = SymbolUtils::new_function_symbol(function, function.get_name());
+	for (TL::ObjectList<Nodecl::NodeclBase>::const_iterator it = stuff_to_be_copied.begin(); it != stuff_to_be_copied.end(); ++it) {
+		if (it->is<Nodecl::FunctionCode>() || it->is<Nodecl::TemplateFunctionCode>()) {
+			TL::Symbol function = it->get_symbol();
+			TL::Symbol new_function = SymbolUtils::new_function_symbol(function, function.get_name());
 
-              _copied_fpga_functions.add_map(function, new_function);
-              _fpga_file_code.append(Nodecl::Utils::deep_copy(*it, *it, _copied_fpga_functions));
+			_copied_fpga_functions.add_map(function, new_function);
+			_fpga_file_code.append(Nodecl::Utils::deep_copy(*it, *it, _copied_fpga_functions));
 
-            TL::ObjectList<Nodecl::Symbol> symbol_stuff_to_be_copied= Nodecl::Utils::get_nonlocal_symbols_first_occurrence(*it);
+			TL::ObjectList<Nodecl::Symbol> symbol_stuff_to_be_copied= Nodecl::Utils::get_nonlocal_symbols_first_occurrence(*it);
 
-    for (TL::ObjectList<Nodecl::Symbol>::const_iterator its = symbol_stuff_to_be_copied.begin();
-            its != symbol_stuff_to_be_copied.end();
-            ++its)
-    {
-        TL::Symbol sym = its->get_symbol();
-        if (sym.is_function())
-        {
-            Nodecl::NodeclBase code = sym.get_function_code();
-            TL::ObjectList<Nodecl::NodeclBase> expand_code;
-            expand_code.append(code);
-            copy_stuff_to_device_file(expand_code);
-        }
-    }
-
-        }
-        else
-        {
-            _fpga_file_code.append(Nodecl::Utils::deep_copy(*it, *it));
-        }
-    }
+			for (TL::ObjectList<Nodecl::Symbol>::const_iterator its = symbol_stuff_to_be_copied.begin(); its != symbol_stuff_to_be_copied.end(); ++its) {
+				TL::Symbol sym = its->get_symbol();
+				if (sym.is_function()) {
+					Nodecl::NodeclBase code = sym.get_function_code();
+					TL::ObjectList<Nodecl::NodeclBase> expand_code;
+					expand_code.append(code);
+					copy_stuff_to_device_file(expand_code);
+				}
+			}
+		} else {
+			_fpga_file_code.append(Nodecl::Utils::deep_copy(*it, *it));
+		}
+	}
 }
 
-void DeviceFPGA::copy_stuff_to_device_file_expand( const TL::ObjectList<Nodecl::NodeclBase> stuff_to_be_copied)
-{
-    __number_of_calls++;
-    for (TL::ObjectList<Nodecl::NodeclBase>::const_iterator it = stuff_to_be_copied.begin();
-            it != stuff_to_be_copied.end();
-            ++it)
-    {
-        if (it->is<Nodecl::FunctionCode>()
-                || it->is<Nodecl::TemplateFunctionCode>())
-        {
-            TL::Symbol function = it->get_symbol();
-            Nodecl::NodeclBase code_function = function.get_function_code();
-            Source outline_src_function_caller;
-            outline_src_function_caller<< code_function.prettyprint();
+void DeviceFPGA::copy_stuff_to_device_file_expand(const TL::ObjectList<Nodecl::NodeclBase> stuff_to_be_copied) {
+	__number_of_calls++;
 
+	for (TL::ObjectList<Nodecl::NodeclBase>::const_iterator it = stuff_to_be_copied.begin(); it != stuff_to_be_copied.end(); ++it) {
+		if (it->is<Nodecl::FunctionCode>() || it->is<Nodecl::TemplateFunctionCode>()) {
+			TL::Symbol function = it->get_symbol();
+			Nodecl::NodeclBase code_function = function.get_function_code();
+			Source outline_src_function_caller;
+			outline_src_function_caller << code_function.prettyprint();
+			
+			TL::ObjectList<Nodecl::Symbol> symbol_stuff_to_be_copied= Nodecl::Utils::get_nonlocal_symbols_first_occurrence(*it);
+			
+			for (TL::ObjectList<Nodecl::Symbol>::const_iterator its = symbol_stuff_to_be_copied.begin(); its != symbol_stuff_to_be_copied.end(); ++its) {
+				TL::Symbol sym = its->get_symbol();
+				std::string original_filename = TL::CompilationProcess::get_current_file().get_filename();
 
+				if (sym.is_function() && (sym.get_filename()==original_filename)) {
+					Nodecl::NodeclBase code = sym.get_function_code();
+					TL::ObjectList<Nodecl::NodeclBase> expand_code;
+					ObjectList<Source> outline_code;
+					TL::Source outline_src_function_1l;
 
-
-            TL::ObjectList<Nodecl::Symbol> symbol_stuff_to_be_copied= Nodecl::Utils::get_nonlocal_symbols_first_occurrence(*it);
-
-    for (TL::ObjectList<Nodecl::Symbol>::const_iterator its = symbol_stuff_to_be_copied.begin();
-            its != symbol_stuff_to_be_copied.end();
-            ++its)
-    {
-        TL::Symbol sym = its->get_symbol();
-
-        std::string original_filename = TL::CompilationProcess::get_current_file().get_filename();
-        if (sym.is_function() && (sym.get_filename()==original_filename))
-        {
-
-
-            Nodecl::NodeclBase code = sym.get_function_code();
-            TL::ObjectList<Nodecl::NodeclBase> expand_code;
-            ObjectList<Source> outline_code;
-            TL::Source outline_src_function_1l;
-
-            if (code.is_null())
-            {
-#if _DEBUG_AUTOMATIC_COMPILER_
-               std::cerr << "NOT VALID!!!!!\n" << std::endl << std::endl;
-               std::cerr << "Name: " << sym.get_name() << std::endl << std::endl;
-#endif
-            }
-            else {
-
-               outline_src_function_1l<< code.prettyprint();
+					if (code.is_null()) {
 
 #if _DEBUG_AUTOMATIC_COMPILER_
-    std::cerr << std::endl << std::endl;
-    std::cerr << " ===================================================================0\n";
-    std::cerr << "call   " << __number_of_calls << ": Adding function to expand_fpga_source_codes:" + sym.get_name() + " new function called and expanded\n";
-    std::cerr << " ===================================================================0\n";
+						std::cerr << "NOT VALID!!!!!\n" << std::endl << std::endl;
+						std::cerr << "Name: " << sym.get_name() << std::endl << std::endl;
 #endif
 
-            //outline_code.insert(outline_src_function_1l);
-            ObjectList<Source> result;
+					} else {
+						outline_src_function_1l << code.prettyprint();
 
-            result.insert(outline_src_function_1l);
-            for (ObjectList<Source>::const_iterator it_expand =_expand_fpga_source_codes.begin();
-                    it_expand !=_expand_fpga_source_codes.end();
-                    it_expand++)
-            {
-                if (!((it_expand->get_source()) == outline_src_function_1l.get_source()))
-                {
+#if _DEBUG_AUTOMATIC_COMPILER_
+						std::cerr << std::endl << std::endl;
+						std::cerr << " ===================================================================0\n";
+						std::cerr << "call " << __number_of_calls << ": Adding function to expand_fpga_source_codes:" + sym.get_name() + " new function called and expanded\n";
+						std::cerr << " ===================================================================0\n";
+#endif
 
-                    result.append(*it_expand);
-                }
-            }
+						//outline_code.insert(outline_src_function_1l);
+						ObjectList<Source> result;
 
-            _expand_fpga_source_codes = result;
+						result.insert(outline_src_function_1l);
 
-            //expand_code.append(code);
-            expand_code.insert(code);
-            copy_stuff_to_device_file_expand(expand_code);
-          }
+						for (ObjectList<Source>::const_iterator it_expand =_expand_fpga_source_codes.begin(); it_expand !=_expand_fpga_source_codes.end(); it_expand++) {
+							if (!((it_expand->get_source()) == outline_src_function_1l.get_source())) {
+								result.append(*it_expand);
+							}
+						}
 
-        }
-        else
-        {
+						_expand_fpga_source_codes = result;
 
-        }
-    }
-
-        }
-        else ;
-    }
-    __number_of_calls--;
+						expand_code.insert(code);
+						copy_stuff_to_device_file_expand(expand_code);
+					}
+				}
+			}
+		}
+	}
+	__number_of_calls--;
 }
 
 EXPORT_PHASE(TL::Nanox::DeviceFPGA);
