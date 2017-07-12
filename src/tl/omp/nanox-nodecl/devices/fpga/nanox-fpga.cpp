@@ -1781,8 +1781,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 	local_decls
 		<< "\tcounter_t  __counter_reg[4] = {0xA, 0xBAD, 0xC0FFE, 0xDEAD};"
 		<< "\tunsigned int __i;"
-		<< "\tunsigned long long __addrRd, __addrWr, __accHeader, __comp_needed;"
-		<< "\tunsigned int __cached, __destID;"
+		<< "\tuint64_t __addrRd, __addrWr, __accHeader;"
+		<< "\tuint32_t __cached, __destID, __comp_needed;"
 		<< "\tunsigned long long __addr, __cached_id;"
 		<< "\tunsigned int __param_id, __n_params_in, __n_params_out;"
 	;
