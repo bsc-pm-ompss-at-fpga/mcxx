@@ -29,6 +29,7 @@
 #include "tl-counters.hpp"
 #include "tl-nodecl-utils.hpp"
 #include "tl-datareference.hpp"
+#include "tl-lowering-utils.hpp"
 #include "tl-devices.hpp"
 #include "tl-symbol-utils.hpp"
 #include "fortran03-typeutils.h"
@@ -38,6 +39,8 @@
 
 #include "tl-lower-task-common.hpp"
 #include "tl-nanox-ptr.hpp"
+
+#include "tl-nodecl-utils-fortran.hpp"
 
 using TL::Source;
 
@@ -581,61 +584,17 @@ void LoweringVisitor::emit_async_common(
             outline_info,
             construct);
 
-    if (priority_expr.is_null())
-    {
-        priority_expr = const_value_to_nodecl(const_value_get_signed_int(0));
-    }
-    else
-    {
+    if (!priority_expr.is_null())
         _lowering->seen_task_with_priorities = true;
-    }
 
-    if (final_condition.is_null())
-    {
-        final_condition = const_value_to_nodecl(const_value_get_signed_int(0));
-    }
+    std::string dyn_props_var = "nanos_wd_dyn_props";
+    dynamic_wd_info << "nanos_wd_dyn_props_t " << dyn_props_var << ";";
 
-    dynamic_wd_info
-        << "nanos_wd_dyn_props_t nanos_wd_dyn_props;"
-        << "nanos_wd_dyn_props.tie_to = 0;"
-        << "nanos_wd_dyn_props.priority = " << as_expression(priority_expr) << ";"
-        ;
+    fill_dynamic_properties(dyn_props_var,
+            priority_expr, final_condition, /* is_implicit */ 0, dynamic_wd_info);
 
-    if (!_lowering->final_clause_transformation_disabled()
-            && Nanos::Version::interface_is_at_least("master", 5024))
-    {
-        if (IS_FORTRAN_LANGUAGE
-                && !final_condition.is_constant())
-        {
-            dynamic_wd_info
-                << "if (" << as_expression(final_condition) << ")"
-                << "{"
-                <<      "nanos_wd_dyn_props.flags.is_final = 1;"
-                << "}"
-                << "else"
-                << "{"
-                <<      "nanos_wd_dyn_props.flags.is_final = 0;"
-                << "}"
-                ;
-        }
-        else
-        {
-            dynamic_wd_info
-                << "nanos_wd_dyn_props.flags.is_final = " << as_expression(final_condition) << ";"
-                ;
-        }
-    }
-
-    // Only tasks created in a parallel construct are marked as implicit
-    if (Nanos::Version::interface_is_at_least("master", 5029))
-    {
-        dynamic_wd_info
-            << "nanos_wd_dyn_props.flags.is_implicit = 0;"
-            ;
-    }
 
     Source dynamic_size;
-
     struct_size << "sizeof(imm_args)" << dynamic_size;
 
     allocate_immediate_structure(
@@ -777,7 +736,7 @@ void LoweringVisitor::emit_async_common(
         <<     "nanos_err_t " << err_name <<";"
         <<     register_reductions_opt
         <<     if_condition_begin_opt
-        <<     err_name << " = nanos_create_wd_compact(&nanos_wd_, &(nanos_wd_const_data.base), &nanos_wd_dyn_props, "
+        <<     err_name << " = nanos_create_wd_compact(&nanos_wd_, &(nanos_wd_const_data.base), &" <<  dyn_props_var << ", "
         <<                 struct_size << ", (void**)&ol_args, nanos_current_wd(),"
         <<                 copy_ol_arg << ");"
         <<     "if (" << err_name << " != NANOS_OK) nanos_handle_error (" << err_name << ");"
@@ -799,7 +758,7 @@ void LoweringVisitor::emit_async_common(
                     // This is a placeholder because arguments are filled using the base language (possibly Fortran)
         <<          statement_placeholder(fill_immediate_arguments_tree)
         <<          copy_imm_setup
-        <<          err_name << " = nanos_create_wd_and_run_compact(&(nanos_wd_const_data.base), &nanos_wd_dyn_props, "
+        <<          err_name << " = nanos_create_wd_and_run_compact(&(nanos_wd_const_data.base), &" << dyn_props_var << ", "
         <<                  struct_size << ", "
         <<                  "&imm_args,"
         <<                  num_dependences << ", &dependences[0], "
@@ -1080,6 +1039,61 @@ void LoweringVisitor::visit_task(
             /* parameter_outline_info */ NULL,
             placeholder_task_expr_transformation);
 }
+
+void LoweringVisitor::fill_dynamic_properties(
+        const std::string& dyn_props,
+        Nodecl::NodeclBase priority_expr,
+        Nodecl::NodeclBase final_expr,
+        bool is_implicit,
+        // Out
+        Source& source)
+{
+    source << dyn_props << ".tie_to = 0;";
+
+    if (priority_expr.is_null())
+        priority_expr = const_value_to_nodecl(const_value_get_signed_int(0));
+
+    source << dyn_props << ".priority = " << as_expression(priority_expr) << ";";
+
+    // Do not generate any task flag if the current runtime doesn't support them
+    if (!Nanos::Version::interface_is_at_least("master", 5024))
+        return;
+
+    if (!_lowering->final_clause_transformation_disabled())
+    {
+        if (final_expr.is_null())
+            final_expr = const_value_to_nodecl(const_value_get_signed_int(0));
+
+        if (IS_FORTRAN_LANGUAGE
+                && !final_expr.is_constant())
+        {
+            source
+                << "if (" << as_expression(final_expr) << ")"
+                << "{"
+                <<      dyn_props << ".flags.is_final = 1;"
+                << "}"
+                << "else"
+                << "{"
+                <<      dyn_props << ".flags.is_final = 0;"
+                << "}"
+                ;
+        }
+        else
+        {
+            source << dyn_props << ".flags.is_final = " << as_expression(final_expr) << ";";
+        }
+    }
+    else
+    {
+        // Even if the final clause support is disabled we must initialize the final flag
+        source << dyn_props << ".flags.is_final = 0;";
+    }
+
+    // Only tasks created in a parallel construct are marked as implicit
+    if (Nanos::Version::interface_is_at_least("master", 5029))
+        source << dyn_props << ".flags.is_implicit = " << is_implicit << ";" ;
+}
+
 
 Source LoweringVisitor::compute_num_refs_in_multiref(DataReference& data_ref)
 {
@@ -2704,8 +2718,10 @@ void LoweringVisitor::emit_translation_function_region(
     parameter_names.append("wd");
     parameter_types.append(sym_nanos_wd_t.get_user_defined_type());
 
+    TL::Symbol enclosing_function = Nodecl::Utils::get_enclosing_function(ctr);
+
     translation_function_symbol = SymbolUtils::new_function_symbol(
-            Nodecl::Utils::get_enclosing_function(ctr),
+            enclosing_function,
             fun_name.get_source(),
             TL::Type::get_void_type(),
             parameter_names,
@@ -2716,6 +2732,13 @@ void LoweringVisitor::emit_translation_function_region(
             translation_function_symbol,
             function_code,
             empty_statement);
+
+    if (IS_FORTRAN_LANGUAGE)
+    {
+        Nodecl::Utils::Fortran::append_used_modules(
+                enclosing_function.get_related_scope(),
+                translation_function_symbol.get_related_scope());
+    }
 
     TL::ObjectList<OutlineDataItem*> data_items = outline_info.get_data_items();
 
@@ -3412,15 +3435,15 @@ void LoweringVisitor::compute_array_info(
         {
             if (array_lb.is_null())
             {
-                array_lb = get_lower_bound(array_expr, fortran_rank);
+                array_lb = TL::Lowering::Utils::Fortran::get_lower_bound(array_expr, fortran_rank);
             }
             if (array_ub.is_null())
             {
-                array_ub = get_upper_bound(array_expr, fortran_rank);
+                array_ub = TL::Lowering::Utils::Fortran::get_upper_bound(array_expr, fortran_rank);
             }
             if (dim_size.is_null())
             {
-                dim_size = get_size_for_dimension(t, fortran_rank, array_expr);
+                dim_size = TL::Lowering::Utils::Fortran::get_size_for_dimension(array_expr, t, fortran_rank);
             }
         }
 
@@ -3449,103 +3472,7 @@ void LoweringVisitor::compute_array_info(
     base_type = t;
 }
 
-Nodecl::NodeclBase LoweringVisitor::get_size_for_dimension(
-        TL::Type array_type,
-        int fortran_dimension,
-        DataReference data_reference)
-{
-    Nodecl::NodeclBase n = array_type.array_get_size();
 
-    // Let's try to get the size using SIZE
-    if (n.is_null()
-            && IS_FORTRAN_LANGUAGE)
-    {
-        // Craft a SIZE if possible
-        TL::Symbol sym = data_reference.get_base_symbol();
-
-        if (sym.is_parameter()
-                && sym.get_type().no_ref().is_array()
-                && !sym.get_type().no_ref().array_requires_descriptor()
-                && fortran_dimension == fortran_get_rank_of_type(array_type.no_ref().get_internal_type()))
-        {
-            Nodecl::NodeclBase expr = data_reference;
-            if (expr.is<Nodecl::ArraySubscript>())
-            {
-                expr = expr.as<Nodecl::ArraySubscript>().get_subscripts();
-
-                expr = expr.as<Nodecl::List>()[0];
-
-                if (expr.is<Nodecl::Range>())
-                {
-                    // Use the subscript
-                    Source src;
-                    Nodecl::NodeclBase lower =  expr.as<Nodecl::Range>().get_lower().shallow_copy();
-                    if (lower.is_null())
-                    {
-                        lower = const_value_to_nodecl(const_value_get_signed_int(1));
-                    }
-                    src << "(" << as_expression(expr.as<Nodecl::Range>().get_upper().shallow_copy()) << ")"
-                        << " - "
-                        << "(" << as_expression(lower) << ")"
-                        << " + 1";
-                    n = src.parse_expression(Scope(CURRENT_COMPILED_FILE->global_decl_context));
-                }
-                else if (fortran_dimension != 1)
-                {
-                    n = const_value_to_nodecl(const_value_get_signed_int(1));
-                }
-            }
-            else
-            {
-                internal_error("Assumed size array is not fully specified", 0);
-            }
-        }
-        else
-        {
-            Source src;
-
-            Nodecl::NodeclBase expr = data_reference;
-            if (expr.is<Nodecl::ArraySubscript>())
-            {
-                expr = expr.as<Nodecl::ArraySubscript>().get_subscripted();
-            }
-
-            src << "SIZE(" << as_expression(expr.shallow_copy()) << ", " << fortran_dimension << ")";
-
-            n = src.parse_expression(Scope(CURRENT_COMPILED_FILE->global_decl_context));
-        }
-    }
-
-    return n;
-}
-
-Nodecl::NodeclBase LoweringVisitor::get_lower_bound(Nodecl::NodeclBase dep_expr, int dimension_num)
-{
-    Source src;
-    Nodecl::NodeclBase expr = dep_expr;
-    if (dep_expr.is<Nodecl::ArraySubscript>())
-    {
-        dep_expr = dep_expr.as<Nodecl::ArraySubscript>().get_subscripted();
-    }
-
-    src << "LBOUND(" << as_expression(dep_expr) << ", " << dimension_num << ")";
-
-    return src.parse_expression(Scope(CURRENT_COMPILED_FILE->global_decl_context));
-}
-
-Nodecl::NodeclBase LoweringVisitor::get_upper_bound(Nodecl::NodeclBase dep_expr, int dimension_num)
-{
-    Source src;
-    Nodecl::NodeclBase expr = dep_expr;
-    if (dep_expr.is<Nodecl::ArraySubscript>())
-    {
-        dep_expr = dep_expr.as<Nodecl::ArraySubscript>().get_subscripted();
-    }
-
-    src << "UBOUND(" << as_expression(dep_expr) << ", " << dimension_num << ")";
-
-    return src.parse_expression(Scope(CURRENT_COMPILED_FILE->global_decl_context));
-}
 
 void LoweringVisitor::remove_fun_tasks_from_source_as_possible(const OutlineInfo::implementation_table_t& implementation_table)
 {

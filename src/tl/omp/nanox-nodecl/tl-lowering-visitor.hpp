@@ -63,10 +63,10 @@ class LoweringVisitor : public Nodecl::ExhaustiveVisitor<void>
         virtual void visit(const Nodecl::OmpSs::TargetDeclaration& construct);
         virtual void visit(const Nodecl::OpenMP::Task& construct);
         virtual void visit(const Nodecl::OmpSs::TaskCall& construct);
+        virtual void visit(const Nodecl::OpenMP::TaskLoop& construct);
         virtual void visit(const Nodecl::OmpSs::TaskExpression& task_expr);
-        virtual void visit(const Nodecl::OpenMP::TaskwaitShallow& construct);
+        virtual void visit(const Nodecl::OpenMP::Taskwait& construct);
         virtual void visit(const Nodecl::OpenMP::Taskyield& construct);
-        virtual void visit(const Nodecl::OmpSs::WaitOnDependences& construct);
         virtual void visit(const Nodecl::OmpSs::Register& construct);
         virtual void visit(const Nodecl::OmpSs::Unregister& construct);
 
@@ -107,6 +107,16 @@ class LoweringVisitor : public Nodecl::ExhaustiveVisitor<void>
         void handle_vla_type_rec(TL::Type t, OutlineInfo& outline_info,
             OutlineDataItem& outline_data_item);
         void handle_vla_saved_expr(Nodecl::NodeclBase saved_expr, OutlineInfo& outline_info);
+
+        //! This function fills the dynamic properties associated to a workdescriptor.
+        //! If the priority or final expression are invalid, they would be replaced by a 0.
+        void fill_dynamic_properties(
+                const std::string& dyn_props,
+                Nodecl::NodeclBase priority_expr,
+                Nodecl::NodeclBase final_expr,
+                bool is_implicit,
+                // Out
+                Source& source);
 
         //! This function returns true if the current task has at least one reduction.
         //! Otherwise, it returns false
@@ -442,14 +452,6 @@ class LoweringVisitor : public Nodecl::ExhaustiveVisitor<void>
               TL::ObjectList<Nodecl::NodeclBase>& lower_bounds,
               TL::ObjectList<Nodecl::NodeclBase>& upper_bounds,
               TL::ObjectList<Nodecl::NodeclBase>& dims_sizes);
-
-        static Nodecl::NodeclBase get_size_for_dimension(
-                TL::Type array_type,
-                int fortran_dimension,
-                DataReference data_reference);
-
-        static Nodecl::NodeclBase get_lower_bound(Nodecl::NodeclBase dep_expr, int dimension_num);
-        static Nodecl::NodeclBase get_upper_bound(Nodecl::NodeclBase dep_expr, int dimension_num);
 
         void visit_task(
                 const Nodecl::OpenMP::Task& construct,

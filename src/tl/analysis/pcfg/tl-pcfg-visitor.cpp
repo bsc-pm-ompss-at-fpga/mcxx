@@ -26,6 +26,8 @@
 
 #include "cxx-cexpr.h"
 #include "cxx-process.h"
+#include "cxx-diagnostic.h"
+
 #include "tl-analysis-utils.hpp"
 #include "tl-pcfg-visitor.hpp"
 
@@ -509,6 +511,7 @@ next_it:    ;
         {   // If there is any node in 'last_nodes' list, then we have to connect the new graph node
             _pcfg->connect_nodes(_utils->_last_nodes, func_graph_node);
         }
+        _utils->_last_nodes.clear();
 
         // Create the nodes for the arguments
         Node* func_node;
@@ -543,6 +546,16 @@ next_it:    ;
     ObjectList<Node*> PCFGVisitor::visit_taskwait(const NBase& n)
     {
         Node* taskwait_node = new Node(_utils->_nid, __OmpTaskwait, _utils->_outer_nodes.top(), n);
+        // Connect with the last nodes created
+        _pcfg->connect_nodes(_utils->_last_nodes, taskwait_node);
+
+        _utils->_last_nodes = ObjectList<Node*>(1, taskwait_node);
+        return ObjectList<Node*>();
+    }
+    //! This method implements the visitor for taskwait on dependences
+    ObjectList<Node*> PCFGVisitor::visit_taskwait_on(const NBase& n)
+    {
+        Node* taskwait_node = new Node(_utils->_nid, __OmpWaitonDeps, _utils->_outer_nodes.top(), n);
         // Connect with the last nodes created
         _pcfg->connect_nodes(_utils->_last_nodes, taskwait_node);
 
@@ -1148,32 +1161,32 @@ next_it:    ;
             else        // expression_nodes.size() > 1
                 last_node = merge_nodes(n, expression_nodes);
 
-                // Connect the partial node created recursively with the piece of Graph build until this moment
-                ObjectList<Node*> expr_first_nodes = get_first_nodes(last_node);
-                for(ObjectList<Node*>::iterator it = expr_first_nodes.begin();
-                     it != expr_first_nodes.end(); ++it)
+            // Connect the partial node created recursively with the piece of Graph build until this moment
+            ObjectList<Node*> expr_first_nodes = get_first_nodes(last_node);
+            for(ObjectList<Node*>::iterator it = expr_first_nodes.begin();
+                    it != expr_first_nodes.end(); ++it)
+            {
+                _pcfg->clear_visits(*it);
+            }
+
+            if(!expr_last_nodes.empty())
+            {   // This will be empty when last statement visited was a Break Statement
+                int n_connects = expr_first_nodes.size() * expr_last_nodes.size();
+                if(n_connects != 0)
                 {
-                    _pcfg->clear_visits(*it);
+                    _pcfg->connect_nodes(expr_last_nodes, expr_first_nodes);
                 }
+            }
 
-                if(!expr_last_nodes.empty())
-                {   // This will be empty when last statement visited was a Break Statement
-                    int n_connects = expr_first_nodes.size() * expr_last_nodes.size();
-                    if(n_connects != 0)
-                    {
-                        _pcfg->connect_nodes(expr_last_nodes, expr_first_nodes);
-                    }
-                }
-
-                // Recompute actual last nodes for the actual graph
-                if(!_utils->_last_nodes.empty())
-                    _utils->_last_nodes = ObjectList<Node*>(1, last_node);
+            // Recompute actual last nodes for the actual graph
+            if(!_utils->_last_nodes.empty())
+                _utils->_last_nodes = ObjectList<Node*>(1, last_node);
         }
         else
         {
             internal_error("Parsing the expression '%s' 0 nodes has been returned, and they must be one or more\n",
-                            codegen_to_str(n.get_internal_nodecl(),
-                                            nodecl_retrieve_context(n.get_internal_nodecl())));
+                    codegen_to_str(n.get_internal_nodecl(),
+                        nodecl_retrieve_context(n.get_internal_nodecl())));
         }
 
         return expression_nodes;
@@ -2016,16 +2029,6 @@ next_it:    ;
         return ObjectList<Node*>();
     }
 
-    ObjectList<Node*> PCFGVisitor::visit(const Nodecl::OmpSs::WaitOnDependences& n)
-    {
-        Node* taskwait_node = new Node(_utils->_nid, __OmpWaitonDeps, _utils->_outer_nodes.top(), n);
-        // Connect with the last nodes created
-        _pcfg->connect_nodes(_utils->_last_nodes, taskwait_node);
-
-        _utils->_last_nodes = ObjectList<Node*>(1, taskwait_node);
-        return ObjectList<Node*>();
-    }
-
     ObjectList<Node*> PCFGVisitor::visit(const Nodecl::OpenMP::Aligned& n)
     {
         _utils->_pragma_nodes.top()._clauses.append(n);
@@ -2798,16 +2801,48 @@ next_it:    ;
         return ObjectList<Node*>(1, task_creation);
     }
 
-    ObjectList<Node*> PCFGVisitor::visit(const Nodecl::OpenMP::TaskwaitDeep& n)
+    ObjectList<Node*> PCFGVisitor::visit(const Nodecl::OpenMP::Taskwait& n)
     {
-        return visit_taskwait(n);
+        struct DependencesVisitor : Nodecl::ExhaustiveVisitor<void>
+        {
+            bool has_dependences;
+
+            DependencesVisitor() : has_dependences(false) {}
+
+            void visit(const Nodecl::OpenMP::DepIn& n)
+            {
+                has_dependences = true;
+            }
+            void visit(const Nodecl::OpenMP::DepOut& n)
+            {
+                has_dependences = true;
+            }
+            void visit(const Nodecl::OpenMP::DepInout& n)
+            {
+                has_dependences = true;
+            }
+            void visit(const Nodecl::OmpSs::Commutative& n)
+            {
+                error_printf_at(n.get_locus(),
+                        "commutative dependences are not supported on the taskwait construct\n");
+            }
+            void visit(const Nodecl::OmpSs::Concurrent& n)
+            {
+                error_printf_at(n.get_locus(),
+                        "concurrent dependences are not supported on the taskwait construct\n");
+            }
+        };
+
+        Nodecl::List env = n.get_environment().as<Nodecl::List>();
+        DependencesVisitor visitor;
+        visitor.walk(env);
+
+        if (visitor.has_dependences)
+            return visit_taskwait_on(n);
+        else
+            return visit_taskwait(n);
     }
 
-    ObjectList<Node*> PCFGVisitor::visit(const Nodecl::OpenMP::TaskwaitShallow& n)
-    {
-        return visit_taskwait(n);
-    }
-    
     ObjectList<Node*> PCFGVisitor::visit(const Nodecl::OpenMP::Uniform& n)
     {
         _utils->_pragma_nodes.top()._clauses.append(n);
@@ -3578,6 +3613,7 @@ next_it:    ;
         Node* while_exit = while_graph_node->get_graph_exit_node();
 
         // Build condition node
+        _utils->_last_nodes.clear();
         Node* cond_node = walk(n.get_condition())[0];
         _pcfg->connect_nodes(while_graph_node->get_graph_entry_node(), cond_node);
         _utils->_last_nodes = ObjectList<Node*>(1, cond_node);

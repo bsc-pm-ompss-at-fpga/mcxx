@@ -27,9 +27,7 @@
 
 /*
 <testinfo>
-test_generator=config/mercurium-ompss
-test_compile_fail_nanos6_mercurium=yes
-test_compile_fail_nanos6_imcc=yes
+test_generator=(config/mercurium-ompss "config/mercurium-ompss-v2 openmp-compatibility")
 </testinfo>
 */
 #include<stdio.h>
@@ -65,6 +63,11 @@ int main()
             }
         }
     }
-#pragma omp taskwait
-    assert(serial_max_val == max_val);
+
+    #pragma omp task in(max_val)
+    {
+        assert(serial_max_val == max_val);
+    }
+
+    #pragma omp taskwait
 }

@@ -27,10 +27,13 @@
 
 #include "tl-nanos6.hpp"
 #include "tl-nanos6-lower.hpp"
+#include "tl-nanos6-task-properties.hpp"
+#include "tl-nanos6-interface.hpp"
 #include "tl-source.hpp"
 
 #include "cxx-driver-utils.h"
 #include "cxx-utils.h"
+#include "cxx-cexpr.h"
 
 #include <string>
 #include <fstream>
@@ -45,44 +48,67 @@ const char *entry_points[] = {
     "nanos_create_task",
     "nanos_submit_task",
     "nanos_taskwait",
-    "nanos_register_read_depinfo",
-    "nanos_register_write_depinfo",
-    "nanos_register_readwrite_depinfo",
-    "nanos_register_weak_read_depinfo",
-    "nanos_register_weak_write_depinfo",
-    "nanos_register_weak_readwrite_depinfo",
     "nanos_user_lock",
     "nanos_user_unlock",
+    "nanos_get_original_reduction_address",
 };
 
-// This is kludgy: devise a way to do this in the FE
-void fixup_entry_points()
+// We have '__nanos6_max_dimensions' different versions for each symbol, for
+// this reason they're treated a bit different
+const char *register_dependences[] =
 {
-    TL::Scope global_scope = TL::Scope::get_global_scope();
+    "nanos_register_region_read_depinfo",
+    "nanos_register_region_write_depinfo",
+    "nanos_register_region_readwrite_depinfo",
+    "nanos_register_region_weak_read_depinfo",
+    "nanos_register_region_weak_write_depinfo",
+    "nanos_register_region_weak_readwrite_depinfo",
+    "nanos_register_region_commutative_depinfo",
+    "nanos_register_region_concurrent_depinfo",
+    "nanos_register_region_reduction_depinfo",
+};
+
+void fix_entry_point(std::string name)
+{
+    TL::Symbol sym = TL::Scope::get_global_scope().get_symbol_from_name(name);
+    ERROR_CONDITION(!sym.is_valid(), "Nanos 6 entry point '%s' not found", name.c_str());
+
+    symbol_entity_specs_set_bind_info(
+            sym.get_internal_symbol(),
+            nodecl_make_fortran_bind_c(/* name */ nodecl_null(),sym.get_locus()));
+}
+
+// This is kludgy: devise a way to do this in the FE
+void fixup_entry_points(int deps_max_dimensions)
+{
     for (const char **it = entry_points;
          it < (const char **)(&entry_points + 1);
          it++)
     {
-        const char *str = *it;
-        TL::Symbol sym = global_scope.get_symbol_from_name(str);
+        fix_entry_point(*it);
+    }
 
-        ERROR_CONDITION(
-            !sym.is_valid(), "Nanos 6 entry point '%s' not found", str);
+    for(int dim = 1; dim <= deps_max_dimensions; dim++)
+    {
+        for(const char **it = register_dependences;
+                it < (const char**)(&register_dependences + 1);
+                it++)
+        {
+            std::stringstream ss;
+            ss << *it << dim;
 
-        Source bind_name_src;
-        bind_name_src << "\"" << str << "\"";
-        Nodecl::NodeclBase bind_name
-            = bind_name_src.parse_expression(global_scope);
+            fix_entry_point(ss.str());
+        }
+    }
 
-        symbol_entity_specs_set_bind_info(
-            sym.get_internal_symbol(),
-            nodecl_make_fortran_bind_c(bind_name.get_internal_nodecl(),
-                                       sym.get_locus()));
+    if (Interface::family_is_at_least("nanos6_utils_api", 1))
+    {
+        fix_entry_point("nanos6_bzero");
     }
 }
 }
 
-    void LoweringPhase::fortran_load_api(DTO& dto)
+    void LoweringPhase::fortran_preprocess_api(DTO& dto)
     {
         ERROR_CONDITION(!IS_FORTRAN_LANGUAGE, "This is only for Fortran", 0);
 
@@ -149,8 +175,12 @@ void fixup_entry_points()
         // FIXME - keep this?
 
         Source::source_language = SourceLanguage::Current;
+    }
 
-        fixup_entry_points();
+    void LoweringPhase::fortran_fixup_api()
+    {
+        ERROR_CONDITION(!IS_FORTRAN_LANGUAGE, "This is only for Fortran", 0);
+        fixup_entry_points(get_deps_max_dimensions());
     }
 
 

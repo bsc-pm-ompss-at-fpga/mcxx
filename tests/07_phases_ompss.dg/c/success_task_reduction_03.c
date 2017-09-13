@@ -27,9 +27,8 @@
 
 /*
 <testinfo>
-test_generator=config/mercurium-ompss
-test_compile_fail_nanos6_mercurium=yes
-test_compile_fail_nanos6_imcc=yes
+test_generator=(config/mercurium-ompss "config/mercurium-ompss-v2 openmp-compatibility")
+test_CFLAGS=-std=gnu99
 </testinfo>
 */
 #include<stdio.h>
@@ -53,6 +52,11 @@ int main()
         }
 
     }
-#pragma omp taskwait
-assert(res == ( ( N * (N+1) ) /2) );
+
+    #pragma omp task in(res)
+    {
+        assert(res == ( ( N * (N+1) ) /2) );
+    }
+
+    #pragma omp taskwait
 }

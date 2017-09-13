@@ -160,7 +160,7 @@ typedef struct debug_options_tag
     char debug_parser;
     char print_nodecl_graphviz;
     char print_nodecl_html;
-    char print_parse_tree;
+    char print_ast_graphviz;
     char print_memory_report;
     char print_memory_report_in_bytes;
     char debug_sizeof;
@@ -169,6 +169,7 @@ typedef struct debug_options_tag
     // Analysis flags. Those are not handled by the driver, but by the analysis phase.
     char analysis_verbose;
     char ranges_verbose;
+    char tdg_verbose;
     char analysis_perf;
     char analysis_info;
     char print_pcfg;
@@ -232,9 +233,6 @@ typedef struct compilation_process_tag
 {
     // Result of the execution
     int execution_result;
-
-    // Config file
-    const char *config_file;
 
     // Config dir
     const char *config_dir;
@@ -539,6 +537,9 @@ typedef struct compilation_configuration_tag
     char enable_upc;
     // If this is not null, this should be a constant expression
     const char *upc_threads;
+
+    // States whether the -std flag was explicitly specified
+    char explicit_std_version;
 
     // Enable C11
     char enable_c11;

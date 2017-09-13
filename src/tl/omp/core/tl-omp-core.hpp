@@ -32,16 +32,15 @@
 
 #include <stack>
 
+#include "tl-lexer.hpp"
 #include "tl-nodecl.hpp"
 #include "tl-compilerphase.hpp"
+#include "tl-pragmasupport.hpp"
 
 #include "tl-omp.hpp"
-#include "tl-pragmasupport.hpp"
-#include "tl-omp-tasks.hpp"
-
+#include "tl-omp-reduction.hpp"
 #include "tl-ompss-target.hpp"
 
-#include "tl-lexer.hpp"
 namespace TL
 {
     namespace OpenMP
@@ -274,8 +273,6 @@ namespace TL
 
                 void fix_sections_layout(TL::PragmaCustomStatement construct, const std::string& pragma_name);
 
-                void collapse_check_loop(TL::PragmaCustomStatement construct);
-
                 void parse_declare_reduction(ReferenceScope ref_sc, const std::string& declare_reduction_src, bool is_builtin);
                 void parse_declare_reduction(ReferenceScope ref_sc, Source declare_reduction_src, bool is_builtin);
                 void parse_declare_reduction(ReferenceScope ref_sc,
@@ -293,18 +290,14 @@ namespace TL
 
                 void sanity_check_for_loop(Nodecl::NodeclBase);
 
-                bool _discard_unused_data_sharings;
-                bool _allow_shared_without_copies;
-                bool _allow_array_reductions;
                 bool _ompss_mode;
                 bool _copy_deps_by_default;
                 bool _untied_tasks_by_default;
-
-                // This variable is used to enable the experimental support of input by value dependences
-                bool _enable_input_by_value_dependences;
-
-                // This variable is used to enable the experimental support of nonvoid function tasks
-                bool _enable_nonvoid_function_tasks;
+                bool _discard_unused_data_sharings;
+                bool _allow_shared_without_copies;
+                bool _allow_array_reductions;
+                bool _enable_input_by_value_dependences; // EXPERIMENTAL
+                bool _enable_nonvoid_function_tasks;     // EXPERIMENTAL
 
                 // States if we have seen a declare target
                 bool _inside_declare_target;
@@ -324,36 +317,22 @@ namespace TL
                 //! Used when parsing declare reduction
                 static bool _silent_declare_reduction;
 
-                void set_discard_unused_data_sharings(bool b) { _discard_unused_data_sharings = b; }
+                //! Returns whether the current programming model is OmpSs
+                bool in_ompss_mode() const;
 
-                void set_allow_shared_without_copies(bool b) { _allow_shared_without_copies = b; }
+                //! Returns whether tasks should be untied by default
+                bool untied_tasks_by_default() const;
 
-                void set_allow_array_reductions(bool b) { _allow_array_reductions = b; }
-
-                void set_enable_input_by_value_dependences(bool b) { _enable_input_by_value_dependences = b; }
-
-                void set_enable_nonvoid_function_tasks(bool b) { _enable_nonvoid_function_tasks = b; }
-
-                void set_ompss_mode(bool b) { _ompss_mode = b; }
-                bool in_ompss_mode() const
-                {
-                    return _ompss_mode;
-                }
-
-                void set_copy_deps_by_default(bool b) { _copy_deps_by_default = b; }
-                bool copy_deps_by_default() const
-                {
-                    return _copy_deps_by_default;
-                }
-
-                void set_untied_tasks_by_default(bool b) { _untied_tasks_by_default = b; }
-                bool untied_tasks_by_default() const
-                {
-                    return _untied_tasks_by_default;
-                }
+                /* These methods are used from Base::Base() to parse the TL::Core phase flags */
+                void set_ompss_mode_from_str(const std::string& str);
+                void set_copy_deps_from_str(const std::string& str);
+                void set_untied_tasks_by_default_from_str(const std::string& str);
+                void set_discard_unused_data_sharings_from_str(const std::string& str);
+                void set_allow_shared_without_copies_from_str(const std::string& str);
+                void set_allow_array_reductions_from_str(const std::string& str);
+                void set_enable_input_by_value_dependences_from_str(const std::string& str);
+                void set_enable_nonvoid_function_tasks_from_str(const std::string& str);
         };
-
-        bool is_scalar_type(TL::Type t);
 
         Nodecl::NodeclBase get_statement_from_pragma(
                 const TL::PragmaCustomStatement& construct);

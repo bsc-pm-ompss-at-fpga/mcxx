@@ -355,6 +355,7 @@ namespace TL { namespace Nanox {
         seen_opencl_task = false;
         seen_cuda_task = false;
         seen_gpu_cublas_handle = false;
+        seen_fpga_task = false;
     }
 } }
 

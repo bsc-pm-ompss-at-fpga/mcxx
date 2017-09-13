@@ -32,6 +32,7 @@
 #include "cxx-utils.h"
 #include "cxx-diagnostic.h"
 #include "tl-pragmasupport.hpp"
+#include "tl-nodecl-utils.hpp"
 
 namespace TL
 {
@@ -402,7 +403,8 @@ namespace TL
         return this->get_arguments_as_expressions(_pragma_line.retrieve_context(), tokenizer);
     }
 
-    TL::PragmaCustomClause PragmaCustomLine::get_clause(const ObjectList<std::string>& aliased_names,
+    TL::PragmaCustomClause PragmaCustomLine::get_clause(
+            const ObjectList<std::string>& aliased_names,
             const ObjectList<std::string>& deprecated_names) const
     {
         ObjectList<Nodecl::PragmaCustomClause> result;
@@ -431,20 +433,24 @@ namespace TL
         return PragmaCustomClause(*this, result);
     }
 
-    TL::PragmaCustomClause PragmaCustomLine::get_clause(const ObjectList<std::string>& aliased_names) const
+    TL::PragmaCustomClause PragmaCustomLine::get_clause(
+            const ObjectList<std::string>& aliased_names) const
     {
-        return get_clause(aliased_names, ObjectList<std::string>());
+        return get_clause(aliased_names, /* deprecated_names */ ObjectList<std::string>());
     }
 
-    TL::PragmaCustomClause PragmaCustomLine::get_clause(const std::string &name, 
+    TL::PragmaCustomClause PragmaCustomLine::get_clause(
+            const std::string &name,
             const ObjectList<std::string>& deprecated_names) const
     {
-        ObjectList<std::string> set;
-        set.append(name);
-        return get_clause(set, deprecated_names);
+        ObjectList<std::string> aliased_names;
+        aliased_names.append(name);
+        return get_clause(aliased_names, deprecated_names);
     }
-    
-    TL::PragmaCustomClause PragmaCustomLine::get_clause(const std::string &name, const std::string& deprecated_name) const
+
+    TL::PragmaCustomClause PragmaCustomLine::get_clause(
+            const std::string &name,
+            const std::string& deprecated_name) const
     {
         ObjectList<std::string> deprecated_names;
         deprecated_names.append(deprecated_name);
@@ -452,9 +458,10 @@ namespace TL
         return get_clause(name, deprecated_names);
     }
 
-    TL::PragmaCustomClause PragmaCustomLine::get_clause(const std::string &name) const
+    TL::PragmaCustomClause PragmaCustomLine::get_clause(
+            const std::string &name) const
     {
-        return get_clause(name, ObjectList<std::string>());
+        return get_clause(name, /* deprecated_names */ ObjectList<std::string>());
     }
 
     ObjectList<Nodecl::PragmaCustomClause> PragmaCustomLine::get_all_clauses_nodes() const
@@ -541,6 +548,21 @@ namespace TL
         }
     }
 
+    void PragmaCustomLine::remove_clause(const std::string& name)
+    {
+        ObjectList<Nodecl::PragmaCustomClause> clauses = this->get_all_clauses_nodes();
+        for (ObjectList<Nodecl::PragmaCustomClause>::iterator it = clauses.begin();
+                it != clauses.end();
+                it++)
+        {
+            Nodecl::PragmaCustomClause clause(*it);
+            if (name == clause.get_text())
+            {
+                Nodecl::Utils::remove_from_enclosing_list(clause);
+            }
+        }
+    }
+
     TL::PragmaCustomLine TL::PragmaCustomDeclaration::get_pragma_line() const
     {
         return TL::PragmaCustomLine(this->Nodecl::PragmaCustomDeclaration::get_pragma_line().as<Nodecl::PragmaCustomLine>());
@@ -560,65 +582,49 @@ namespace TL
     {
         return ReferenceScope(this->Nodecl::PragmaCustomDirective::get_context_of_decl().as<ReferenceScope>());
     }
-    
-    bool PragmaUtils::is_pragma_construct(const std::string& prefix,
+
+    bool PragmaUtils::is_pragma_construct(const std::string& sentinel,
             const std::string& pragma_name,
             Nodecl::NodeclBase n)
     {
-        Nodecl::PragmaCustomLine pragma_line;
-        std::string current_prefix;
+        if (!is_pragma_construct(sentinel, n))
+                return false;
+
+        Nodecl::NodeclBase pragma_line;
         if (n.is<Nodecl::PragmaCustomDirective>())
         {
-            current_prefix = n.get_text();
-            pragma_line = n.as<Nodecl::PragmaCustomDirective>().get_pragma_line().as<Nodecl::PragmaCustomLine>();
+            pragma_line = n.as<Nodecl::PragmaCustomDirective>().get_pragma_line();
         }
         else if (n.is<Nodecl::PragmaCustomStatement>())
         {
-            current_prefix = n.get_text();
-            pragma_line = n.as<Nodecl::PragmaCustomStatement>().get_pragma_line().as<Nodecl::PragmaCustomLine>();
+            pragma_line = n.as<Nodecl::PragmaCustomStatement>().get_pragma_line();
         }
         else if (n.is<Nodecl::PragmaCustomDeclaration>())
         {
-            current_prefix = n.get_text();
-            pragma_line = n.as<Nodecl::PragmaCustomDeclaration>().get_pragma_line().as<Nodecl::PragmaCustomLine>();
+            pragma_line = n.as<Nodecl::PragmaCustomDeclaration>().get_pragma_line();
         }
         else
         {
             return false;
         }
 
-        return (current_prefix == prefix
-                && pragma_line.get_text() == pragma_name);
+        return (pragma_line.as<Nodecl::PragmaCustomLine>().get_text() == pragma_name);
     }
 
-    bool PragmaUtils::is_pragma_construct(const std::string& prefix,
+    bool PragmaUtils::is_pragma_construct(
+            const std::string& sentinel,
             Nodecl::NodeclBase n)
     {
-        Nodecl::PragmaCustomLine pragma_line;
-        std::string current_prefix;
-        if (n.is<Nodecl::PragmaCustomDirective>())
-        {
-            current_prefix = n.get_text();
-            pragma_line = n.as<Nodecl::PragmaCustomDirective>().get_pragma_line().as<Nodecl::PragmaCustomLine>();
-        }
-        else if (n.is<Nodecl::PragmaCustomStatement>())
-        {
-            current_prefix = n.get_text();
-            pragma_line = n.as<Nodecl::PragmaCustomStatement>().get_pragma_line().as<Nodecl::PragmaCustomLine>();
-        }
-        else if (n.is<Nodecl::PragmaCustomDeclaration>())
-        {
-            current_prefix = n.get_text();
-            pragma_line = n.as<Nodecl::PragmaCustomDeclaration>().get_pragma_line().as<Nodecl::PragmaCustomLine>();
-        }
-        else
+        if (!n.is<Nodecl::PragmaCustomDirective>()
+                && !n.is<Nodecl::PragmaCustomStatement>()
+                && !n.is<Nodecl::PragmaCustomDeclaration>())
         {
             return false;
         }
 
-        return (current_prefix == prefix);
+        return (n.get_text() == sentinel);
     }
-    
+
     Nodecl::PragmaCustomLine TL::PragmaCustomClause::get_pragma_line() const
     {
         return _pragma_line;

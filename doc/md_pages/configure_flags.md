@@ -1,19 +1,22 @@
 ## Mercurium configure flags
 
 To support the [**OmpSs programming model**](https://pm.bsc.es/ompss),
-Mercurium needs at least to be configured with the flags ``--enable-ompss`` and
-``--with-nanox=$TARGET``. Some other flags may be needed to suit your
+Mercurium needs at least to be configured with the ``--enable-ompss`` and
+``--with-nanox=$TARGET`` flags. Some other flags may be needed to suit your
 environment.
+
+In order to support the **OmpSs-v2 programming model**, Mercurium has to be
+configured with the ``--enable-ompss-v2`` and ``--with-nanos6=$TARGET`` flags.
 
 
 | Flags                                           | Description     |
 |-------------------------------------------------| ----------------|
 |``--enable-ompss``                               | Enables support of OmpSs and OpenMP. **This is mandatory for OmpSs support**
 |``--with-nanox=dir``                             | Directory of Nanos++ installation. **This is mandatory for OmpSs support**
+|``--enable-ompss-v2``                            | Enables support of OmpSs-v2. **This is mandatory for OmpSs-v2 support**
 |``--with-nanos6=dir``                            | Directory of Nanos6 installation. **This is mandatory for OmpSs-v2 support**
 |``--with-cuda=dir``                              | Directory of CUDA installation. By default configure checks ``/usr/local/cuda``. If found CUDA support will be enabled
 |``--with-mpi=dir``                               | Directory of MPI installation
-|``--enable-tl-openmp-nanox``                     | Enables support of Nanos++ lowering. This is enabled by default when using ``--enable-ompss``
 |``--disable-nanox-cuda-device``                  | Disables CUDA support in the compiler. If CUDA is detected this support is enabled automatically. Use this to disable it
 |``--disable-nanox-opencl-device``                | Disables GPU support in the compiler. If OpenCL is detected this support is enabled automatically. Use this to disable it
 |``--enable-nanox-fpga-device``                   | Enable FPGA support in the compiler

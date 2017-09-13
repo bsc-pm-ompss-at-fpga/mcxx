@@ -58,14 +58,14 @@ namespace Analysis {
         std::string _induction_vars_enabled_str;
         bool _induction_vars_enabled;
         void set_induction_vars( const std::string& induction_vars_enabled_str );
-        
-        std::string _task_sync_tune_enabled_str;
-        bool _task_sync_tune_enabled;
-        void set_task_sync_tune( const std::string& task_sync_tune_enabled_str );
-        
+
         std::string _tdg_enabled_str;
         bool _tdg_enabled;
         void set_tdg( const std::string& tdg_enabled_str );
+
+        std::string _etdg_enabled_str;
+        bool _etdg_enabled;
+        void set_etdg( const std::string& etdg_enabled_str );
 
         std::string _range_analysis_enabled_str;
         bool _range_analysis_enabled;
@@ -77,8 +77,15 @@ namespace Analysis {
         
         std::string _ompss_mode_str;
         bool _ompss_mode_enabled;
-        void set_ompss_mode( const std::string& ompss_mode_str);
-        
+        void set_ompss_mode(const std::string& ompss_mode_str);
+
+        std::string _function_str;
+        void set_functions(const std::string& function_str);
+
+        std::string _call_graph_str;
+        bool _call_graph_enabled;
+        void set_call_graph(const std::string& call_graph_str);
+
     public:
         //! Constructor of this phase
         TestAnalysisPhase();
