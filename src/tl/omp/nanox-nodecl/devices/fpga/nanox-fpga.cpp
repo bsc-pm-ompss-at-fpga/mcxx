@@ -110,9 +110,50 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
 
 				Source outline_src;
 				Source full_src;
+                                Source func_syn_output_code;
+                                Source func_read_profiling_code;
+                                Source func_write_profiling_code;
+
+                                func_syn_output_code
+			                <<  "axiData end_acc_task(ap_uint<32> accID, uint32_t __destID) {"
+			                <<  "\taxiData __output = \{0, 0, 0, 0, 0, 0, 0\};"
+			                <<  "\t//memcpy(&__output.data, (void *)(" << STR_DATA << " + __addrWr/sizeof(counter_t)), sizeof(unsigned int));"
+			                <<  "\t__output.keep = 0xFF;"
+			                <<  "\t__output.data = accID;"
+			                <<  "\t__output.dest = __destID;"
+			                <<  "\t__output.last = 1;" 
+                                        <<  "\treturn __output;"
+			                <<  "}"
+			                <<  ""
+			                <<  ""
+			        ;
+
+                                func_read_profiling_code
+                                        << "counter_t get_time(const counter_t * counter){"
+					<< "\treturn *counter;"
+					<< "}"
+                                ;
+			        //        <<  "void read_profiling_reg(counter_t *counter_dest, const counter_t * counter_src) {"
+			        //        <<  "\tmemcpy(counter_dest, counter_src, sizeof(counter_t));"
+			        //        <<  "}"
+			        //        <<  ""
+			        //        <<  ""
+                                //;
+
+                                func_write_profiling_code
+			                <<  "void write_profiling_registers(void *counter_dest, counter_t * counters_src) {"
+			                <<  "\tmemcpy(counter_dest, counters_src, 4*sizeof(counter_t));"
+			                <<  "}"
+			                <<  ""
+			                <<  ""
+                                ;
+
 
 				Nodecl::NodeclBase fun_code = info._called_task.get_function_code();
 				outline_src
+                                        << func_syn_output_code
+                                        << func_read_profiling_code
+                                        << func_write_profiling_code
 					<< fun_code.prettyprint()
 					<< " "
 					<< " "
@@ -1795,20 +1836,28 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 	}
 
 	profiling_0
-		<< "\tmemcpy(&__counter_reg[0], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)), sizeof(counter_t)); "
+		//<< "\tmemcpy(&__counter_reg[0], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)), sizeof(counter_t)); "
+		<< "\t__counter_reg[0] =get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
 	;
 
 	profiling_1
-		<< "\tmemcpy(&__counter_reg[1], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)), sizeof(counter_t)); "
+		//<< "\tmemcpy(&__counter_reg[1], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)), sizeof(counter_t)); "
+		// << "\tread_profiling_reg(&__counter_reg[1], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
+		<< "\t__counter_reg[1] =get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
 	;
 
 	profiling_2
-		<< "\tmemcpy(&__counter_reg[2], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)), sizeof(counter_t)); "
+		//<< "\tmemcpy(&__counter_reg[2], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)), sizeof(counter_t)); "
+		//<< "\tread_profiling_reg(&__counter_reg[2], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
+		<< "\t__counter_reg[2] =get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
 	;
 
 	profiling_3
-		<< "\tmemcpy(&__counter_reg[3], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)), sizeof(counter_t)); "
-		<< "\tmemcpy((void *)(" << STR_DATA << " + __addrWr/sizeof(counter_t)), __counter_reg, 4*sizeof(counter_t));"
+		//<< "\tmemcpy(&__counter_reg[3], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)), sizeof(counter_t)); "
+		//<< "\tmemcpy((void *)(" << STR_DATA << " + __addrWr/sizeof(counter_t)), __counter_reg, 4*sizeof(counter_t));"
+                //<< "\tread_profiling_reg(&__counter_reg[3], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
+		<< "\t__counter_reg[3] =get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
+                << "\twrite_profiling_registers((void *)(" << STR_DATA << " + __addrWr/sizeof(counter_t)), __counter_reg);"
 	;
 
 	generic_initial_code
@@ -1819,15 +1868,13 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 		<< "\t__destID = __accHeader>>32;"
 	;
 
+
 	sync_output_code
 		<<  "\taxiData __output = \{0, 0, 0, 0, 0, 0, 0\};"
-		<<  "\t//memcpy(&__output.data, (void *)(" << STR_DATA << " + __addrWr/sizeof(counter_t)), sizeof(unsigned int));"
-		<<  "\t__output.keep = 0xFF;"
-		<<  "\t__output.data = accID;"
-		<<  "\t__output.dest = __destID;"
-		<<  "\t__output.last = 1;"
+                <<  "\t__output = end_acc_task(accID, __destID );"
 		<<  "\t" << STR_OUTPUTSTREAM << ".write(__output);"
-	;
+                <<  " "
+        ;
 
 	wrapper_before
 		<< wrapper_src
@@ -1859,6 +1906,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 		<< profiling_3
 		<< "\n"
 		<< sync_output_code
+		<< "\n"
 		<< "}"
 	;
 
