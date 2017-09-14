@@ -55,7 +55,7 @@ namespace TL {
                    _already_visited(),
                    _function_translation_map(function_tranlation_map) { }
 
-             void visit(const Nodecl::OpenMP::TaskwaitShallow& taskwait)
+             void visit(const Nodecl::OpenMP::Taskwait& taskwait)
              {
                 ++_num_task_related_pragmas;
                 // There is nothing to walk in a taskwait
@@ -71,6 +71,12 @@ namespace TL {
              {
                 ++_num_task_related_pragmas;
                 walk(task_call.get_call());
+             }
+
+             void visit(const Nodecl::OpenMP::TaskLoop& taskloop)
+             {
+                ++_num_task_related_pragmas;
+                walk(taskloop.get_loop());
              }
 
              void visit(const Nodecl::OmpSs::TaskExpression& task_expr)
@@ -164,7 +170,7 @@ namespace TL {
                    _function_translation_map(function_tranlation_map),
                    _function_codes_to_be_duplicated(function_codes_to_be_duplicated) { }
 
-             void visit(const Nodecl::OpenMP::TaskwaitShallow& taskwait)
+             void visit(const Nodecl::OpenMP::Taskwait& taskwait)
              {
                 Nodecl::Utils::remove_from_enclosing_list(taskwait);
              }
@@ -179,6 +185,12 @@ namespace TL {
              {
                 task_call.replace(task_call.get_call());
                 walk(task_call);
+             }
+
+             void visit(const Nodecl::OpenMP::TaskLoop& taskloop)
+             {
+                taskloop.replace(taskloop.get_loop());
+                walk(taskloop);
              }
 
              void visit(const Nodecl::OmpSs::TaskExpression& task_expr)
@@ -351,6 +363,15 @@ namespace TL {
         //std::cerr << "task call: " << task_call.get_locus_str() << std::endl;
         Nodecl::NodeclBase final_stmts = generate_final_stmts(task_call.get_call());
         _final_stmts_map.insert(std::make_pair(task_call, final_stmts));
+    }
+
+    void FinalStmtsGenerator::visit(const Nodecl::OpenMP::TaskLoop& node)
+    {
+        walk(node.get_loop());
+
+        //std::cerr << "taskloop: " << node.get_locus_str() << std::endl;
+        Nodecl::NodeclBase final_stmts = generate_final_stmts(node.get_loop());
+        _final_stmts_map.insert(std::make_pair(node, final_stmts));
     }
 
     void FinalStmtsGenerator::visit(const Nodecl::OmpSs::TaskExpression& task_expr)

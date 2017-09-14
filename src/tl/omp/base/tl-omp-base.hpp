@@ -62,42 +62,23 @@ namespace TL
                 bool _simd_enabled;
                 void set_simd(const std::string &simd_enabled_str);
 
-                std::string _ompss_mode_str;
-                bool _ompss_mode;
-                void set_ompss_mode(const std::string &str);
-                bool in_ompss_mode() const;
-
                 std::ofstream* _omp_report_file;
                 std::string _omp_report_str;
                 bool _omp_report;
                 void set_omp_report_parameter(const std::string &str);
 
-                std::string _copy_deps_str;
-                bool _copy_deps_by_default;
-                void set_copy_deps_by_default(const std::string& str);
-                bool copy_deps_by_default() const;
-
-                std::string _untied_tasks_by_default_str;
-                bool _untied_tasks_by_default;
-                void set_untied_tasks_by_default(const std::string& str);
-                bool untied_tasks_by_default() const;
-
-                std::string _allow_shared_without_copies_str;
-                void set_allow_shared_without_copies(const std::string &allow_shared_without_copies_str);
-
-                std::string _discard_unused_data_sharings_str;
-                void set_discard_unused_data_sharings(const std::string &discard_unused_data_sharings);
-
-                std::string _allow_array_reductions_str;
-                void set_allow_array_reductions(const std::string& allow_array_reductions);
-
                 std::string _disable_task_expr_optim_str;
 
+                // Strings used to store the TL::Core phase flags
+                std::string _ompss_mode_str;
+                std::string _copy_deps_str;
+                std::string _untied_tasks_by_default_str;
+                std::string _allow_shared_without_copies_str;
                 std::string _enable_input_by_value_dependences;
-                void set_enable_input_by_value_dependences(const std::string &enable_input_by_value);
-
                 std::string _enable_nonvoid_function_tasks;
-                void set_enable_nonvoid_function_tasks(const std::string &enable_nonvoid_function_tasks);
+                std::string _allow_array_reductions_str;
+                std::string _discard_unused_data_sharings_str;
+
 
                 // Handler functions
 #define OMP_DIRECTIVE(_directive, _name, _pred) \
@@ -114,6 +95,9 @@ namespace TL
 #undef OMP_CONSTRUCT
 #undef OMP_CONSTRUCT_NOEND
 #undef OMP_DIRECTIVE
+
+                void taskloop_runtime_based_handler_pre(TL::PragmaCustomStatement directive);
+                void taskloop_runtime_based_handler_post(TL::PragmaCustomStatement directive);
 
                 void ompss_target_handler_pre(TL::PragmaCustomStatement stmt);
                 void ompss_target_handler_post(TL::PragmaCustomStatement stmt);
@@ -207,6 +191,10 @@ namespace TL
 
                 void register_omp();
                 void register_ompss();
+
+                //! This function is called before executing the OpenMP::Core phase.
+                //! It applies the OpenMP high level transformations, such as the collapse clause
+                void apply_openmp_high_level_transformations(Nodecl::NodeclBase translation_unit);
 
 #ifndef VECTORIZATION_DISABLED
                 void register_simd_function(

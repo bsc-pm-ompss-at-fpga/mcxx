@@ -24,6 +24,10 @@
   Cambridge, MA 02139, USA.
 --------------------------------------------------------------------*/
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
+
 #include "tl-ompss-base-task.hpp"
 
 #include "cxx-diagnostic.h"
@@ -581,10 +585,10 @@ namespace TL { namespace OmpSs {
 
 
         if (function_task_info.get_untied())
-        {
-            result_list.append(
-                    Nodecl::OpenMP::Untied::make(locus));
-        }
+            result_list.append(Nodecl::OpenMP::Untied::make(locus));
+
+        if (function_task_info.get_wait())
+            result_list.append(Nodecl::OmpSs::Wait::make(locus));
 
         if (!function_task_info.get_if_clause_conditional_expression().is_null())
         {
@@ -846,47 +850,47 @@ namespace TL { namespace OmpSs {
 
         void visit(const Nodecl::OpenMP::DepIn& dep_in)
         {
-            report_dep(dep_in.get_in_deps(), OpenMP::DEP_DIR_IN);
+            report_dep(dep_in.get_exprs(), OpenMP::DEP_DIR_IN);
         }
 
         void visit(const Nodecl::OmpSs::DepWeakIn& dep_in)
         {
-            report_dep(dep_in.get_weakin_deps(), OpenMP::DEP_OMPSS_WEAK_IN);
+            report_dep(dep_in.get_exprs(), OpenMP::DEP_OMPSS_WEAK_IN);
         }
 
         void visit(const Nodecl::OpenMP::DepOut& dep_out)
         {
-            report_dep(dep_out.get_out_deps(), OpenMP::DEP_DIR_OUT);
+            report_dep(dep_out.get_exprs(), OpenMP::DEP_DIR_OUT);
         }
 
         void visit(const Nodecl::OmpSs::DepWeakOut& dep_in)
         {
-            report_dep(dep_in.get_weakout_deps(), OpenMP::DEP_OMPSS_WEAK_OUT);
+            report_dep(dep_in.get_exprs(), OpenMP::DEP_OMPSS_WEAK_OUT);
         }
 
         void visit(const Nodecl::OpenMP::DepInout& dep_inout)
         {
-            report_dep(dep_inout.get_inout_deps(), OpenMP::DEP_DIR_INOUT);
+            report_dep(dep_inout.get_exprs(), OpenMP::DEP_DIR_INOUT);
         }
 
         void visit(const Nodecl::OmpSs::DepWeakInout& dep_in)
         {
-            report_dep(dep_in.get_weakinout_deps(), OpenMP::DEP_OMPSS_WEAK_INOUT);
+            report_dep(dep_in.get_exprs(), OpenMP::DEP_OMPSS_WEAK_INOUT);
         }
 
         void visit(const Nodecl::OmpSs::DepInPrivate& dep_in)
         {
-            report_dep(dep_in.get_in_deps(), OpenMP::DEP_OMPSS_DIR_IN_PRIVATE);
+            report_dep(dep_in.get_exprs(), OpenMP::DEP_OMPSS_DIR_IN_PRIVATE);
         }
 
         void visit(const Nodecl::OmpSs::Concurrent& dep_inout)
         {
-            report_dep(dep_inout.get_inout_deps(), OpenMP::DEP_OMPSS_CONCURRENT);
+            report_dep(dep_inout.get_exprs(), OpenMP::DEP_OMPSS_CONCURRENT);
         }
 
         void visit(const Nodecl::OmpSs::Commutative& dep_inout)
         {
-            report_dep(dep_inout.get_commutative_deps(), OpenMP::DEP_OMPSS_COMMUTATIVE);
+            report_dep(dep_inout.get_exprs(), OpenMP::DEP_OMPSS_COMMUTATIVE);
         }
     };
 
@@ -1882,7 +1886,7 @@ namespace TL { namespace OmpSs {
         enclosing_stmt.replace(new_expr_stmt);
 
         Nodecl::Utils::append_items_after(enclosing_stmt, Nodecl::ReturnStatement::make(sym_nodecl.shallow_copy()));
-        Nodecl::Utils::append_items_after(enclosing_stmt, Nodecl::OpenMP::TaskwaitShallow::make(/*exec environment*/ nodecl_null()));
+        Nodecl::Utils::append_items_after(enclosing_stmt, Nodecl::OpenMP::Taskwait::make(/*exec environment*/ nodecl_null()));
 
         CXX_LANGUAGE()
         {

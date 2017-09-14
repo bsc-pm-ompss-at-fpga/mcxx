@@ -271,18 +271,18 @@ namespace TL
             //! Returns a clause by name or a list of deprecated names
             TL::PragmaCustomClause get_clause(const std::string &name,
                     const ObjectList<std::string>& deprecated_names) const;
-            
+
             //! Returns a clause by a set of alias names and deprecated names
             TL::PragmaCustomClause get_clause(
                     const ObjectList<std::string>& aliased_names,
                     const ObjectList<std::string>& deprecated_names) const;
-            
+
             //! This function returns all clauses in the order they appear in the pragma
             ObjectList<TL::PragmaCustomSingleClause> get_all_clauses() const;
 
             //! This function returns all clause names in the order they appear in the pragma
             ObjectList<std::string> get_all_clause_names() const;
-            
+
             //! This function returns the parameter
             /*!
              * The parameter of the clause is just a special clause with no name that can appear
@@ -292,6 +292,9 @@ namespace TL
 
             //! Emits a diagnostic warning about unused clauses
             void diagnostic_unused_clauses() const;
+
+            //! Removes all the clauses that match the name if any
+            void remove_clause(const std::string& name);
 
             private:
                 ObjectList<Nodecl::PragmaCustomClause> get_all_clauses_nodes() const;
@@ -588,16 +591,24 @@ namespace TL
              */
             void warning_pragma_unused_clauses(bool warning);
 
+            //! This function removes all '|' separators of a directive name
             static std::string remove_separators_of_directive(const std::string& str);
     };
 
-    namespace PragmaUtils 
+    namespace PragmaUtils
     {
-        LIBTL_EXTERN bool is_pragma_construct(const std::string& prefix, 
+        //! This function returns whether n is a pragma that has 'sentinel' as the pragma sentinel.
+        LIBTL_EXTERN bool is_pragma_construct(
+                const std::string& sentinel,
+                Nodecl::NodeclBase n);
+
+        //! This function returns whether n is a pragma that has 'sentinel' as
+        //! the pragma sentinel and 'pragma_name' as the pragma name.
+        LIBTL_EXTERN bool is_pragma_construct(
+                const std::string& sentinel,
                 const std::string& pragma_name,
                 Nodecl::NodeclBase n);
-        LIBTL_EXTERN bool is_pragma_construct(const std::string& prefix, 
-                Nodecl::NodeclBase n);
+
     }
 }
 

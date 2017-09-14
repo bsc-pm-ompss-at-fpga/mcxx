@@ -250,7 +250,7 @@ namespace Utils {
         for(NodeclSet::const_iterator it = set.begin(); it != set.end(); ++it)
             if(nodecl == *it)
                 return true;
-            return false;
+        return false;
     }
     
     static NBase nodecl_set_contains_enclosing_nodecl_rec(const NBase& n, const NodeclSet& set)
@@ -682,6 +682,49 @@ next_it:        ++itr1, ++it1, ++it2;
     void TopLevelVisitor::visit( const Nodecl::Verbatim& n ) {}
 
     // **************************** END visitor for Top Level nodes ****************************** //
+    // ******************************************************************************************* //
+
+
+
+    // ******************************************************************************************* //
+    // ************************* Methods to operate with constant values ************************* //
+
+    CmpResult compare_constants(const_value_t* lhs_const, const_value_t* rhs_const)
+    {
+        if (const_value_is_signed(rhs_const))
+        {
+            const_value_t* sub = const_value_sub(lhs_const, rhs_const);
+            if (const_value_is_zero(sub))
+                return CmpEqual;
+            else if (const_value_is_positive(sub))
+                return CmpBigger;
+            else
+                return CmpSmaller;
+        }
+        else if (const_value_is_signed(lhs_const))
+        {
+            const_value_t* sub = const_value_sub(rhs_const, lhs_const);
+            if (const_value_is_zero(sub))
+                return CmpEqual;
+            else if (const_value_is_positive(sub))
+                return CmpSmaller;
+            else
+                return CmpBigger;
+        }
+        else
+        {   // Convert to the biggest to be safe and avoid all casuistic
+            unsigned long long int lhs_uint = const_value_cast_to_unsigned_long_long_int(lhs_const);
+            unsigned long long int rhs_uint = const_value_cast_to_unsigned_long_long_int(rhs_const);
+            if (lhs_uint == rhs_uint)
+                return CmpEqual;
+            else if (lhs_uint < rhs_uint)
+                return CmpSmaller;
+            else
+                return CmpBigger;
+        }
+    }
+
+    // *********************** END Methods to operate with constant values *********************** //
     // ******************************************************************************************* //
 
 

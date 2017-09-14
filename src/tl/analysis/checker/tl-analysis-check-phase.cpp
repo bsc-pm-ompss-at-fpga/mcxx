@@ -618,7 +618,6 @@ namespace {
 
                 const Nodecl::Range& computed_range = r_it->second.as<Nodecl::Range>();
 
-                std::cerr << "    ---> " << v.prettyprint() << " = " << computed_range.prettyprint() << std::endl;
                 const Nodecl::NodeclBase& assert_lb = *(c_it->get_lb().begin());
                 const Nodecl::NodeclBase& computed_lb = computed_range.get_lower();
                 const_value_t* long_min = const_value_get_integer(LONG_MIN, /*num_bytes*/sizeof(long), /*sign*/1);
@@ -1089,7 +1088,6 @@ namespace {
         if (_analysis_mask._which_analysis & WhichAnalysis::CORRECTNESS)
         {
             analysis.liveness(ast, /*propagate_graph_nodes*/ true);
-            analysis.tune_task_synchronizations(ast);
             TL::OpenMP::launch_correctness(analysis, _correctness_log_path);
         }
         

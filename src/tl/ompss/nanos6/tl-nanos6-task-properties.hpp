@@ -29,18 +29,27 @@
 #define TL_NANOS6_TASK_PROPERTIES_HPP
 
 #include "tl-nanos6.hpp"
+
+#include "tl-omp-reduction.hpp"
+
 #include "tl-nodecl.hpp"
 #include "tl-nodecl-utils.hpp"
 #include "tl-type.hpp"
 #include "tl-symbol.hpp"
 #include "tl-datareference.hpp"
 
+
+
 namespace TL { namespace Nanos6 {
+
+    // Forward declaration of TL::Nanos6::Lower
+    class Lower;
 
     struct TaskProperties
     {
         private:
             LoweringPhase* phase;
+            Lower* lower_visitor;
 
             typedef std::map<TL::Symbol, TL::Symbol> field_map_t;
             field_map_t field_map;
@@ -57,11 +66,8 @@ namespace TL { namespace Nanos6 {
             void create_dependences_function_fortran_forward();
             void create_dependences_function_fortran_mangled();
 
-            void create_copies_function();
-
             void create_cost_function();
-        public:
-            Nodecl::NodeclBase create_task_flags(TL::Symbol task_flags);
+            void create_priority_function();
 
         private:
 
@@ -76,6 +82,8 @@ namespace TL { namespace Nanos6 {
 
             static const int VLA_OVERALLOCATION_ALIGN = 8;
 
+            unsigned int num_reductions;
+
             TL::Type info_structure;
 
             TL::Symbol outline_function;
@@ -84,10 +92,8 @@ namespace TL { namespace Nanos6 {
             TL::Symbol dependences_function;
             TL::Symbol dependences_function_mangled;
 
-            TL::Symbol copies_function;
-            TL::Symbol copies_function_mangled;
-
             TL::Symbol cost_function;
+            TL::Symbol priority_function;
 
             Nodecl::NodeclBase rewrite_expression_using_args(
                 TL::Symbol args,
@@ -95,68 +101,80 @@ namespace TL { namespace Nanos6 {
                 const TL::ObjectList<TL::Symbol> &local);
             TL::Type rewrite_type_using_args(TL::Symbol arg, TL::Type t, const TL::ObjectList<TL::Symbol> &local);
 
-            void register_linear_dependence(
+            void compute_reduction_arguments_dependence_c(
+                    TL::DataReference& data_ref,
+                    TL::Symbol arg,
+                    const TL::ObjectList<TL::Symbol>& local_symbols,
+                    // Out
+                    Nodecl::List& arguments);
+
+            void compute_dimensions_dependence_c(
+                    TL::Type array_type,
+                    TL::Symbol arg,
+                    const TL::ObjectList<TL::Symbol>& local_symbols,
+                    // Out
+                    Nodecl::List& arguments_list);
+
+            void compute_arguments_dependence_c(
+                    TL::DataReference& data_ref,
+                    TL::Symbol handler,
+                    TL::Symbol arg,
+                    const TL::ObjectList<TL::Symbol>& local_symbols,
+                    // Out
+                    Nodecl::List& arguments_list);
+
+            void register_dependence_c(
                     TL::DataReference& data_ref,
                     TL::Symbol handler,
                     TL::Symbol arg,
                     TL::Symbol register_fun,
-                    TL::Scope scope,
-                    const TL::ObjectList<TL::Symbol> &local,
+                    const TL::ObjectList<TL::Symbol>& local_symbols,
+                    // Out
                     Nodecl::List& register_statements);
-            void register_fortran_linear_dependence(
-                TL::DataReference &data_ref,
-                TL::Symbol handler,
-                Nodecl::Utils::SymbolMap &,
-                TL::Symbol register_fun,
-                Nodecl::List &register_statements);
 
-            void register_region_dependence(TL::DataReference &data_ref,
-                                            TL::Symbol handler,
-                                            TL::Symbol arg,
-                                            TL::Symbol register_fun,
-                                            TL::Scope scope,
-                                            const TL::ObjectList<TL::Symbol> &local,
-                                            Nodecl::List &register_statements);
-
-            void register_noncontiguous_region_dependence(
-                TL::DataReference &data_ref,
-                TL::Symbol handler,
-                TL::Symbol arg,
-                TL::Symbol register_fun,
-                TL::Scope scope,
-                const TL::ObjectList<TL::Symbol> &local,
-                Nodecl::List &register_statements);
-
-            void register_fortran_region_dependence(
-                TL::DataReference &data_ref,
-                TL::Symbol handler,
-                Nodecl::Utils::SymbolMap &,
-                TL::Symbol register_fun,
-                Nodecl::List &register_statements);
-
-            void register_dependence_for_array(
+            void register_multidependence_c(
                     TL::DataReference& data_ref,
                     TL::Symbol handler,
                     TL::Symbol arg,
                     TL::Symbol register_fun,
+                    const TL::ObjectList<TL::Symbol>& local_symbols,
                     TL::Scope scope,
-                    const TL::ObjectList<TL::Symbol> &local,
+                    // Out
                     Nodecl::List& register_statements);
 
-            void register_fortran_dependence_for_array(
-                TL::DataReference &data_ref,
-                TL::Symbol handler,
-                Nodecl::Utils::SymbolMap &,
-                TL::Symbol register_fun,
-                Nodecl::List &register_statements);
+            void compute_reduction_arguments_dependence_fortran(
+                    TL::DataReference& data_ref,
+                    // Out
+                    Nodecl::List& arguments_list);
 
-            void walk_type_for_saved_expressions(TL::Type t);
-            static bool is_saved_expression(Nodecl::NodeclBase n);
-            void handle_array_bound(Nodecl::NodeclBase n);
-            TL::Type rewrite_type_for_outline(
-                TL::Type t,
-                TL::Scope scope,
-                Nodecl::Utils::SymbolMap &symbol_map);
+            void compute_dimensions_dependence_fortran(
+                    const TL::DataReference& data_ref,
+                    TL::Type array_type,
+                    // Out
+                    Nodecl::List& arguments_list);
+
+            void compute_arguments_dependence_fortran(
+                    TL::DataReference& data_ref,
+                    TL::Symbol handler,
+                    // Out
+                    Nodecl::List& arguments_list);
+
+            void register_multidependence_fortran(
+                    TL::DataReference &data_ref,
+                    TL::Symbol handler,
+                    Nodecl::Utils::SymbolMap &symbol_map,
+                    TL::Symbol register_fun,
+                    TL::Scope scope,
+                    // Out
+                    Nodecl::List &register_statements);
+
+            void register_dependence_fortran(
+                    TL::DataReference &data_ref,
+                    TL::Symbol handler,
+                    Nodecl::Utils::SymbolMap &symbol_map,
+                    TL::Symbol register_fun,
+                    // Out
+                    Nodecl::List &register_statements);
 
             void create_task_invocation_info(
                 TL::Symbol task_info,
@@ -205,6 +223,19 @@ namespace TL { namespace Nanos6 {
                 TL::Symbol &task_invocation_info,
                 Nodecl::NodeclBase &local_init);
 
+
+            void compute_captured_values();
+
+            void compute_captured_saved_expressions();
+
+            /* This function traverses all the expressions that are evaluated using the arguments structure
+             * (e.g. dependences, cost, priority) and firstprivatize the symbols that don't have a data-sharing
+             *
+             * It may add symbols that represent saved_expressions to the captured_values list.
+             */
+            void firstprivatize_symbols_without_data_sharing();
+
+
         public:
             TL::ObjectList<TL::Symbol> shared;
             TL::ObjectList<TL::Symbol> private_;
@@ -214,9 +245,46 @@ namespace TL { namespace Nanos6 {
             // of runtime sized types
             TL::ObjectList<TL::Symbol> captured_value;
 
-            Nodecl::NodeclBase final_;
-            Nodecl::NodeclBase cost;
-            bool is_tied;
+            struct ReductionItem
+            {
+                TL::Symbol symbol;
+                TL::Type reduction_type;
+                TL::OpenMP::Reduction* reduction_info;
+
+                ReductionItem(TL::Symbol sym)
+                        : symbol(sym) { }
+
+                ReductionItem(TL::Symbol sym, TL::Type red_type, TL::OpenMP::Reduction* red_info)
+                        : symbol(sym), reduction_type(red_type), reduction_info(red_info) { }
+
+                bool operator==(const ReductionItem& red_item) const
+                {
+                    return symbol == red_item.symbol;
+                }
+            };
+
+            TL::ObjectList<ReductionItem> reduction;
+
+            struct TaskloopInfo
+            {
+                Nodecl::NodeclBase lower_bound;
+                Nodecl::NodeclBase upper_bound;
+                Nodecl::NodeclBase step;
+                Nodecl::NodeclBase chunksize;
+            };
+
+            TaskloopInfo taskloop_info;
+
+            Nodecl::NodeclBase final_clause;
+            Nodecl::NodeclBase if_clause;
+            Nodecl::NodeclBase cost_clause;
+            Nodecl::NodeclBase priority_clause;
+
+            bool is_tied,
+                 is_taskwait_dep,
+                 is_taskloop,
+                 wait_clause;
+
             std::string task_label;
 
             TL::ObjectList<Nodecl::NodeclBase> dep_in;
@@ -228,29 +296,35 @@ namespace TL { namespace Nanos6 {
             TL::ObjectList<Nodecl::NodeclBase> dep_weakinout;
 
             TL::ObjectList<Nodecl::NodeclBase> dep_commutative;
+            TL::ObjectList<Nodecl::NodeclBase> dep_concurrent;
+
+            TL::ObjectList<Nodecl::NodeclBase> dep_reduction;
 
             TL::ObjectList<Nodecl::NodeclBase> copy_in;
             TL::ObjectList<Nodecl::NodeclBase> copy_out;
             TL::ObjectList<Nodecl::NodeclBase> copy_inout;
 
-            bool is_function_task;
             Nodecl::NodeclBase task_body;
 
             // For inline related_function is the enclosing task,
             // for function tasks, it is the function task itself
             TL::Symbol related_function;
+
+            // This bool states whether the current task has any dependence
+            bool any_task_dependence;
             const locus_t* locus_of_task_creation;
             const locus_t* locus_of_task_declaration;
 
-            TaskProperties(LoweringPhase* lowering_phase)
-                : phase(lowering_phase), is_tied(true), is_function_task(false) { }
+            TaskProperties(LoweringPhase* lowering_phase, Lower* lower_vis)
+                : phase(lowering_phase), lower_visitor(lower_vis), num_reductions(0),
+                is_tied(true), is_taskwait_dep(false), is_taskloop(false), wait_clause(false),
+                any_task_dependence(false)
+            { }
 
             static TaskProperties gather_task_properties(
                     LoweringPhase* phase,
+                    Lower* lower,
                     const Nodecl::OpenMP::Task& node);
-            static TaskProperties gather_task_properties(
-                    LoweringPhase* phase,
-                    const Nodecl::OmpSs::TaskCall& node);
 
             void create_task_info(
                     /* out */
@@ -258,21 +332,55 @@ namespace TL { namespace Nanos6 {
                     TL::Symbol &task_invocation_info,
                     Nodecl::NodeclBase& local_init);
 
+            //! This function creates a new class type that represents the arguments structure.
+            /*!
+             * @param data_env_struct The new class type
+             * @param arg_size An expression that evaluates to the number of bytes to be allocated
+             * @param requires_initialization This boolean states whether the current argument structure should be initialized
+             */
             void create_environment_structure(
                     /* out */
                     TL::Type& data_env_struct,
-                    Nodecl::NodeclBase& args_size);
+                    Nodecl::NodeclBase& args_size,
+                    bool &requires_initialization);
 
             void capture_environment(
                     TL::Symbol args,
                     /* out */
                     Nodecl::NodeclBase& capture_env);
 
-            void compute_captured_values();
-            void remove_data_sharing_of_this();
+            //! This function captures the lower bound, upper bound, step and the chunksize of a taskloop construct
+            /*!
+             * @param taskloop_bounds This symbol represents the bariable that we should initialize with the taskloop bounds
+             * @param stmts Node Output parameter that should contain the initialization of the taskloop bounds
+             */
+            void capture_taskloop_information(
+                    TL::Symbol taskloop_bounds_ptr,
+                    /* out */
+                    Nodecl::NodeclBase& stmts) const;
+
+            void compute_task_flags(
+                    TL::Symbol task_flags,
+                    /* out */
+                    Nodecl::NodeclBase& task_flags_stmts);
+
+            void handle_task_reductions(
+                    const TL::Scope& unpacked_inside_scope,
+                    Nodecl::NodeclBase unpacked_empty_stmt);
+
+            void remove_redundant_data_sharings();
+
             void fix_data_sharing_of_this();
 
             void fortran_add_types(TL::Scope sc);
+
+            bool symbol_has_data_sharing_attribute(TL::Symbol sym) const;
+
+            void walk_type_for_saved_expressions(TL::Type t);
+
+            static bool is_saved_expression(Nodecl::NodeclBase n);
+
+            void handle_array_bound(Nodecl::NodeclBase n);
     };
 
 } }

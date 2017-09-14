@@ -1,5 +1,5 @@
 dnl Package definition: name, version, mail
-AC_INIT([mcxx],[2.0.0],[sergi.mateo@bsc.es])
+AC_INIT([mcxx],[2.1.0],[sergi.mateo@bsc.es])
 
 configure_orig_arguments="$@"
 
@@ -36,6 +36,17 @@ AC_LANG([C])
 
 dnl Check install
 AC_PROG_INSTALL
+
+AC_CHECK_PROG([GCC], [gcc], [gcc])
+AC_CHECK_PROG([GXX], [g++], [g++])
+AC_CHECK_PROG([GFORTRAN], [gfortran], [gfortran])
+
+# GCC / GXX environment variables may be overwritten by AC_PROG_CC /
+# AC_PROG_CXX (respectively). For this reason we save their values at this point!
+GCC_BE=$GCC
+GXX_BE=$GXX
+GCC=
+GXX=
 
 AC_PROG_CC
 AM_PROG_CC_C_O
@@ -497,11 +508,14 @@ dnl --------------------- End support for plain profiles for Intel Compilers ---
 
 dnl -- End of extra compiler checks ---
 
-dnl --------------------- Support for OMPSS ------------------------------------------
+
+
+
+dnl --------------------- Support for OmpSs ------------------------------------------
 is_enabled_ompss="no"
 AC_MSG_CHECKING([if enabled OmpSs support in the compiler for Nanos++])
 AC_ARG_ENABLE([ompss],
-    AS_HELP_STRING([--enable-ompss], [Enables support of OmpSs Programming Model using Nanos++]),
+    AS_HELP_STRING([--enable-ompss], [Enables support of OmpSs Programming Model using Nanos++ (default is disabled)]),
     [
       if test x$enableval = xyes -o x$enableval = x;
       then
@@ -521,22 +535,21 @@ AC_ARG_ENABLE([ompss],
     ]
 )
 
-dnl --------------------- Support for OpenMP Nanox --------------------------------------
 
-is_enabled_tl_omp_nanox="no"
-
-AC_MSG_CHECKING([if enabled OpenMP TL support for Nanos++])
-AC_ARG_ENABLE([tl-openmp-nanox],
-  AS_HELP_STRING([--enable-tl-openmp-nanox], [Enables support of OpenMP TL for Nanos++]),
+dnl --------------------- Support for OpenMP --------------------------------------
+is_enabled_openmp="no"
+AC_MSG_CHECKING([if enabled OpenMP support in the compiler for Nanos++])
+AC_ARG_ENABLE([openmp],
+  AS_HELP_STRING([--enable-openmp], [Enables support of OpenMP using Nanos++ (default is disabled, unless OmpSs is enabled)]),
   [
     if test x$enableval = xyes -o x$enableval = x;
     then
-        is_enabled_tl_omp_nanox="yes"
+        is_enabled_openmp="yes"
         AC_MSG_RESULT([yes])
     else if test x$enableval = xno;
          then
             AC_MSG_RESULT([no])
-            is_enabled_tl_omp_nanox="no"
+            is_enabled_openmp="no"
          else
             AC_MSG_ERROR([This option can only be given 'yes' or 'no' values])
          fi
@@ -545,14 +558,49 @@ AC_ARG_ENABLE([tl-openmp-nanox],
   [
     if test x$is_enabled_ompss = xyes;
     then
-        is_enabled_tl_omp_nanox="yes"
+        is_enabled_openmp="yes"
           AC_MSG_RESULT([yes])
     else
-          is_enabled_tl_omp_nanox="no"
+          is_enabled_openmp="no"
           AC_MSG_RESULT([no])
     fi
   ]
 )
+
+
+dnl --------------------- Support for OmpSs-v2  --------------------------------------
+is_enabled_ompss_v2="no"
+AC_MSG_CHECKING([if enabled OmpSs-v2 support in the compiler for Nanos6])
+AC_ARG_ENABLE([ompss-v2],
+  AS_HELP_STRING([--enable-ompss-v2], [Enables support of OmpSs-v2 using Nanos6 (default is disabled)]),
+  [
+    if test x$enableval = xyes -o x$enableval = x;
+    then
+        is_enabled_ompss_v2="yes"
+        AC_MSG_RESULT([yes])
+    else if test x$enableval = xno;
+         then
+            is_enabled_ompss_v2="no"
+            AC_MSG_RESULT([no])
+         else
+            AC_MSG_ERROR([This option can only be given 'yes' or 'no' values])
+         fi
+    fi
+  ],
+  [
+     is_enabled_ompss_v2="no"
+     AC_MSG_RESULT([no])
+  ]
+)
+
+
+dnl --------------------- Support for OmpSs / OpenMP Nanox --------------------------------------
+
+is_enabled_tl_omp_nanox="no"
+if test x$is_enabled_openmp = xyes -o x$is_enabled_ompss = xyes;
+then
+    is_enabled_tl_omp_nanox="yes"
+fi
 
 nanox_include=""
 nanox_lib=""
@@ -578,11 +626,6 @@ NANOX_GATE=":false:"
 NANOX_NEW_LINK=":false:"
 NANOX_OLD_LINK=":false:"
 
-if test x$is_enabled_ompss = xyes;
-then
-    nanox_include="${prefix}/include/nanox"
-    nanox_lib="${prefix}/lib"
-fi
 
 if test x$is_enabled_tl_omp_nanox = xyes;
 then
@@ -613,6 +656,19 @@ then
             nanox_lib="${withval}"
            ]
    )
+
+   CFLAGSBACKUP="$CFLAGS"
+   CPPFLAGSBACKUP="$CPPFLAGS"
+
+   CPPFLAGS="$CPPFLAGS -I$nanox_include"
+   CFLAGS="$CFLAGS -I$nanox_include"
+
+   AC_CHECK_HEADER([nanos.h],
+                   [break],
+                   [AC_MSG_ERROR([Nanos++ support was required but 'nanos.h' was not found])])
+
+   CPPFLAGS="$CPPFLAGSBACKUP"
+   CFLAGS="$CFLAGSBACKUP"
 
    AC_MSG_CHECKING([linking mechanism of Nanos++])
 
@@ -850,46 +906,28 @@ AC_SUBST([NANOX_SSE])
 
 NANOX_AVX2=$nanox_avx2
 AC_SUBST([NANOX_AVX2])
-
-
 dnl --------------------- End of Support for OpenMP Nanox -------------------------------
 
-dnl ---------------------- Support for Nanos 6 -----------------------------------------
 
+dnl ---------------------- Support for OmpSs-v2 Nanos6 -----------------------------------------
 is_enabled_tl_ompss_nanos6="no"
+if test x$is_enabled_ompss_v2 = xyes;
+then
+    is_enabled_tl_ompss_nanos6="yes"
+fi
+
+nanos6=""
+nanos6_include=""
+nanos6_lib=""
 
 NANOS6_GATE=":false:"
-
-AC_MSG_CHECKING(["if enabled OmpSs TL support for Nanos 6])
-AC_ARG_ENABLE([tl-ompss-nanos6],
-  AS_HELP_STRING([--enable-tl-ompss-nanos6], [Enables support of OmpSs TL for Nanos 6]),
-  [
-    if test x$enableval = xyes -o x$enableval = x;
-    then
-        is_enabled_tl_ompss_nanos6="yes"
-        AC_MSG_RESULT([yes])
-    else if test x$enableval = xno;
-         then
-            AC_MSG_RESULT([no])
-            is_enabled_tl_ompss_nanos6="no"
-         else
-            AC_MSG_ERROR([This option can only be given 'yes' or 'no' values])
-         fi
-    fi
-  ],
-  [
-     is_enabled_tl_ompss_nanos6="no"
-     AC_MSG_RESULT([no])
-  ]
-)
-
 if test x$is_enabled_tl_ompss_nanos6 = xyes;
 then
    NANOS6_GATE=":true:"
    AC_ARG_WITH([nanos6],
-           AS_HELP_STRING([--with-nanos6=dir], [Directory of Nanos 6 installation]),
+           AS_HELP_STRING([--with-nanos6=dir], [Directory of Nanos6 installation]),
            [
-            nanos6_include="${withval}/include/nanos6"
+            nanos6_include="${withval}/include"
             nanos6_lib="${withval}/lib"
             nanos6="${withval}"
             # kludge
@@ -901,83 +939,48 @@ then
    )
 
    AC_ARG_WITH([nanos6-include],
-           AS_HELP_STRING([--with-nanos6-include=dir], [Directory of Nanos 6 headers]),
+           AS_HELP_STRING([--with-nanos6-include=dir], [Directory of Nanos6 headers]),
            [
             nanos6_include="${withval}"
            ]
    )
 
    AC_ARG_WITH([nanos6-lib],
-           AS_HELP_STRING([--with-nanos6-lib=dir], [Directory of Nanos 6 libraries]),
+           AS_HELP_STRING([--with-nanos6-lib=dir], [Directory of Nanos6 libraries]),
            [
             nanos6_lib="${withval}"
            ]
    )
+
+   CFLAGSBACKUP="$CFLAGS"
+   CPPFLAGSBACKUP="$CPPFLAGS"
+
+   CPPFLAGS="$CPPFLAGS -I$nanos6_include"
+   CFLAGS="$CFLAGS -I$nanos6_include"
+
+   AC_CHECK_HEADER([nanos6.h],
+                   [break],
+                   [AC_MSG_ERROR([Nanos6 support was required but 'nanos6.h' was not found])])
+
+   CPPFLAGS="$CPPFLAGSBACKUP"
+   CFLAGS="$CFLAGSBACKUP"
 fi
 
 AM_CONDITIONAL([BUILD_NANOS6], test x$is_enabled_tl_ompss_nanos6 = xyes)
-NANOS6_INCLUDES="${nanos6_include}"
-NANOS6_LIB="${nanos6_lib}"
-NANOS6="${nanos6}"
 
-NANOS6_ENABLED="$is_enabled_tl_ompss_nanos6"
+AC_SUBST([NANOS6],          ["${nanos6}"])
+AC_SUBST([NANOS6_INCLUDES], ["${nanos6_include}"])
+AC_SUBST([NANOS6_LIB],      ["${nanos6_lib}"])
+AC_SUBST([NANOS6_ENABLED],  ["${is_enabled_tl_ompss_nanos6}"])
 
-AC_SUBST([NANOS6])
-AC_SUBST([NANOS6_INCLUDES])
-AC_SUBST([NANOS6_LIB])
-AC_SUBST([NANOS6_ENABLED])
 AC_SUBST([NANOS6_GATE])
-
-AM_CONDITIONAL([BUILD_NANOS6], test x$is_enabled_tl_ompss_nanos6 = xyes)
-
-DEFAULT_OMPSS_RUNTIME=""
-if test x$is_enabled_tl_ompss_nanos6 = xyes -a x$is_enabled_tl_omp_nanox = xyes;
-then
-  AC_MSG_CHECKING([default OmpSs runtime])
-  AC_ARG_WITH([default-ompss-runtime],
-         AS_HELP_STRING([--with-default-ompss-runtime=nanos++|nanos6], [Select default OmpSs runtime. Only used if both Nanos++ and Nanos 6 are enabled]),
-         [
-          case ${withval} in
-             nanos6|nanos++)
-              DEFAULT_OMPSS_RUNTIME="${withval}"
-              AC_MSG_RESULT([${withval}])
-              ;;
-             *)
-              AC_MSG_ERROR([This option only allows 'nanos++' or 'nanos6'])
-              ;;
-          esac
-         ],
-         [
-              DEFAULT_OMPSS_RUNTIME="nanos++"
-              AC_MSG_RESULT([nanos++ (by default)])
-         ]
-  )
-
-  if test "${DEFAULT_OMPSS_RUNTIME}" = "nanos++";
-  then
-    NANOX_GATE='!nanos6'
-    NANOS6_GATE='nanos6'
-  else
-    if test "${DEFAULT_OMPSS_RUNTIME}" = "nanos6";
-    then
-      NANOX_GATE='nanox'
-      NANOS6_GATE='!nanox'
-    else
-      # Should not happen
-      AC_MSG_ERROR([invalid value for DEFAULT_OMPSS_RUNTIME])
-    fi
-  fi
-
-fi
-
-AC_SUBST([DEFAULT_OMPSS_RUNTIME])
 
 if test x$is_enabled_tl_ompss_nanos6 = xyes -o x$is_enabled_tl_omp_nanox = xyes;
 then
    COMPILER_NAMES="${COMPILER_NAMES} mcc mcxx mf95 mfc"
 fi
+dnl ---------------------- End of Support for OmpSs-v2 Nanos6 -----------------------------------------
 
-dnl ---------------------- End of Support for Nanos 6 -----------------------------------------
 
 dnl --------------------- Dynamic Load Balancing -------------------------------
 # Eventually we can attempt to figure this out from the nanos-installation
@@ -1377,11 +1380,9 @@ AM_CONDITIONAL([BUILD_NANOX_DEVICE_OPENCL], test x$is_enabled_tl_omp_nanox = xye
 
 dnl --------------------- End OpenCL support in Nanox --------------------------------
 
-dnl --------------------- Start MPI support in Mercurium --------------------------------
 
+dnl --------------------- Start MPI support in Mercurium --------------------------------
 mpi_enabled=yes
-mpi_valid=no
-mpi_forced=no
 
 AC_MSG_CHECKING([if the use of MPI devices was disabled])
 AC_ARG_ENABLE([nanox-mpi-device],
@@ -1404,141 +1405,125 @@ AC_ARG_ENABLE([nanox-mpi-device],
     mpi_enabled="yes"
     AC_MSG_RESULT([no])
   ]
-) 
+)
 
+mpi_valid=no
 if test x$mpi_enabled = xyes;
 then
-   # I think these variables are not used anymore
-   ENABLEMPI_GCC=":true:"
-   ENABLEMPI_ICC=":true:"
+    mpi_found=no
+    mpi_forced=no
+    MPIPATH=""
 
-   mpi_found=no
-   MPIMODULE=""
-   MPIPATH=""
+    #check the directory and get the right compiler path and name
+    AC_ARG_WITH([mpi],
+                AS_HELP_STRING([--with-mpi=dir], [Directory of mpi installation]),
+                [
+                 MPIPATH="${withval}"
+                 mpi_forced=yes
+                 ],
+                 [
+                  AC_CHECK_PROG([MPIICC], [mpiicc], [mpiicc])
+                  MPIPATH=${MPIICC%mpiicc}
+                  if test x$MPIPATH = x; then
+                      AC_CHECK_PROG([MPICC], [mpicc], [mpicc])
+                      MPIPATH=${MPICC%mpicc}
+                  fi
+                  ]
+                 )
 
-   #check the directory and get the right compiler path and name
-   AC_ARG_WITH([mpi],
-   AS_HELP_STRING([--with-mpi=dir], [Directory of mpi installation]),
-      [
-         MPIPATH="${withval}"
-         mpi_forced=yes
-   	],
-   	[   		
-        AC_CHECK_PROG([MPIICC], [mpiicc], [mpiicc])
-        MPIPATH=${MPIICC%mpiicc}
-        if test x$MPIPATH = x; then		
-            AC_CHECK_PROG([MPICC], [mpicc], [mpicc])
-            MPIPATH=${MPICC%mpicc}
+    # First attempt: try to find Intel MPI wrappers
+    if test x$mpi_found = xno; then
+        MPI_CNAME=mpiicc
+        MPI_CXXNAME=mpiicpc
+        MPI_FORTNAME=mpiifort
+
+        # Checking the presence of these wrappers in $MPIPATH (???) and $MPIPATH/bin
+
+        if test -f $MPIPATH/$MPI_CNAME; then
+            mpi_found=yes
+            MPICC=$MPI_CNAME
+            MPICXX=$MPI_CXXNAME
+            MPIFORT=$MPI_FORTNAME
+        elif test -f $MPIPATH/bin/$MPI_CNAME; then
+            mpi_found=yes
+            MPICC=$MPI_CNAME
+            MPICXX=$MPI_CXXNAME
+            MPIFORT=$MPI_FORTNAME
         fi
-   	]
-   )
-
-   MPI_CNAME=mpiicc
-   MPI_CXXNAME=mpiicpc
-   MPI_FORTNAME=mpiifort
-   if test -f $MPIPATH/$MPI_CNAME; then
-      mpi_found=yes
-      MPICC=$MPI_CNAME
-      MPICXX=$MPI_CXXNAME
-      MPIFORT=$MPI_FORTNAME
-      ENABLEMPI_GCC=":false:"
-   else
-      mpi_valid=no
-   fi
-   #search in the path without bin
-   if test x$mpi_found = xno; then		
-      mpi_found=no
-      if test -f $MPIPATH/bin/$MPI_CNAME; then 
-         mpi_found=yes
-         MPICC=$MPI_CNAME
-         MPICXX=$MPI_CXXNAME
-         MPIFORT=$MPI_FORTNAME
-         ENABLEMPI_GCC=":false:"
-       else
-                    mpi_valid=no
-       fi
-   fi		
-
-   if test x$mpi_found = xno; then
-      MPI_CNAME=mpicc
-      MPI_CXXNAME=mpicxx
-      MPI_FORTNAME=mpif90
-      if test -f $MPIPATH/$MPI_CNAME; then	
-           mpi_found=yes 
-           MPICC=$MPI_CNAME
-           MPICXX=$MPI_CXXNAME
-           MPIFORT=$MPI_FORTNAME                            
-           ENABLEMPI_ICC=":false:"
-      else
-           mpi_valid=no
-      fi
-      #search in the path without bin
-      if test x$mpi_found = xno; then		
-         mpi_found=no
-         if test -f $MPIPATH/bin/$MPI_CNAME; then           
-           mpi_found=yes 
-           MPICC=$MPI_CNAME
-           MPICXX=$MPI_CXXNAME
-           MPIFORT=$MPI_FORTNAME
-           ENABLEMPI_ICC=":false:"
-         else
-           mpi_valid=no
-         fi
-      fi
-   fi
-
-   if test x$mpi_found = xno; then
-       if test x$mpi_forced = xyes; then
-          AC_MSG_ERROR([MPI Compiler not found in --with-mpi directory $MPIPATH or $MPIPATH/bin])
-       fi
-       #fill with dummy variables, the ones in user's PATH at compilation time will be used
-       mpi_found=yes
-       MPICC=mpicc
-       MPICXX=mpicxx
-       MPIFORT=mpif90
     fi
 
-   ENABLE_MPI=":true:"
-   if test x$mpi_found = xyes; then
-       AC_MSG_CHECKING([if nanox has mpi enabled])
-       #tests if mpi headers are usable and correct
-       #backup vars before we do the tests
-       CFLAGSBACKUP="$CFLAGS"
-       CPPFLAGSBACKUP="$CPPFLAGS"
-       CXXFLAGSBACKUP="$CXXFLAGS"
+    # Second attempt: try to find generic MPI wrappers
+    if test x$mpi_found = xno; then
+        MPI_CNAME=mpicc
+        MPI_CXXNAME=mpicxx
+        MPI_FORTNAME=mpif90
 
-       CFLAGS="$CFLAGS -D_NANOS_MPI_H_ -I$nanox_include"
-       CPPFLAGS="$CPPFLAGS -D_NANOS_MPI_H_ -I$nanox_include"
-       CXXFLAGS="$CXXFLAGS -D_NANOS_MPI_H_ -I$nanox_include"
-       AC_CHECK_HEADER([nanos-mpi.h], [mpi_valid=yes],[])
+        # Checking the presence of these wrappers in $MPIPATH (???) and $MPIPATH/bin
 
-       CFLAGS="$CFLAGSBACKUP"
-       CPPFLAGS="$CPPFLAGSBACKUP"
-       CXXFLAGS="$CXXFLAGSBACKUP"
-   fi
+        if test -f $MPIPATH/$MPI_CNAME; then
+            mpi_found=yes
+            MPICC=$MPI_CNAME
+            MPICXX=$MPI_CXXNAME
+            MPIFORT=$MPI_FORTNAME
+        elif test -f  $MPIPATH/bin/$MPI_CNAME; then
+            mpi_found=yes
+            MPICC=$MPI_CNAME
+            MPICXX=$MPI_CXXNAME
+            MPIFORT=$MPI_FORTNAME
+        fi
+    fi
+
+    # Final attempt: best effort configuration
+    if test x$mpi_found = xno; then
+
+        # if the user specified a MPI version we should emit an error
+        if test x$mpi_forced = xyes; then
+            AC_MSG_ERROR([MPI Compiler not found in --with-mpi directory $MPIPATH or $MPIPATH/bin])
+        fi
+
+        #fill with dummy variables, the ones in user's PATH at compilation time will be used
+        mpi_found=yes
+        MPICC=mpicc
+        MPICXX=mpicxx
+        MPIFORT=mpif90
+    fi
+
+    if test x$mpi_found = xyes; then
+        AC_MSG_CHECKING([if nanox has mpi enabled])
+        #tests if mpi headers are usable and correct
+        #backup vars before we do the tests
+        CFLAGSBACKUP="$CFLAGS"
+        CPPFLAGSBACKUP="$CPPFLAGS"
+        CXXFLAGSBACKUP="$CXXFLAGS"
+
+        CFLAGS="$CFLAGS -D_NANOS_MPI_H_ -I$nanox_include"
+        CPPFLAGS="$CPPFLAGS -D_NANOS_MPI_H_ -I$nanox_include"
+        CXXFLAGS="$CXXFLAGS -D_NANOS_MPI_H_ -I$nanox_include"
+        AC_CHECK_HEADER([nanos-mpi.h], [mpi_valid=yes],[])
+
+        CFLAGS="$CFLAGSBACKUP"
+        CPPFLAGS="$CPPFLAGSBACKUP"
+        CXXFLAGS="$CXXFLAGSBACKUP"
+    fi
 fi
 
 if test x$mpi_valid = xyes;
 then
-   INSTALL_CONFIG_FILES="${INSTALL_CONFIG_FILES} 56.config.omp.mpi"
-   if test x"$ICC" != x -o x$"ICPC" != x -o x"$IFORT" != x;
-   then
-       INSTALL_CONFIG_FILES="${INSTALL_CONFIG_FILES} 56.config.omp.intel.mpi"
-   fi
+    INSTALL_CONFIG_FILES="${INSTALL_CONFIG_FILES} 56.config.omp.mpi"
+    if test x"$ICC" != x -o x"$ICPC" != x -o x"$IFORT" != x;
+    then
+        INSTALL_CONFIG_FILES="${INSTALL_CONFIG_FILES} 56.config.omp.intel.mpi"
+    fi
 
-   SCRIPT_COMPILER_NAMES="${SCRIPT_COMPILER_NAMES} mpimcc mpimcxx mpimfc"
-else
-    ENABLE_MPI=":false:"
+    SCRIPT_COMPILER_NAMES="${SCRIPT_COMPILER_NAMES} mpimcc mpimcxx mpimfc"
 fi
+
 AM_CONDITIONAL([BUILD_NANOX_DEVICE_MPI], test x$mpi_valid = xyes)
 
-AC_SUBST([ENABLEMPI_ICC])
-AC_SUBST([ENABLEMPI_GCC])
 AC_SUBST([MPICC])
 AC_SUBST([MIC_LIBS])
 AC_SUBST([MPICXX])
 AC_SUBST([MPIFORT])
-AC_SUBST([ENABLE_MPI])
 
 dnl --------------------- End MPI support in Mercurium --------------------------------
 
@@ -1592,7 +1577,7 @@ then
    then
       INSTALL_CONFIG_FILES="${INSTALL_CONFIG_FILES} 55.config.omp.intel 57.config.omp.smp.intel"
 
-      # Intel C/C++/Fortran + Nanos++
+      # Intel Mercurium C/C++/Fortran profiles
       if test x"$ICC" != x;
       then
           COMPILER_NAMES="${COMPILER_NAMES} imcc ismpcc"
@@ -1611,22 +1596,22 @@ then
 
 
 
-   if test x$XLC != x -o x$XLCXX != x -o x$XLF != x;
+   if test x"$XLC" != x -o x"$XLCXX" != x -o x"$XLF" != x;
    then
       INSTALL_CONFIG_FILES="${INSTALL_CONFIG_FILES} 55.config.omp.ibm 57.config.omp.smp.ibm"
 
-      # IBM XL C/C++/Fortran + Nanos++
-      if test x$XLC != x;
+      # IBM XL Mercurium C/C++/Fortran
+      if test x"$XLC" != x;
       then
           COMPILER_NAMES="${COMPILER_NAMES} xlmcc xlsmpcc"
       fi
 
-      if test x$XLCXX != x;
+      if test x"$XLCXX" != x;
       then
           COMPILER_NAMES="${COMPILER_NAMES} xlmcxx xlsmpcxx"
       fi
 
-      if test x$XLF != x;
+      if test x"$XLF" != x;
       then
           COMPILER_NAMES="${COMPILER_NAMES} xlmfc xlmf95 xlsmpfc"
       fi
@@ -1696,89 +1681,23 @@ AM_CONDITIONAL([BUILD_TL_EXAMPLES], test x$is_enabled_tl_examples = xyes)
 
 dnl ------------------------------------
 
-dnl ---------------------- TL tests ----------------------------
-is_enabled_tl_tests="no"
-
-AC_ARG_ENABLE([tl-tests],
-  AS_HELP_STRING([--enable-tl-tests], [Build and install TL self testing phases]),
-  [
-    if test x$enableval = xyes -o x$enableval = x;
-    then
-        is_enabled_tl_tests="yes"
-    else if test x$enableval = xno;
-         then
-            is_enabled_tl_tests="no"
-         else
-            AC_MSG_ERROR([This option can only be given 'yes' or 'no' values])
-         fi
-    fi
-  ],
-  [
-      is_enabled_tl_tests="no"
-  ]
-)
-
-AM_CONDITIONAL([BUILD_TL_TESTS], test x$is_enabled_tl_tests = xyes)
-
-dnl ------------------------------------
-
-dnl ---------------------- TL Vectorization ----------------------------
-
-is_enabled_vectorization="yes"
-AC_MSG_CHECKING([if enabling Vectorization build and install])
-if test x$HAVE_CXX11 = x1;
-then
-    AC_ARG_ENABLE([vectorization],
-        AS_HELP_STRING([--disable-vectorization], [Disables vectorization support in the compiler]),
-        [
-            if test x$enableval = xyes -o x$enableval = x;
-            then
-                is_enabled_vectorization="yes"
-                AC_MSG_RESULT([no])
-            else if test x$enableval = xno;
-                then
-                    is_enabled_vectorization="no"
-                    AC_MSG_RESULT([yes])
-                else
-                    AC_MSG_ERROR([This option can only be given 'yes' or 'no' values])
-                fi
-            fi
-        ],
-        [
-            is_enabled_vectorization="yes"
-            AC_MSG_RESULT([no2])
-        ])
-else
-    is_enabled_vectorization="no"
-    AC_MSG_RESULT([no (gcc 4.7 or higher is required)])
-fi
-
-
-if test x$is_enabled_vectorization = xno;
-then
-  AC_DEFINE([VECTORIZATION_DISABLED], 1, [Disables vectorization])
-fi
-
-AM_CONDITIONAL([BUILD_VECTORIZATION], [test x$is_enabled_vectorization = xyes])
-
-dnl ------------------------------------
 
 dnl ---------------------- TL Analysis ----------------------------
 
 is_enabled_analysis="yes"
-AC_MSG_CHECKING([if enabling Analysis build and install])
+AC_MSG_CHECKING([if Analysis phase is enabled])
 AC_ARG_ENABLE([analysis],
-  AS_HELP_STRING([--disable-analysis], [Disables build and install Analysis]),
+  AS_HELP_STRING([--disable-analysis], [Disables analysis phase (default is enabled)]),
   [
     if test x$enableval = xyes -o x$enableval = x;
     then
       is_enabled_analysis="yes"
-      AC_MSG_RESULT([no])
+      AC_MSG_RESULT([yes])
     else if test x$enableval = xno;
       then
 
         is_enabled_analysis="no"
-        AC_MSG_RESULT([yes])
+        AC_MSG_RESULT([no])
       else
         AC_MSG_ERROR([This option can only be given 'yes' or 'no' values])
       fi
@@ -1786,30 +1705,20 @@ AC_ARG_ENABLE([analysis],
   ],
   [
     is_enabled_analysis="yes"
-    AC_MSG_RESULT([no])
+    AC_MSG_RESULT([yes])
   ]
 )
 
 if test x$is_enabled_analysis = xyes;
 then
   AC_DEFINE([ANALYSIS_ENABLED], 1, [Define to 1 if Analysis is enabled])
-else
-  if test x$is_enabled_vectorization = xyes
-  then
-    AC_MSG_ERROR([You must disable Vectorization when Analysis is disabled.
-* To do that, you should use the --disable-vectorization flag])
-  fi
 fi
 
 AM_CONDITIONAL([BUILD_ANALYSIS],      test x$is_enabled_analysis = xyes)
 AM_CONDITIONAL([BUILD_OPTIMIZATIONS], test x$is_enabled_analysis = xyes)
 AM_CONDITIONAL([BUILD_AUTO_SCOPE],    test x$is_enabled_analysis = xyes)
 AM_CONDITIONAL([BUILD_OMP_LINT],      test x$is_enabled_analysis = xyes)
-AM_CONDITIONAL([BUILD_HLT],           test x$is_enabled_analysis = xyes)
 AM_CONDITIONAL([BUILD_TL_COMPLEXITY], test x$is_enabled_analysis = xyes)
-
-VECTORIZATION_ENABLED=$is_enabled_vectorization
-AC_SUBST([VECTORIZATION_ENABLED])
 
 CORRECTNESS_LOG_DIR=""
 
@@ -1824,9 +1733,53 @@ then
 fi
 
 AC_SUBST([CORRECTNESS_LOG_DIR])
-
 dnl ------------------------------------
 
+dnl ---------------------- TL Vectorization ----------------------------
+is_enabled_vectorization="no"
+AC_MSG_CHECKING([if Vectorization phase is enabled])
+if test x$HAVE_CXX11 = x1;
+then
+    AC_ARG_ENABLE([vectorization],
+        AS_HELP_STRING([--enable-vectorization], [Enables Vectorization phase (default is disabled)]),
+        [
+            if test x$enableval = xyes -o x$enableval = x;
+            then
+                is_enabled_vectorization="yes"
+                AC_MSG_RESULT([yes])
+            else if test x$enableval = xno;
+                then
+                    is_enabled_vectorization="no"
+                    AC_MSG_RESULT([no])
+                else
+                    AC_MSG_ERROR([This option can only be given 'yes' or 'no' values])
+                fi
+            fi
+        ],
+        [
+            is_enabled_vectorization="no"
+            AC_MSG_RESULT([no])
+        ])
+else
+    is_enabled_vectorization="no"
+    AC_MSG_RESULT([no (gcc 4.7 or higher is required)])
+fi
+
+if test x$is_enabled_vectorization = xno;
+then
+  AC_DEFINE([VECTORIZATION_DISABLED], 1, [Disables vectorization])
+fi
+
+if test x$is_enabled_analysis = xno -a x$is_enabled_vectorization = xyes;
+then
+    AC_MSG_ERROR([You must disable Vectorization when Analysis is disabled.
+* To do that, you should use the --disable-vectorization flag])
+fi
+
+AM_CONDITIONAL([BUILD_VECTORIZATION], [test x$is_enabled_vectorization = xyes])
+
+AC_SUBST([VECTORIZATION_ENABLED], $is_enabled_vectorization)
+dnl ------------------------------------
 
 dnl --------------------- Regeneration files ---------------------
 
@@ -1866,10 +1819,17 @@ AC_ARG_ENABLE([distcheck-processing],
 )
 AM_CONDITIONAL([RUNNING_DISTCHECK], test x$distcheck_processing = xyes)
 
+
+GCC=$GCC_BE
+GXX=$GXX_BE
+
 # Make these variables precious
 AC_ARG_VAR([FLEX], [Flex])
 AC_ARG_VAR([BISON], [GNU Bison])
 AC_ARG_VAR([NVCC], [nVidia CUDA compiler])
+AC_ARG_VAR([GCC], [GNU C Compiler])
+AC_ARG_VAR([GXX], [GNU C++ Compiler])
+AC_ARG_VAR([GFORTRAN], [GNU Fortran Compiler])
 AC_ARG_VAR([ICC], [Intel C compiler])
 AC_ARG_VAR([ICPC], [Intel C++ compiler])
 AC_ARG_VAR([IFORT], [Intel Fortran])
@@ -1972,15 +1932,14 @@ then
     AC_MSG_CHECKING([bison version])
     bison_ver=`$BISON --version | head -n 1 | $SED -e 's/@<:@^0-9@:>@*\(@<:@0-9@:>@*@<:@0-9.@:>@*.*\?\).*$/\1/'`
     case x${bison_ver} in
+       x2.4|x2.6.@<:@1234@:>@*)
+          AC_MSG_RESULT([${bison_ver}])
+          bison_good=no
+          AC_MSG_ERROR(${bison_ver}[, this version is known to fail])
+       ;;
        x2.@<:@34567@:>@*|x3.@<:@0@:>@*)
           AC_MSG_RESULT([${bison_ver}])
-          if test x${bison_ver} = x2.4;
-          then
-            AC_MSG_ERROR(${bison_ver}[, this version is known to fail])
-             bison_good=no
-          else
-             bison_good=yes
-          fi
+          bison_good=yes
           ;;
        x)
           if test x$force_bison = xyes;
@@ -2019,6 +1978,7 @@ then
           ]
   )
 
+  GPERF_LENGTH_TYPE=""
   AC_CHECK_PROG([GPERF], [gperf], [gperf])
   if test x$GPERF = x;
   then
@@ -2030,6 +1990,12 @@ then
        x3.0.*)
        AC_MSG_RESULT(${gperf_ver})
        gperf_good=yes
+       GPERF_LENGTH_TYPE="unsigned int"
+       ;;
+    x3.1*)
+       AC_MSG_RESULT(${gperf_ver})
+       gperf_good=yes
+       GPERF_LENGTH_TYPE=size_t
        ;;
     x)
        AC_MSG_RESULT([error, could not guess gperf version])
@@ -2039,9 +2005,9 @@ then
        ;;
     esac
   fi
-
 fi
 
+AC_SUBST([GPERF_LENGTH_TYPE])
 
 AM_CONDITIONAL([TPP_BUILDING], test "(" x$bison_good = xyes ")" -o "(" x$flex_good = xyes ")")
 AM_CONDITIONAL([BISON_BUILDING], test x$bison_good = xyes)
@@ -2067,8 +2033,6 @@ AC_ARG_WITH([type-environment],
 
 RPATH_PARAMETER="-rpath"
 AC_SUBST([RPATH_PARAMETER])
-NANOS4_32_BIT_COMPAT=""
-AC_SUBST([NANOS4_32_BIT_COMPAT])
 
 dnl Redundancy ahead
 if test x"$default_type_environ" = x;
@@ -2095,7 +2059,6 @@ dnl We try to figure a sensible default environment based on the configure envir
            ;;
        x86_64-*-linux*)
            default_type_environ="linux-x86_64"
-           NANOS4_32_BIT_COMPAT="-m32"
            ;;
        ia64-*-linux*)
            default_type_environ="linux-ia64"
@@ -2104,11 +2067,11 @@ dnl We try to figure a sensible default environment based on the configure envir
             default_type_environ="solaris-sparcv9"
             RPATH_PARAMETER="-R"
             ;;
-       arm*-*-gnueabi*)
+       arm*-*-gnueabi*|arm*-*-androideabi*)
             # 32 bit ARM
             default_type_environ="linux-arm"
             ;;
-       aarch64-*-linux-gnu|aarch64-linux-gnu)
+       aarch64-*-linux*|aarch64-linux*)
             # 64 bit ARM
             default_type_environ="linux-arm64"
             ;;
@@ -2415,42 +2378,49 @@ AC_CONFIG_FILES([Makefile
            src/driver/cxx-driver-build-info.h
            tests/Makefile
            tests/config/Makefile
-           tests/config/mercurium
-           tests/config/mercurium-c11
-           tests/config/mercurium-cxx11
-           tests/config/mercurium-cxx14
-           tests/config/mercurium-run
-           tests/config/mercurium-fortran
-           tests/config/mercurium-libraries
-           tests/config/mercurium-extensions
-           tests/config/mercurium-fe-only
-           tests/config/mercurium-hlt
-           tests/config/mercurium-nanox
-           tests/config/mercurium-nanos6
-           tests/config/mercurium-omp
-           tests/config/mercurium-ompss
-           tests/config/mercurium-serial-simd
-           tests/config/mercurium-parallel-simd
-           tests/config/mercurium-serial-simd-avx2
-           tests/config/mercurium-parallel-simd-avx2
-           tests/config/mercurium-serial-simd-mic
-           tests/config/mercurium-parallel-simd-mic
-           tests/config/mercurium-serial-simd-romol
-           tests/config/mercurium-cuda
-           tests/config/mercurium-opencl
-           tests/config/mercurium-analysis
-           tests/config/bets
-           tests/05_torture_cxx_1.dg/mercurium
-           tests/05_torture_cxx_1.dg/mercurium-cxx11
-           tests/05_torture_cxx_2.dg/mercurium
            doc/Makefile
            doc/doxygen_tl
            ])
+
+## Generic profiles
+AC_CONFIG_FILES([tests/config/bets], [chmod +x tests/config/bets])
+AC_CONFIG_FILES([tests/config/mercurium], [chmod +x tests/config/mercurium])
+AC_CONFIG_FILES([tests/config/mercurium-analysis], [chmod +x tests/config/mercurium-analysis])
+AC_CONFIG_FILES([tests/config/mercurium-c11], [chmod +x tests/config/mercurium-c11])
+AC_CONFIG_FILES([tests/config/mercurium-cuda], [chmod +x tests/config/mercurium-cuda])
+AC_CONFIG_FILES([tests/config/mercurium-cxx11], [chmod +x tests/config/mercurium-cxx11])
+AC_CONFIG_FILES([tests/config/mercurium-cxx14], [chmod +x tests/config/mercurium-cxx14])
+AC_CONFIG_FILES([tests/config/mercurium-extensions], [chmod +x tests/config/mercurium-extensions])
+AC_CONFIG_FILES([tests/config/mercurium-fe-only], [chmod +x tests/config/mercurium-fe-only])
+AC_CONFIG_FILES([tests/config/mercurium-fortran], [chmod +x tests/config/mercurium-fortran])
+AC_CONFIG_FILES([tests/config/mercurium-hlt], [chmod +x tests/config/mercurium-hlt])
+AC_CONFIG_FILES([tests/config/mercurium-libraries], [chmod +x tests/config/mercurium-libraries])
+AC_CONFIG_FILES([tests/config/mercurium-nanos6], [chmod +x tests/config/mercurium-nanos6])
+AC_CONFIG_FILES([tests/config/mercurium-nanox], [chmod +x tests/config/mercurium-nanox])
+AC_CONFIG_FILES([tests/config/mercurium-omp], [chmod +x tests/config/mercurium-omp])
+AC_CONFIG_FILES([tests/config/mercurium-ompss], [chmod +x tests/config/mercurium-ompss])
+AC_CONFIG_FILES([tests/config/mercurium-ompss-v2], [chmod +x tests/config/mercurium-ompss-v2])
+AC_CONFIG_FILES([tests/config/mercurium-opencl], [chmod +x tests/config/mercurium-opencl])
+AC_CONFIG_FILES([tests/config/mercurium-parallel-simd], [chmod +x tests/config/mercurium-parallel-simd])
+AC_CONFIG_FILES([tests/config/mercurium-parallel-simd-avx2], [chmod +x tests/config/mercurium-parallel-simd-avx2])
+AC_CONFIG_FILES([tests/config/mercurium-parallel-simd-mic], [chmod +x tests/config/mercurium-parallel-simd-mic])
+AC_CONFIG_FILES([tests/config/mercurium-serial-simd], [chmod +x tests/config/mercurium-serial-simd])
+AC_CONFIG_FILES([tests/config/mercurium-serial-simd-avx2], [chmod +x tests/config/mercurium-serial-simd-avx2])
+AC_CONFIG_FILES([tests/config/mercurium-serial-simd-mic], [chmod +x tests/config/mercurium-serial-simd-mic])
+AC_CONFIG_FILES([tests/config/mercurium-serial-simd-romol], [chmod +x tests/config/mercurium-serial-simd-romol])
+AC_CONFIG_FILES([tests/config/test-generators-utilities], [chmod +x tests/config/test-generators-utilities])
+
+## Specific profiles
+AC_CONFIG_FILES([tests/05_torture_cxx_1.dg/mercurium], [chmod +x tests/05_torture_cxx_1.dg/mercurium])
+AC_CONFIG_FILES([tests/05_torture_cxx_1.dg/mercurium-cxx11], [chmod +x tests/05_torture_cxx_1.dg/mercurium-cxx11])
+AC_CONFIG_FILES([tests/05_torture_cxx_2.dg/mercurium], [chmod +x tests/05_torture_cxx_2.dg/mercurium])
+
 AC_OUTPUT
 
 AS_MKDIR_P([scripts])
 AS_MKDIR_P([config])
 
+AS_MKDIR_P([support/gperf])
 AS_MKDIR_P([support/iso_fortran])
 AS_MKDIR_P([support/openmp/fortran])
 AS_MKDIR_P([support/mpi/openmpi])
@@ -2496,6 +2466,14 @@ print_tool "git content tracker" "$GIT"
 print_tool "SQLite 3 cflags" "$sqlite3_CFLAGS"
 print_tool "SQLite 3 libs" "$sqlite3_LIBS"
 
+echo ""
+echo " * Mercurium backend compilers:"
+echo ""
+
+print_tool "GNU C compiler" "$GCC"
+print_tool "GNU C++ compiler" "$GXX"
+print_tool "GNU Fortran compiler" "$GFORTRAN"
+
 print_tool "nVidia CUDA compiler " "$NVCC"
 
 print_tool "Intel C compiler" "$ICC"
@@ -2520,7 +2498,7 @@ echo "   Fortran tests enabled: " $fortran_tests_enabled
 echo ""
 echo " * TL Examples will be built :" $is_enabled_tl_examples
 echo ""
-echo " * Nanos++ OpenMP :" $is_enabled_tl_omp_nanox
+echo " * Nanos++ OmpSs / OpenMP :" $is_enabled_tl_omp_nanox
 if test x$is_enabled_tl_omp_nanox = xyes;
 then
   echo ""
@@ -2546,23 +2524,12 @@ then
 fi
 
 echo ""
-echo " * Nanos 6 OmpSs :" $is_enabled_tl_ompss_nanos6
+echo " * Nanos6 OmpSs-v2 :" $is_enabled_tl_ompss_nanos6
 if test x$is_enabled_tl_ompss_nanos6 = xyes;
 then
   echo ""
-  echo "   Nanos 6 includes :" $nanos6_include
-  echo "   Nanos 6 libraries:" $nanos6_lib
-
-  if test ! -e "$nanos6_include" -o ! -d "$nanos6_include";
-  then
-     AC_MSG_WARN([directory '${nanos6_include}' does not seem to exist, compilation is likely to fail])
-  fi
-fi
-
-if test x$is_enabled_tl_ompss_nanos6 = xyes -a x$is_enabled_tl_omp_nanox = xyes;
-then
-  echo ""
-  echo " * Default OmpSs runtime: " ${DEFAULT_OMPSS_RUNTIME}
+  echo "   Nanos6 includes :" $nanos6_include
+  echo "   Nanos6 libraries:" $nanos6_lib
 fi
 
 echo ""
@@ -2604,21 +2571,8 @@ echo ""
 
 echo " * Optional phases :"
 echo ""
-
-if test x$is_enabled_vectorization = xyes;
-then
-  echo "   Vectorization build and install enabled"
-else
-  echo "   Vectorization build and install disabled"
-fi
-
-if test x$is_enabled_analysis = xyes;
-then
-  echo "   Analysis build and install enabled"
-else
-  echo "   Analysis build and install disabled"
-fi
-
+echo "   Analysis phase enabled:" $is_enabled_analysis
+echo "   Vectorization phase enabled:" $is_enabled_vectorization
 echo ""
 
 if test x$extrae_support = xyes;

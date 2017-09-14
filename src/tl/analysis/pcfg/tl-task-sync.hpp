@@ -46,6 +46,12 @@ namespace TaskAnalysis {
     private:
         ExtensibleGraph* _graph;
 
+        NBase match_dependencies(Node* source, Node* target);
+
+        void compute_task_synchronization_labels();
+        void compute_task_synchronization_conditions_rec(Node* current);
+        void compute_task_synchronization_conditions();
+
     public:
         TaskSynchronizations(ExtensibleGraph* graph, bool is_ompss_enabled);
 
@@ -54,43 +60,8 @@ namespace TaskAnalysis {
 
     // ************************* END class implementing task PCFG synchronization ************************* //
     // **************************************************************************************************** //
-    
-    
-    
-    // **************************************************************************************************** //
-    // *************************** Class implementing task concurrency analysis *************************** //
-
-    class LIBTL_CLASS TaskConcurrency
-    {
-    private:
-        // *** Private members *** //
-        ExtensibleGraph* _graph;
-
-        // *** Private methods *** /
-        void find_next_synchronization_points(Node* task);
-        void find_last_synchronization_points_for_sequential_code(Node* task_creation, Node* task);
-        void find_last_synchronization_points_for_tasks(Node* current, Node* task);
-
-        //! This method calculates the next and last synchronization points of a task
-        void define_concurrent_regions_limits(Node* task);
-
-        /*!Computes the tasks that are concurrent with a given task
-         * Also computes the last synchronization point in the encountering thread of the task
-         */
-        void compute_concurrent_tasks(Node* task);
-
-    public:
-        // *** Constructor *** //
-        TaskConcurrency(ExtensibleGraph* graph);
-
-        // *** Modifiers *** //
-        void compute_tasks_concurrency();
-    };
-
-    // ************************* END class implementing task concurrency analysis ************************* //
-    // **************************************************************************************************** //
 } 
 }
 }
 
-#endif
+#endif      // TL_TASK_SYNC_ANALYSIS_HPP

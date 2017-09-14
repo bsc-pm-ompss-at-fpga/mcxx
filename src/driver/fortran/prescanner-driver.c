@@ -24,14 +24,16 @@
   Cambridge, MA 02139, USA.
 --------------------------------------------------------------------*/
 
-
+#ifdef HAVE_CONFIG_H
+ #include <config.h>
+#endif
 
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
-#include "config.h"
+
 #include "prescanner-driver.h"
 #include "prescanner-process.h"
 #include "cxx-driver-utils.h"
@@ -91,7 +93,6 @@ static compilation_configuration_t minimal_default_configuration;
 static void initialize_default_values(void)
 {
     // Initialize here all default values
-    compilation_process.config_file = strappend(compilation_process.home_directory, CONFIG_RELATIVE_PATH);
     compilation_process.config_dir = strappend(compilation_process.home_directory, DIR_CONFIG_RELATIVE_PATH);
     compilation_process.num_translation_units = 0;
 

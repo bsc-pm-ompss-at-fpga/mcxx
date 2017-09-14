@@ -563,9 +563,8 @@ sections-construct : NODECL_OPEN_M_P*SECTIONS([environment]omp-exec-environment-
 
 section-construct : NODECL_OPEN_M_P*SECTION([statements]statement-seq)
 
-synchronization : NODECL_OPEN_M_P*TASKWAIT_SHALLOW([environment]omp-exec-environment-seq-opt)
+synchronization : NODECL_OPEN_M_P*TASKWAIT([environment]omp-exec-environment-seq-opt)
 # All levels of async
-                | NODECL_OPEN_M_P*TASKWAIT_DEEP()
                 | NODECL_OPEN_M_P*FLUSH_MEMORY([expressions] expression-seq-opt)
 # Full barrier
                 | NODECL_OPEN_M_P*BARRIER_FULL([environment]omp-exec-environment-seq-opt)
@@ -587,6 +586,7 @@ omp-exec-environment : omp-data-sharings-info
                  | omp-critical-info
                  | omp-simd-info
                  | omp-device-info
+                 | omp-task-flags
 
 omp-data-sharings-info : NODECL_OPEN_M_P*FIRSTPRIVATE([symbols]name-seq)
                        | NODECL_OPEN_M_P*LASTPRIVATE([symbols]name-seq)
@@ -604,6 +604,11 @@ omp-reduction-item : NODECL_OPEN_M_P*REDUCTION_ITEM([reductor]name, [reduced_sym
 omp-construct-info : NODECL_OPEN_M_P*COMBINED_WITH_PARALLEL()
                    | NODECL_OPEN_M_P*FUNCTION_TASK_PARSING_CONTEXT([context]pragma-context)
 
+# These nodes represent some flags that indicate that an task represents
+# another kind of node, such a taskwait or a taskloop
+omp-task-flags : NODECL_OPEN_M_P*TASK_IS_TASKWAIT()
+               | NODECL_OPEN_M_P*TASK_IS_TASKLOOP()
+
 omp-sync-info : NODECL_OPEN_M_P*BARRIER_AT_END()
 
 omp-memory-info : NODECL_OPEN_M_P*FLUSH_AT_ENTRY()
@@ -614,17 +619,20 @@ omp-loop-info : NODECL_OPEN_M_P*SCHEDULE([chunk]expression-opt) text
               | NODECL_OPEN_M_P*DIST_SCHEDULE([chunk]expression-opt) text
 
 omp-taskloop-info : NODECL_OPEN_M_P*NUM_TASKS([num_tasks]expression)
-                  | NODECL_OPEN_M_P*GRAIN_SIZE([grain_size]expression)
+                  | NODECL_OPEN_M_P*GRAINSIZE([grainsize]expression)
+                  | NODECL_OMP_SS*CHUNKSIZE([chunksize]expression)
 
-omp-deps-info :  NODECL_OPEN_M_P*DEP_IN([in_deps]expression-seq)
-                 | NODECL_OPEN_M_P*DEP_OUT([out_deps]expression-seq)
-                 | NODECL_OPEN_M_P*DEP_INOUT([inout_deps]expression-seq)
+omp-deps-info :  NODECL_OPEN_M_P*DEP_IN([exprs]expression-seq)
+                 | NODECL_OPEN_M_P*DEP_OUT([exprs]expression-seq)
+                 | NODECL_OPEN_M_P*DEP_INOUT([exprs]expression-seq)
 
 omp-execution-control : NODECL_OPEN_M_P*IF([condition]expression)
                       | NODECL_OPEN_M_P*FINAL([condition]expression)
                       | NODECL_OPEN_M_P*PRIORITY([priority]expression)
                       | NODECL_OPEN_M_P*MERGEABLE()
                       | NODECL_OPEN_M_P*UNTIED()
+# OmpSsv2 clause that  means that a task/taskloop has to wait for its children
+                      | NODECL_OMP_SS*WAIT()
 
 omp-critical-info: NODECL_OPEN_M_P*CRITICAL_NAME() text
 
@@ -686,7 +694,6 @@ omp-for-construct : NODECL_OPEN_M_P*FOR_APPENDIX([environment]omp-exec-environme
 expression : task-call
            | task-expression
 
-omp-deps-info: NODECL_OMP_SS*DEP_IN_PRIVATE([in_deps]expression-seq)
 
 # function task
 # Note: do not rely on the information in site_environment
@@ -700,8 +707,6 @@ top-level: target-declaration
 
 target-declaration : NODECL_OMP_SS*TARGET_DECLARATION([devices] text-seq, [symbols] name-seq)
 
-synchronization : NODECL_OMP_SS*WAIT_ON_DEPENDENCES([environment]omp-exec-environment-seq-opt)
-
 parallel-statements: data-coordination
 
 # register
@@ -709,16 +714,18 @@ data-coordination : NODECL_OMP_SS*REGISTER([registered_set]expression-seq)
                 | NODECL_OMP_SS*UNREGISTER([unregistered_set]expression-seq)
 
 omp-exec-environment: NODECL_OMP_SS*ALLOCA([exprs] expression-seq)
-                | NODECL_OMP_SS*CONCURRENT([inout_deps]expression-seq)
-                | NODECL_OMP_SS*COMMUTATIVE([commutative_deps]expression-seq)
                 | NODECL_OMP_SS*SHARED_AND_ALLOCA([exprs]expression-seq)
-                | NODECL_OMP_SS*DEP_REDUCTION([reduction_deps]expression-seq)
-                | NODECL_OMP_SS*DEP_WEAK_IN([weakin_deps]expression-seq)
-                | NODECL_OMP_SS*DEP_WEAK_OUT([weakout_deps]expression-seq)
-                | NODECL_OMP_SS*DEP_WEAK_INOUT([weakinout_deps]expression-seq)
                 | NODECL_OMP_SS*COST([cost]expression)
 
 omp-exec-environment : ompss-device-info
+
+omp-deps-info: NODECL_OMP_SS*CONCURRENT([exprs]expression-seq)
+                | NODECL_OMP_SS*COMMUTATIVE([exprs]expression-seq)
+                | NODECL_OMP_SS*DEP_REDUCTION([exprs]expression-seq)
+                | NODECL_OMP_SS*DEP_IN_PRIVATE([exprs]expression-seq)
+                | NODECL_OMP_SS*DEP_WEAK_IN([exprs]expression-seq)
+                | NODECL_OMP_SS*DEP_WEAK_OUT([exprs]expression-seq)
+                | NODECL_OMP_SS*DEP_WEAK_INOUT([exprs]expression-seq)
 
 ompss-device-info : NODECL_OMP_SS*COPY_IN([input_copies]expression-seq)
             | NODECL_OMP_SS*COPY_OUT([output_copies]expression-seq)

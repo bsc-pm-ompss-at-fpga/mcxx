@@ -294,9 +294,6 @@ namespace Utils {
             NodeclDeepCopyMap& nodecl_deep_copy_map,
             SymbolDeepCopyMap& symbol_deep_copy_map);
 
-    // This updates symbols in the given tree using a symbol map
-    void update_symbols(Nodecl::NodeclBase orig, SymbolMap& map);
-
     // Like above but with an empty map
     Nodecl::NodeclBase deep_copy(Nodecl::NodeclBase orig, TL::ReferenceScope ref_scope);
     Nodecl::NodeclBase deep_copy(Nodecl::NodeclBase orig,
@@ -490,6 +487,11 @@ namespace TL
             Nodecl::NodeclBase _upper_bound;
             Nodecl::NodeclBase _step;
 
+            // This flag states whether the induction variable of the loop was
+            // defined in the scope of the loop control.
+            //
+            //      for (int k = 0; k < 42; ++k) -> true
+            //      for (k = 0; k < 42; ++k) -> false
             bool _induction_variable_in_separate_scope;
             bool _is_omp_valid;
 

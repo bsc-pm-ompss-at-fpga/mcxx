@@ -24,6 +24,10 @@
   Cambridge, MA 02139, USA.
 --------------------------------------------------------------------*/
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
+
 #include "fortran03-modules.h"
 #include "fortran03-modules-data.h"
 #include "fortran03-buildscope.h"
@@ -40,10 +44,6 @@
 #include "cxx-entrylist.h"
 #include "cxx-asttype-str.h"
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #include <stdio.h>
 #include <sqlite3.h>
 #include <errno.h>
@@ -54,7 +54,7 @@
  #error Q cannot be defined here
 #endif
 
-enum { CURRENT_MODULE_VERSION = 18 };
+enum { CURRENT_MODULE_VERSION = 21 };
 
 // Uncomment the next line to let you GCC help in wrong types in formats of sqlite3_mprintf
 // #define DEBUG_SQLITE3_MPRINTF 1

@@ -1,23 +1,23 @@
 /*--------------------------------------------------------------------
   (C) Copyright 2006-2015 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
-  
+
   This file is part of Mercurium C/C++ source-to-source compiler.
-  
+
   See AUTHORS file in the top level directory for information
   regarding developers and contributors.
-  
+
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
   version 3 of the License, or (at your option) any later version.
-  
+
   Mercurium C/C++ source-to-source compiler is distributed in the hope
   that it will be useful, but WITHOUT ANY WARRANTY; without even the
   implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
   PURPOSE.  See the GNU Lesser General Public License for more
   details.
-  
+
   You should have received a copy of the GNU Lesser General Public
   License along with Mercurium C/C++ source-to-source compiler; if
   not, write to the Free Software Foundation, Inc., 675 Mass Ave,
@@ -220,7 +220,9 @@ namespace TL { namespace Nanox {
 
             if (IS_CXX_LANGUAGE)
             {
+#if _DEBUG_AUTOMATIC_COMPILER_
         std::cerr << "unpacked function:" << unpacked_function.get_function_code().prettyprint() << std::endl;
+#endif
                 if (!unpacked_function.is_member())
                 {
                     Nodecl::NodeclBase nodecl_decl = Nodecl::CxxDecl::make(
@@ -512,7 +514,7 @@ namespace TL { namespace Nanox {
            }
 
            unpacked_function_call << unpacked_function.get_qualified_name_for_expression(
-                   /* in_dependent_context */ 
+                   /* in_dependent_context */
                    (current_function.get_type().is_template_specialized_type()
                     && current_function.get_type().is_dependent())
                    ) << "(" << unpacked_arguments << ");";
@@ -528,8 +530,10 @@ namespace TL { namespace Nanox {
                 << "}"
                 ;
 
+#if _DEBUG_AUTOMATIC_COMPILER_
     std::cerr << "outline function:" << outline_function.get_function_code().prettyprint() << std::endl;
     std::cerr << "outline source code:" << outline_src.get_source() << std::endl;
+#endif
             if (IS_CXX_LANGUAGE)
             {
                 if (!outline_function.is_member())
@@ -661,10 +665,11 @@ namespace TL { namespace Nanox {
                 << /* factory */ "&nanos_smp_factory, &" << outline_name << "_args"
                 << "}"
                 ;
-
+#if _DEBUG_AUTOMATIC_COMPILER_
           std::cerr << "Casting: qualified_name " << qualified_name << std::endl;
           std::cerr << "Casting: ancillary " << ancillary_device_description.get_source()<< std::endl;
           std::cerr << "Casting: device_descriptor" << device_descriptor.get_source() << std::endl;
+#endif
         }
         else
         {

@@ -29,6 +29,8 @@
 #include "hlt-pragma.hpp"
 #include "hlt-loop-unroll.hpp"
 #include "hlt-loop-normalize.hpp"
+#include "hlt-loop-collapse.hpp"
+#include "tl-nodecl-utils.hpp"
 #include "cxx-cexpr.h"
 #include "cxx-diagnostic.h"
 
@@ -53,6 +55,14 @@ HLTPragmaPhase::HLTPragmaPhase()
     dispatcher("hlt").statement.post["unroll"].connect(
             std::bind(
                 &HLTPragmaPhase::do_loop_unroll,
+                this,
+                std::placeholders::_1)
+            );
+
+    register_construct("hlt", "collapse");
+    dispatcher("hlt").statement.post["collapse"].connect(
+            std::bind(
+                &HLTPragmaPhase::do_loop_collapse,
                 this,
                 std::placeholders::_1)
             );
@@ -127,6 +137,72 @@ void HLTPragmaPhase::do_loop_normalize(TL::PragmaCustomStatement construct)
 
     Nodecl::NodeclBase transformed_code = loop_normalize.get_whole_transformation();
     construct.replace(transformed_code);
+
+    Nodecl::NodeclBase posterior_stmts = loop_normalize.get_post_transformation_stmts();
+    Nodecl::Utils::append_items_after(construct, posterior_stmts);
+}
+
+void HLTPragmaPhase::do_loop_collapse(TL::PragmaCustomStatement construct)
+{
+    TL::PragmaCustomLine custom_line = construct.get_pragma_line();
+    TL::PragmaCustomParameter clause = custom_line.get_parameter();
+
+    if (!clause.is_defined())
+        return;
+
+    TL::ObjectList<Nodecl::NodeclBase> expr_list = clause.get_arguments_as_expressions();
+    if (expr_list.size() != 1)
+    {
+        error_printf_at(construct.get_locus(), "'collapse' clause needs exactly one argument\n");
+        return;
+    }
+
+    Nodecl::NodeclBase expr = expr_list[0];
+    if (!expr.is_constant() ||
+            !is_any_int_type(expr.get_type().get_internal_type()))
+    {
+        error_printf_at(
+                construct.get_locus(),
+                "'collapse' clause requires an integer constant expression\n");
+        return;
+    }
+
+    int collapse_factor = const_value_cast_to_signed_int(expr.get_constant());
+
+    if (collapse_factor <= 0)
+    {
+        error_printf_at(
+                construct.get_locus(),
+                "Non-positive factor (%d) is not allowed in the 'collapse' clause\n",
+                collapse_factor);
+    }
+    else if (collapse_factor == 1)
+    {
+        construct.replace(construct.get_statements());
+    }
+    else
+    {
+        if (collapse_factor > 1)
+        {
+            Nodecl::NodeclBase loop = get_statement_from_pragma(construct);
+
+            HLT::LoopCollapse loop_collapse;
+            loop_collapse.set_loop(loop);
+            loop_collapse.set_pragma_context(construct.retrieve_context());
+            loop_collapse.set_collapse_factor(collapse_factor);
+
+            loop_collapse.collapse();
+
+            Nodecl::NodeclBase transformed_code = loop_collapse.get_whole_transformation();
+            construct.replace(transformed_code);
+
+            Nodecl::NodeclBase posterior_stmts = loop_collapse.get_post_transformation_stmts();
+            Nodecl::Utils::append_items_after(construct, posterior_stmts);
+        }
+
+        info_printf_at(construct.get_locus(),
+                "loop collapsed by a factor %d\n", collapse_factor);
+    }
 }
 
 } }

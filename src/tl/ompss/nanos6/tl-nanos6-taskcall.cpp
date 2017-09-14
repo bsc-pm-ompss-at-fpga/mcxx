@@ -369,8 +369,10 @@ namespace TL { namespace Nanos6 {
             return res;
         }
     }
+    namespace
+    {
 
-    void Lower::capture_argument_for_task_call(
+    void capture_argument_for_task_call(
         TL::Symbol called_sym,
         TL::Scope new_block_context_sc,
         TL::Type parameter_type,
@@ -442,6 +444,7 @@ namespace TL { namespace Nanos6 {
 
         argument_captures_syms.append(new_symbol);
     }
+    }
 
     void Lower::visit_task_call_c(const Nodecl::OmpSs::TaskCall& construct)
     {
@@ -467,8 +470,6 @@ namespace TL { namespace Nanos6 {
 
         Scope sc = construct.retrieve_context();
         Scope new_block_context_sc = new_block_context(sc.get_decl_context());
-
-        TaskProperties parameter_task_properties = TaskProperties::gather_task_properties(_phase, construct);
 
         Nodecl::List arguments = function_call.get_arguments().as<Nodecl::List>();
 
@@ -651,13 +652,13 @@ namespace TL { namespace Nanos6 {
 
         Nodecl::Utils::SimpleSymbolMap parameter_symbol_map;
 
-        TL::Symbol current_function = construct.retrieve_context().get_related_symbol();
         TL::Scope scope_inside_new_function = empty_stmt.retrieve_context();
 
         Nodecl::Utils::Fortran::ExtraDeclsVisitor fun_visitor(
                 parameter_symbol_map,
                 scope_inside_new_function,
-                current_function);
+                enclosing_function);
+
         fun_visitor.insert_extra_symbols(function_call);
         // Map the called symbol (if needed)
         // We do it early because we do not want to map the parameters
@@ -733,7 +734,7 @@ namespace TL { namespace Nanos6 {
                                       scope_inside_new_function);
 
         Nodecl::Utils::Fortran::append_used_modules(
-            current_function.get_related_scope(),
+            enclosing_function.get_related_scope(),
             adapter_function.get_related_scope());
 
         Nodecl::Utils::Fortran::append_used_modules(
@@ -742,12 +743,12 @@ namespace TL { namespace Nanos6 {
 
         // If the current function is in a module, make this new function a
         // sibling of it
-        if (current_function.is_in_module()
-            && current_function.is_module_procedure())
+        if (enclosing_function.is_in_module()
+            && enclosing_function.is_module_procedure())
         {
             symbol_entity_specs_set_in_module(
                 adapter_function.get_internal_symbol(),
-                current_function.in_module().get_internal_symbol());
+                enclosing_function.in_module().get_internal_symbol());
             symbol_entity_specs_set_access(
                 adapter_function.get_internal_symbol(), AS_PRIVATE);
             symbol_entity_specs_set_is_module_procedure(
@@ -824,16 +825,17 @@ namespace TL { namespace Nanos6 {
 
             serial_function_call.as<Nodecl::FunctionCall>().set_arguments(Nodecl::List::make(new_arguments));
 
-        Nodecl::Utils::SimpleSymbolMap serial_stmt_map;
-            Nodecl::Utils::Fortran::ExtraDeclsVisitor fun_visitor(
+            Nodecl::Utils::SimpleSymbolMap serial_stmt_map;
+            Nodecl::Utils::Fortran::ExtraDeclsVisitor fun_visitor_aux(
                     serial_stmt_map,
                     scope_inside_new_function,
                     enclosing_function);
 
-            fun_visitor.insert_extra_symbols(serial_function_call);
+            fun_visitor_aux.insert_extra_symbols(serial_function_call);
 
-            serial_stmts =
-                Nodecl::List::make(Nodecl::ExpressionStatement::make(Nodecl::Utils::deep_copy(serial_function_call, scope_inside_new_function, serial_stmt_map)));
+            serial_stmts = Nodecl::List::make(
+                    Nodecl::ExpressionStatement::make(
+                        Nodecl::Utils::deep_copy(serial_function_call, scope_inside_new_function, serial_stmt_map)));
         }
 
         lower_task(empty_stmt.as<Nodecl::OpenMP::Task>(), serial_stmts);
