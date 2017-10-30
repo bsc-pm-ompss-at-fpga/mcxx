@@ -1,23 +1,23 @@
 /*--------------------------------------------------------------------
   (C) Copyright 2006-2014 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
-  
+
   This file is part of Mercurium C/C++ source-to-source compiler.
-  
+
   See AUTHORS file in the top level directory for information
   regarding developers and contributors.
-  
+
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
   version 3 of the License, or (at your option) any later version.
-  
+
   Mercurium C/C++ source-to-source compiler is distributed in the hope
   that it will be useful, but WITHOUT ANY WARRANTY; without even the
   implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
   PURPOSE.  See the GNU Lesser General Public License for more
   details.
-  
+
   You should have received a copy of the GNU Lesser General Public
   License along with Mercurium C/C++ source-to-source compiler; if
   not, write to the Free Software Foundation, Inc., 675 Mass Ave,
@@ -52,6 +52,7 @@ namespace TL
                 ObjectList<Nodecl::NodeclBase> _ndrange_exprs;
                 ObjectList<Nodecl::NodeclBase> _shmem_exprs;
                 ObjectList<Nodecl::NodeclBase> _onto_exprs;
+                ObjectList<Nodecl::NodeclBase> _num_instances_exprs;
 
                 // The value of the 'file' clause
                 std::string _file;
@@ -91,6 +92,10 @@ namespace TL
                 void set_onto(const ObjectList<Nodecl::NodeclBase>& onto);
                 //void append_to_onto(const ObjectList<Nodecl::NodeclBase>& onto);
                 ObjectList<Nodecl::NodeclBase> get_onto() const;
+
+                void set_num_instances(const ObjectList<Nodecl::NodeclBase>& numinstances);
+                //void append_to_onto(const ObjectList<Nodecl::NodeclBase>& onto);
+                ObjectList<Nodecl::NodeclBase> get_num_instances() const;
 
                 Nodecl::Utils::SimpleSymbolMap& get_param_arg_map();
                 void set_param_arg_map(Nodecl::Utils::SimpleSymbolMap param_arg_map);

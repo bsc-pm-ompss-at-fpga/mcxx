@@ -1,23 +1,23 @@
 /*--------------------------------------------------------------------
   (C) Copyright 2006-2014 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
-  
+
   This file is part of Mercurium C/C++ source-to-source compiler.
-  
+
   See AUTHORS file in the top level directory for information
   regarding developers and contributors.
-  
+
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
   version 3 of the License, or (at your option) any later version.
-  
+
   Mercurium C/C++ source-to-source compiler is distributed in the hope
   that it will be useful, but WITHOUT ANY WARRANTY; without even the
   implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
   PURPOSE.  See the GNU Lesser General Public License for more
   details.
-  
+
   You should have received a copy of the GNU Lesser General Public
   License along with Mercurium C/C++ source-to-source compiler; if
   not, write to the Free Software Foundation, Inc., 675 Mass Ave,
@@ -44,6 +44,12 @@ namespace TL
             if (onto.is_defined())
             {
                 target_ctx.onto = onto.get_arguments_as_expressions(scope);
+            }
+
+            PragmaCustomClause num_instances = pragma_line.get_clause("num_instances");
+            if (num_instances.is_defined())
+            {
+                target_ctx.num_instances = num_instances.get_arguments_as_expressions(scope);
             }
 
             PragmaCustomClause device = pragma_line.get_clause("device");
@@ -399,7 +405,7 @@ namespace TL
             }
         }
 
-        static void add_copy_items(PragmaCustomLine construct, 
+        static void add_copy_items(PragmaCustomLine construct,
                 DataEnvironment& data_sharing_environment,
                 const ObjectList<Nodecl::NodeclBase>& list,
                 TL::OmpSs::CopyDirection copy_direction,
@@ -412,7 +418,7 @@ namespace TL
                     it != list.end();
                     it++)
             {
-                
+
                 DataReference expr(*it);
 
 #if _DEBUG_FPGA_AUTO_
@@ -507,7 +513,7 @@ namespace TL
 /*
                 case TL::OmpSs::COPY_DIR_IN_ADDR:
                     {
-                        
+
 #if _DEBUG_FPGA_AUTO_
                         fprintf(stderr,"Inserting in target_info copy_in_addr?? \n");
 #endif
@@ -673,6 +679,7 @@ namespace TL
             target_info.append_to_ndrange(target_ctx.ndrange);
             target_info.append_to_shmem(target_ctx.shmem);
             target_info.append_to_onto(target_ctx.onto);
+            target_info.append_to_num_instances(target_ctx.num_instances);
             target_info.append_to_device_list(target_ctx.device_list);
 
             // Set data sharings for referenced entities in copies
@@ -802,8 +809,8 @@ namespace TL
                 ObjectList<Symbol> ds_syms;
                 data_sharing_environment.get_all_symbols(DS_SHARED, ds_syms);
 
-                for(ObjectList<Symbol>::iterator io_it = ds_syms.begin(); 
-                        io_it != ds_syms.end(); 
+                for(ObjectList<Symbol>::iterator io_it = ds_syms.begin();
+                        io_it != ds_syms.end();
                         io_it++)
                 {
                     // Ignore 'this'

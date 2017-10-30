@@ -70,7 +70,7 @@ UNUSED_PARAMETER static void print_ast_dot(const Nodecl::NodeclBase &node) {
 }
 
 void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &outline_placeholder, Nodecl::NodeclBase &output_statements, Nodecl::Utils::SimpleSymbolMap* &symbol_map) {
-	
+
 	if (IS_FORTRAN_LANGUAGE)
 		fatal_error("Fortran for FPGA devices is not supported yet\n");
 
@@ -121,7 +121,7 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
 			                <<  "\t__output.keep = 0xFF;"
 			                <<  "\t__output.data = accID;"
 			                <<  "\t__output.dest = __destID;"
-			                <<  "\t__output.last = 1;" 
+			                <<  "\t__output.last = 1;"
                                         <<  "\treturn __output;"
 			                <<  "}"
 			                <<  ""
@@ -433,27 +433,27 @@ DeviceFPGA::DeviceFPGA():DeviceProvider(std::string("fpga")) {
 		"This is the parameter to indicate the FPGA accelerators frequency",
 		_frequency,
 		"10");
-	
+
 	register_parameter("bitstream_generation",
 		"This is the parameter to activate the bitstream generation:ON/OFF",
 		_bitstream_generation,
 		"OFF");
-	
+
 	register_parameter("vivado_design_path",
 		"This is the parameter to indicate where the automatically generated vivado design will be placed",
 		_vivado_design_path,
 		"$PWD");
-	
+
 	register_parameter("vivado_project_name",
 		"This is the parameter to indicate the vivado project name",
 		_vivado_project_name,
 		"Filename");
-	
+
 	register_parameter("ip_cache_path",
 		"This is the parameter to indicate where the cache of ips is placed",
 		_ip_cache_path,
 		"$PWD/IP_cache");
-	
+
 	register_parameter("dataflow",
 		"This is the parameter to indicate where the user wants to use the dataflow optimization:ON/OFF",
 		_dataflow,
@@ -521,9 +521,7 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
     ObjectList<Nodecl::NodeclBase> onto_clause = info._target_info.get_onto();
     Nodecl::Utils::SimpleSymbolMap param_to_args_map = info._target_info.get_param_arg_map();
 
-    std::string acc_num = "-1";
     _acc_num = "-1";
-    _num_acc_instances = "1";
     if (onto_clause.size() >= 1)
     {
         //TODO
@@ -531,9 +529,9 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
         //can be run in several accelerators
 
         Nodecl::NodeclBase onto_acc = onto_clause[0];
-        if (onto_clause.size() > 2)
+        if (onto_clause.size() > 1)
         {
-            warn_printf_at(onto_acc.get_locus(), "More than two arguments in onto clause. Using only first two\n");
+            warn_printf_at(onto_acc.get_locus(), "More than ont argument in onto clause. Using only first one\n");
         }
 
         if (onto_clause[0].is_constant())
@@ -548,58 +546,66 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
                 int acc = const_value_cast_to_signed_int(ct_val);
                 std::stringstream tmp_str;
                 tmp_str << acc;
-                acc_num = tmp_str.str();
-                _acc_num = acc_num;
-                _num_acc_instances = "1";
-#if _DEBUG_AUTOMATIC_COMPILER_
-                fprintf(stderr," Accelerator base acc:%d\n",_base_acc_num);
-#endif
-
-               if(onto_clause.size() ==1)
-               {
-                    _base_acc_num++;
-
-               }
-               else {
-
-                  Nodecl::NodeclBase onto_acc_instances = onto_clause[1];
-
-                  if (onto_clause[1].is_constant())
-                  {
-                      const_value_t *ct_val = onto_acc_instances.get_constant();
-                      if (!const_value_is_integer(ct_val))
-                      {
-                        error_printf_at(onto_acc_instances.get_locus(), "Constant is not integer type in onto clause: num_instances\n");
-                      }
-                      else
-                      {
-                          int acc_instances = const_value_cast_to_signed_int(ct_val);
-                          std::stringstream tmp_str_instances;
-                          tmp_str_instances << acc_instances;
-                          _num_acc_instances = tmp_str_instances.str();
-                          if (!acc_instances)
-                                error_printf_at(onto_acc.get_locus(), "Constant, number of instances, should be an integer longer than 0\n");
-                          _base_acc_num+=acc_instances;
-                      }
-
-                  }
-               }
+                _acc_num = tmp_str.str();
             }
         }
         else
         {
             if (onto_acc.get_symbol().is_valid() ) {
-                acc_num = as_symbol(onto_acc.get_symbol());
+                _acc_num = as_symbol(onto_acc.get_symbol());
                 //as_symbol(param_to_args_map.map(onto_acc.get_symbol()));
-                _acc_num = acc_num;
-               // TODO
-               // _base_acc_num+=atoi(acc_num);
             }
         }
     }
     else
     {
         //warning??
+    }
+
+    //get num_instances information
+    ObjectList<Nodecl::NodeclBase> numins_clause = info._target_info.get_num_instances();
+
+    _num_acc_instances = "1";  //Default is 1 instance
+    if (numins_clause.size() >= 1)
+    {
+        Nodecl::NodeclBase numins_acc = numins_clause[0];
+        if (numins_clause.size() > 1)
+        {
+            warn_printf_at(numins_acc.get_locus(), "More than ont argument in num_instances clause. Using only first one\n");
+        }
+
+        if (numins_acc.is_constant())
+        {
+            const_value_t *ct_val = numins_acc.get_constant();
+            if (!const_value_is_integer(ct_val))
+            {
+                error_printf_at(numins_acc.get_locus(), "Constant is not integer type in onto clause: num_instances\n");
+            }
+            else
+            {
+                int acc_instances = const_value_cast_to_signed_int(ct_val);
+                std::stringstream tmp_str_instances;
+                tmp_str_instances << acc_instances;
+                _num_acc_instances = tmp_str_instances.str();
+                if (acc_instances <= 0)
+                    error_printf_at(numins_acc.get_locus(), "Constant in num_instances should be an integer longer than 0\n");
+                _base_acc_num += acc_instances;
+#if _DEBUG_AUTOMATIC_COMPILER_
+                fprintf(stderr," Accelerator base acc:%d\n",_base_acc_num);
+#endif
+            }
+        }
+        else
+        {
+            error_printf_at(numins_acc.get_locus(), "num_instances clause does not contain a constant expresion\n");
+        }
+    }
+    else
+    {
+        _base_acc_num++;
+#if _DEBUG_AUTOMATIC_COMPILER_
+        fprintf(stderr," Accelerator base acc (no info found):%d\n",_base_acc_num);
+#endif
     }
 
     if (!IS_FORTRAN_LANGUAGE)
@@ -616,7 +622,7 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
             << comment("device argument type")
             << "static nanos_fpga_args_t " << args_name << ";"
             << args_name << ".outline = (void(*)(void*))" << extra_cast << "&" << qualified_name << ";"
-            << args_name << ".acc_num = " << acc_num << ";"
+            << args_name << ".acc_num = " << _acc_num << ";"
             ;
 
         Source ancillary_device_description_2;
@@ -624,7 +630,7 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
             << comment("device argument type")
             << "static nanos_fpga_args_t " << args_name << ";"
             << args_name << ".outline = (void(*)(void*)) " << extra_cast << " &" << qualified_name << ";"
-            << args_name << ".acc_num = " << acc_num << ";"
+            << args_name << ".acc_num = " << _acc_num << ";"
             ;
 
         device_descriptor
@@ -1456,7 +1462,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 			Type elem_type;
 			Type basic_elem_type;
 			std::string basic_elem_type_name;
-			
+
 			if (field_type.is_pointer() || field_type.is_array() || field_type.array_is_region()) {
 			  n_elements_src = get_copy_elements_all_dimensions_src(type, field_type, is_only_pointer);
 			  dimensions_array = get_type_arrays_src(type, field_type, is_only_pointer);
@@ -1464,7 +1470,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 			} else {
 				internal_error("ERROR!\n",0);
 			}
-			
+
 			if (is_only_pointer) {
 			    elem_type = field_type.points_to();
 			    basic_elem_type=field_type.basic_type();
@@ -1477,7 +1483,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 				internal_error("invalid type for input/output, only pointer and array is allowed (%d)",
 				expr.get_locus_str().c_str());
 			}
-			
+
 			std::string par_simple_decl = elem_type.get_simple_declaration(scope, field_name);
 			TL::Type basic_par_type= field_type.basic_type();
 			std::string basic_par_type_decl= basic_par_type.print_declarator();
@@ -1638,7 +1644,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 				} else {
 					internal_error("Reference not valid", 0);
 				}
-				
+
 				std::string par_simple_decl = elem_type.get_simple_declaration(scope, field_name);
 				TL::Type basic_par_type = field_type.basic_type();
 				std::string basic_par_type_decl = basic_par_type.print_declarator();
@@ -1690,7 +1696,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 				TL::Symbol param_symbol = (*it)->get_field_symbol();
 				int param_id= find_parameter_position(param_list, param_symbol);
 				function_parameters_passed[param_id] = 1;
-				
+
 				in_copies_aux
 					<< "\t\t\tcase " << param_id << ":\n"
 					<< "\t\t\t\t" << field_name << " = (" << casting_pointer << ")(" << field_port_name << " + __addr/sizeof(" << casting_sizeof << "));"
@@ -1792,7 +1798,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 		}
 	}
 
-	in_copies       
+	in_copies
 		<< "\tfor (__i = 0; __i < " << n_params_id << "; __i++) {"
 		<< in_copies_aux
 		<< "\t\t\tdefault:;"
@@ -1948,9 +1954,9 @@ void DeviceFPGA::copy_stuff_to_device_file_expand(const TL::ObjectList<Nodecl::N
 			Nodecl::NodeclBase code_function = function.get_function_code();
 			Source outline_src_function_caller;
 			outline_src_function_caller << code_function.prettyprint();
-			
+
 			TL::ObjectList<Nodecl::Symbol> symbol_stuff_to_be_copied= Nodecl::Utils::get_nonlocal_symbols_first_occurrence(*it);
-			
+
 			for (TL::ObjectList<Nodecl::Symbol>::const_iterator its = symbol_stuff_to_be_copied.begin(); its != symbol_stuff_to_be_copied.end(); ++its) {
 				TL::Symbol sym = its->get_symbol();
 				std::string original_filename = TL::CompilationProcess::get_current_file().get_filename();

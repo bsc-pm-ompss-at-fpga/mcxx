@@ -97,6 +97,7 @@ namespace TL { namespace OmpSs {
             ObjectList<Nodecl::NodeclBase> _ndrange;
             ObjectList<Nodecl::NodeclBase> _shmem;
             ObjectList<Nodecl::NodeclBase> _onto;
+            ObjectList<Nodecl::NodeclBase> _num_instances;
 
             ObjectList<std::string> _device_list;
             std::string _file;
@@ -144,6 +145,10 @@ namespace TL { namespace OmpSs {
             void append_to_onto(const ObjectList<Nodecl::NodeclBase>& expressions);
             ObjectList<Nodecl::NodeclBase> get_onto() const;
             ObjectList<Nodecl::NodeclBase> get_shallow_copy_of_onto() const;
+
+            void append_to_num_instances(const ObjectList<Nodecl::NodeclBase>& expressions);
+            ObjectList<Nodecl::NodeclBase> get_num_instances() const;
+            ObjectList<Nodecl::NodeclBase> get_shallow_copy_of_num_instances() const;
 
             void set_copy_deps(bool b);
             bool has_copy_deps() const;

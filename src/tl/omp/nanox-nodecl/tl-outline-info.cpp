@@ -1,23 +1,23 @@
 /*--------------------------------------------------------------------
   (C) Copyright 2006-2015 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
-  
+
   This file is part of Mercurium C/C++ source-to-source compiler.
-  
+
   See AUTHORS file in the top level directory for information
   regarding developers and contributors.
-  
+
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
   version 3 of the License, or (at your option) any later version.
-  
+
   Mercurium C/C++ source-to-source compiler is distributed in the hope
   that it will be useful, but WITHOUT ANY WARRANTY; without even the
   implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
   PURPOSE.  See the GNU Lesser General Public License for more
   details.
-  
+
   You should have received a copy of the GNU Lesser General Public
   License along with Mercurium C/C++ source-to-source compiler; if
   not, write to the Free Software Foundation, Inc., 675 Mass Ave,
@@ -905,19 +905,19 @@ namespace TL { namespace Nanox {
             TL::DataReference data_ref(*it);
             if (data_ref.is_valid())
             {
-                
+
                 TL::Symbol sym = data_ref.get_base_symbol();
 #ifdef _DEBUG_FPGA_AUTO_
                 std::cerr << std::endl << std::endl;
                 std::cerr << sym.get_name() << std::endl;
                 if (copy_directionality==OutlineDataItem::COPY_IN)
-                    std::cerr << "COPY_IN" << std::endl; 
+                    std::cerr << "COPY_IN" << std::endl;
 //                else if (copy_directionality==OutlineDataItem::COPY_IN_ADDR)
-//                    std::cerr << "COPY_IN_ADDR" << std::endl; 
+//                    std::cerr << "COPY_IN_ADDR" << std::endl;
 //                else if (copy_directionality==OutlineDataItem::COPY_OUT_ADDR)
-//                    std::cerr << "COPY_OUT_ADDR" << std::endl; 
+//                    std::cerr << "COPY_OUT_ADDR" << std::endl;
 //                else if (copy_directionality==OutlineDataItem::COPY_INOUT_ADDR)
-//                    std::cerr << "COPY_INOUT_ADDR" << std::endl; 
+//                    std::cerr << "COPY_INOUT_ADDR" << std::endl;
                 std::cerr << std::endl << std::endl;
 #endif
 
@@ -1320,6 +1320,12 @@ namespace TL { namespace Nanox {
             {
                 _outline_info.set_onto(_outline_info.get_funct_symbol(),
                         onto.get_onto_expressions().as<Nodecl::List>().to_object_list());
+            }
+
+            void visit(const Nodecl::OmpSs::NumInstances& numinstances)
+            {
+                _outline_info.set_num_instances(_outline_info.get_funct_symbol(),
+                        numinstances.get_num_instances_expressions().as<Nodecl::List>().to_object_list());
             }
 
             void visit(const Nodecl::OmpSs::File& file)
@@ -1736,6 +1742,15 @@ namespace TL { namespace Nanox {
         _implementation_table[function_symbol].set_onto(onto_exprs);
     }
 
+    void OutlineInfo::set_num_instances(TL::Symbol function_symbol, const ObjectList<Nodecl::NodeclBase>& num_instances_exprs)
+    {
+        ERROR_CONDITION(_implementation_table.count(function_symbol) == 0,
+                "Function symbol '%s' not found in outline info implementation table",
+                function_symbol.get_name().c_str());
+
+        _implementation_table[function_symbol].set_num_instances(num_instances_exprs);
+    }
+
     Nodecl::Utils::SimpleSymbolMap OutlineInfo::get_param_arg_map(TL::Symbol function_symbol)
     {
         ERROR_CONDITION(_implementation_table.count(function_symbol) == 0,
@@ -1761,7 +1776,8 @@ namespace TL { namespace Nanox {
             const std::string& name_args,
             const TL::ObjectList<Nodecl::NodeclBase>& ndrange_args,
             const TL::ObjectList<Nodecl::NodeclBase>& shmem_args,
-            const TL::ObjectList<Nodecl::NodeclBase>& onto_args)
+            const TL::ObjectList<Nodecl::NodeclBase>& onto_args,
+            const TL::ObjectList<Nodecl::NodeclBase>& num_instances_args)
     {
         // If the current function symbol is not registered as an
         // implementation we add it to the implementation table
@@ -1791,6 +1807,8 @@ namespace TL { namespace Nanox {
         set_shmem(function_symbol, shmem_args);
 
         set_onto(function_symbol, onto_args);
+
+        set_num_instances(function_symbol, num_instances_args);
     }
 
     void OutlineInfo::handle_implements_clause(TL::Symbol implementor_symbol, std::string device_name)
@@ -1812,7 +1830,8 @@ namespace TL { namespace Nanox {
                 target_info.get_name(),
                 target_info.get_ndrange(),
                 target_info.get_shmem(),
-                target_info.get_onto());
+                target_info.get_onto(),
+                target_info.get_num_instances());
 
     }
 

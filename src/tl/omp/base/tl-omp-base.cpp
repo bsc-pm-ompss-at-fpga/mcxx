@@ -1825,11 +1825,11 @@ namespace TL { namespace OpenMP {
 
                 ERROR_CONDITION((colon_splited_list_size <= 0) ||
                         (colon_splited_list_size > 2),
-                        "'%s' clause has a wrong format", 
+                        "'%s' clause has a wrong format",
                         pragma_name.c_str());
 
                 // Int value will be default_int
-                Nodecl::IntegerLiteral int_value = 
+                Nodecl::IntegerLiteral int_value =
                     const_value_to_nodecl(const_value_get_signed_int(default_int));
 
                 if (colon_splited_list_size == 2)
@@ -1849,7 +1849,7 @@ namespace TL { namespace OpenMP {
                 TL::ObjectList<std::string> comma_splited_list = comma_tokenizer.tokenize(
                         colon_splited_list.front());
 
-                Nodecl::List clause_variables = 
+                Nodecl::List clause_variables =
                     Nodecl::List::make(Nodecl::Utils::get_strings_as_expressions(
                                 comma_splited_list, ref_scope));
 
@@ -2085,7 +2085,7 @@ namespace TL { namespace OpenMP {
                     else
                     {
                         fatal_error("Missing 'min_group_loads' parameter in 'overlap' clause");
-                    } 
+                    }
 
                     // Max group registers
                     if (comma_splited_it != comma_splited_list.end())
@@ -2104,7 +2104,7 @@ namespace TL { namespace OpenMP {
                     else
                     {
                         fatal_error("Missing 'max_group_registers' parameter in 'overlap' clause");
-                    } 
+                    }
 
                     // Max groups
                     if (comma_splited_it != comma_splited_list.end())
@@ -2123,7 +2123,7 @@ namespace TL { namespace OpenMP {
                     else
                     {
                         fatal_error("Missing 'max_groups' parameter in 'overlap' clause");
-                    } 
+                    }
                 }
 
                 comma_splited_list = comma_tokenizer.tokenize(
@@ -2185,7 +2185,7 @@ namespace TL { namespace OpenMP {
 
                 ERROR_CONDITION(comma_splited_list.size() != 2,
                         "Expected (l2_distance,l1_distance) paramenters in prefetch clause", 0);
-                
+
                 TL::ObjectList<Nodecl::NodeclBase> expr_list =
                     Nodecl::Utils::get_strings_as_expressions(comma_splited_list, pragma_line);
 
@@ -2218,7 +2218,7 @@ namespace TL { namespace OpenMP {
             ERROR_CONDITION(!(loop_statement.is<Nodecl::ForStatement>() ||
                     loop_statement.is<Nodecl::WhileStatement>()),
                     "Unexpected node %s. Expecting a for-statement or while-statement"\
-                    " after '#pragma omp simd'", 
+                    " after '#pragma omp simd'",
                     ast_print_node_type(loop_statement.get_kind()));
 
             Nodecl::OpenMP::Simd omp_simd_node =
@@ -2304,7 +2304,7 @@ namespace TL { namespace OpenMP {
         Nodecl::List environment = this->make_execution_environment(ds,
                 pragma_line, /* ignore_target_info */ false, /* is_inline_task */ false);
 
-        process_common_simd_clauses(pragma_line, 
+        process_common_simd_clauses(pragma_line,
                 context_of_parameters, environment);
 
         // Mask
@@ -3241,6 +3241,15 @@ namespace TL { namespace OpenMP {
             target_items.append(
                     Nodecl::OmpSs::Onto::make(
                         Nodecl::List::make(onto_exprs),
+                        locus));
+        }
+
+        ObjectList<Nodecl::NodeclBase> num_instances_exprs = target_info.get_shallow_copy_of_num_instances();
+        if (!num_instances_exprs.empty())
+        {
+            target_items.append(
+                    Nodecl::OmpSs::NumInstances::make(
+                        Nodecl::List::make(num_instances_exprs),
                         locus));
         }
 

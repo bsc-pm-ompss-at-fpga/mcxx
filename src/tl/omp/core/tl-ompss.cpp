@@ -1,23 +1,23 @@
 /*--------------------------------------------------------------------
   (C) Copyright 2006-2014 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
-  
+
   This file is part of Mercurium C/C++ source-to-source compiler.
-  
+
   See AUTHORS file in the top level directory for information
   regarding developers and contributors.
-  
+
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
   version 3 of the License, or (at your option) any later version.
-  
+
   Mercurium C/C++ source-to-source compiler is distributed in the hope
   that it will be useful, but WITHOUT ANY WARRANTY; without even the
   implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
   PURPOSE.  See the GNU Lesser General Public License for more
   details.
-  
+
   You should have received a copy of the GNU Lesser General Public
   License along with Mercurium C/C++ source-to-source compiler; if
   not, write to the Free Software Foundation, Inc., 675 Mass Ave,
@@ -217,6 +217,13 @@ namespace TL { namespace OmpSs {
         {
             _onto.append(Nodecl::Utils::deep_copy(*it, target_info._target_symbol.get_scope(), translation_map));
         }
+
+        for(TL::ObjectList<Nodecl::NodeclBase>::const_iterator it = target_info._num_instances.begin();
+                it != target_info._num_instances.end();
+                it++)
+        {
+            _num_instances.append(Nodecl::Utils::deep_copy(*it, target_info._target_symbol.get_scope(), translation_map));
+        }
     }
 
     TargetInfo TargetInfo::instantiate_target_info(
@@ -345,6 +352,15 @@ namespace TL { namespace OmpSs {
             Nodecl::NodeclBase updated_expr =
                 instantiate_expression(it->get_internal_nodecl(), instantiation_context, instantiation_symbol_map, /* pack index */-1);
             new_target_info._onto.append(updated_expr);
+        }
+
+        for(TL::ObjectList<Nodecl::NodeclBase>::const_iterator it = _num_instances.begin();
+                it != _num_instances.end();
+                it++)
+        {
+            Nodecl::NodeclBase updated_expr =
+                instantiate_expression(it->get_internal_nodecl(), instantiation_context, instantiation_symbol_map, /* pack index */-1);
+            new_target_info._num_instances.append(updated_expr);
         }
 
         return new_target_info;
@@ -481,6 +497,28 @@ namespace TL { namespace OmpSs {
         ObjectList<Nodecl::NodeclBase> result;
         for (ObjectList<Nodecl::NodeclBase>::const_iterator it = _onto.begin();
                 it != _onto.end();
+                ++it)
+        {
+            result.append(it->shallow_copy());
+        }
+        return result;
+    }
+
+    void TargetInfo::append_to_num_instances(const ObjectList<Nodecl::NodeclBase>& expressions)
+    {
+        _num_instances.append(expressions);
+    }
+
+    ObjectList<Nodecl::NodeclBase> TargetInfo::get_num_instances() const
+    {
+        return _num_instances;
+    }
+
+    ObjectList<Nodecl::NodeclBase> TargetInfo::get_shallow_copy_of_num_instances() const
+    {
+        ObjectList<Nodecl::NodeclBase> result;
+        for (ObjectList<Nodecl::NodeclBase>::const_iterator it = _num_instances.begin();
+                it != _num_instances.end();
                 ++it)
         {
             result.append(it->shallow_copy());
@@ -989,7 +1027,7 @@ namespace TL { namespace OmpSs {
         }
 
         for (module_map_t::iterator it = module_map.begin();
-                it != module_map.end(); 
+                it != module_map.end();
                 it++)
         {
             TL::Symbol module(it->first);
@@ -1040,4 +1078,3 @@ namespace TL { namespace OmpSs {
         mr.read(_kind);
     }
 } }
-
