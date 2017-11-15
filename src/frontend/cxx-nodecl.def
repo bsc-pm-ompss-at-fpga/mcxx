@@ -637,7 +637,7 @@ omp-execution-control : NODECL_OPEN_M_P*IF([condition]expression)
 omp-critical-info: NODECL_OPEN_M_P*CRITICAL_NAME() text
 
 omp-simd-info: NODECL_OPEN_M_P*ALIGNED([aligned_expressions] expression-seq, [alignment] expression)
-             | NODECL_OPEN_M_P*VECTOR_LENGTH([vector_length] expression) 
+             | NODECL_OPEN_M_P*VECTOR_LENGTH([vector_length] expression)
              | NODECL_OPEN_M_P*VECTOR_LENGTH_FOR() type
              | NODECL_OPEN_M_P*UNIFORM([uniform_expressions] expression-seq)
              | NODECL_OPEN_M_P*LINEAR([linear_expressions] expression-seq, [step] expression)
@@ -735,6 +735,7 @@ ompss-device-info : NODECL_OMP_SS*COPY_IN([input_copies]expression-seq)
             | NODECL_OMP_SS*FILE([filename]text)
             | NODECL_OMP_SS*NAME([name]text)
             | NODECL_OMP_SS*ONTO([onto_expressions]expression-seq)
+            | NODECL_OMP_SS*num_instances([num_instances_expressions]expression-seq)
             | NODECL_OMP_SS*IMPLEMENTS([device]text, [function_name]name)
             | NODECL_OMP_SS*TARGET([devices] text-seq, [items] ompss-device-info-seq-opt)
             | NODECL_OMP_SS*TASK_LABEL() text

@@ -610,7 +610,8 @@ static void copy_target_info_from_params_to_args_c(
                 target_info.get_name(),
                 new_ndrange_args,
                 new_shmem_args,
-                target_info.get_onto());
+                target_info.get_onto(),
+                target_info.get_num_instances());
         }
     }
 }
