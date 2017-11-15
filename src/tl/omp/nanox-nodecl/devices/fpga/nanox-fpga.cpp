@@ -141,7 +141,7 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
                                 //;
 
                                 func_write_profiling_code
-			                <<  "void write_profiling_registers(void *counter_dest, counter_t * counters_src) {"
+			                <<  "void write_profiling_registers(counter_t * counter_dest, counter_t * counters_src) {"
 			                <<  "\tmemcpy(counter_dest, counters_src, 4*sizeof(counter_t));"
 			                <<  "}"
 			                <<  ""
@@ -1857,7 +1857,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 		//<< "\tmemcpy((void *)(" << STR_DATA << " + __addrWr/sizeof(counter_t)), __counter_reg, 4*sizeof(counter_t));"
                 //<< "\tread_profiling_reg(&__counter_reg[3], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
 		<< "\t__counter_reg[3] =get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
-                << "\twrite_profiling_registers((void *)(" << STR_DATA << " + __addrWr/sizeof(counter_t)), __counter_reg);"
+                << "\twrite_profiling_registers((counter_t *)(" << STR_DATA << " + __addrWr/sizeof(counter_t)), __counter_reg);"
 	;
 
 	generic_initial_code
