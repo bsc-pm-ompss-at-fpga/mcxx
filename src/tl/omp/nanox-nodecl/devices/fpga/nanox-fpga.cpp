@@ -521,7 +521,7 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
     ObjectList<Nodecl::NodeclBase> onto_clause = info._target_info.get_onto();
     Nodecl::Utils::SimpleSymbolMap param_to_args_map = info._target_info.get_param_arg_map();
 
-    _acc_num = "-1";
+    _acc_num = "0"; //Default is type 0
     if (onto_clause.size() >= 1)
     {
         //TODO
@@ -531,7 +531,9 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
         Nodecl::NodeclBase onto_acc = onto_clause[0];
         if (onto_clause.size() > 1)
         {
-            warn_printf_at(onto_acc.get_locus(), "More than ont argument in onto clause. Using only first one\n");
+            warn_printf_at(onto_acc.get_locus(), "More than one argument in onto clause. Using only first one\n");
+            error_printf_at(onto_acc.get_locus(),
+                "The syntax 'onto(type, count)' is no longer supported. Use 'onto(type) num_instances(count)' instead\n");
         }
 
         if (onto_clause[0].is_constant())
@@ -551,7 +553,7 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
         }
         else
         {
-            if (onto_acc.get_symbol().is_valid() ) {
+            if (onto_acc.get_symbol().is_valid()) {
                 _acc_num = as_symbol(onto_acc.get_symbol());
                 //as_symbol(param_to_args_map.map(onto_acc.get_symbol()));
             }
@@ -571,7 +573,7 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
         Nodecl::NodeclBase numins_acc = numins_clause[0];
         if (numins_clause.size() > 1)
         {
-            warn_printf_at(numins_acc.get_locus(), "More than ont argument in num_instances clause. Using only first one\n");
+            warn_printf_at(numins_acc.get_locus(), "More than one argument in num_instances clause. Using only first one\n");
         }
 
         if (numins_acc.is_constant())
