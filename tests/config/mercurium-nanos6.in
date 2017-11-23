@@ -3,9 +3,9 @@
 # Loading some test-generators utilities
 source @abs_builddir@/test-generators-utilities
 
-if [ "@NANOS6_ENABLED@" = "no" ];
+if [ "@NANOS6_TESTS_ENABLED@" = "no" ];
 then
-    gen_ignore_test "Nanos6 has not been configured"
+    gen_ignore_test "Nanos6 has not been configured or is being bootstrapped"
     exit
 fi
 
@@ -19,9 +19,9 @@ fi
 parse_arguments $@
 
 
-if [ "$TG_ARG_OMPSS_V2" = "yes" ];
+if [ "$TG_ARG_OMPSS_2" = "yes" ];
 then
-    PROGRAMMING_MODEL="--ompss-v2"
+    PROGRAMMING_MODEL="--ompss-2"
 fi
 
 if [ "$TG_ARG_OPENMP_COMPATIBILITY" = "yes" ];

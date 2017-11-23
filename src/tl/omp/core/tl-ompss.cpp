@@ -38,16 +38,16 @@
 
 namespace TL {
     template <>
-        struct ModuleWriterTrait<OmpSs::CopyDirection>
-        : EnumWriterTrait<OmpSs::CopyDirection> { };
+        struct ModuleWriterTrait<OmpSs::CopyItem::ItemDirection>
+        : EnumWriterTrait<OmpSs::CopyItem::ItemDirection> { };
     template <>
-        struct ModuleReaderTrait<OmpSs::CopyDirection>
-        : EnumReaderTrait<OmpSs::CopyDirection> { };
+        struct ModuleReaderTrait<OmpSs::CopyItem::ItemDirection>
+        : EnumReaderTrait<OmpSs::CopyItem::ItemDirection> { };
 }
 
 namespace TL { namespace OmpSs {
 
-    std::string copy_direction_to_str(CopyDirection dir)
+    std::string directionality_to_str(CopyDirection dir)
     {
         switch (dir)
         {
@@ -68,21 +68,6 @@ namespace TL { namespace OmpSs {
             default:
                 return "<<unknown-copy-kind?>>";
         }
-    }
-
-    CopyItem::CopyItem(DataReference copy_expr, CopyDirection direction)
-        : _copy_expr(copy_expr), _kind(direction)
-    {
-    }
-
-    CopyDirection CopyItem::get_kind() const
-    {
-        return _kind;
-    }
-
-    DataReference CopyItem::get_copy_expression() const
-    {
-        return _copy_expr;
     }
 
     TargetInfo::TargetInfo()
@@ -112,9 +97,8 @@ namespace TL { namespace OmpSs {
                 it != target_info._copy_in.end();
                 it++)
         {
-            CopyItem item = *it;
-            CopyDirection dir = item.get_kind();
-            DataReference data_ref = item.get_copy_expression();
+            CopyDirection dir = it->get_kind();
+            const DataReference& data_ref(*it);
 
             Nodecl::NodeclBase updated_expr = Nodecl::Utils::deep_copy(
                     data_ref, data_ref.retrieve_context(), translation_map);
@@ -144,9 +128,8 @@ namespace TL { namespace OmpSs {
                 it != target_info._copy_out.end();
                 it++)
         {
-            CopyItem item = *it;
-            CopyDirection dir = item.get_kind();
-            DataReference data_ref = item.get_copy_expression();
+            CopyDirection dir = it->get_kind();
+            const DataReference& data_ref(*it);
 
             Nodecl::NodeclBase updated_expr = Nodecl::Utils::deep_copy(
                     data_ref, data_ref.retrieve_context(), translation_map);
@@ -176,9 +159,8 @@ namespace TL { namespace OmpSs {
                 it != target_info._copy_inout.end();
                 it++)
         {
-            CopyItem item = *it;
-            CopyDirection dir = item.get_kind();
-            DataReference data_ref = item.get_copy_expression();
+            CopyDirection dir = it->get_kind();
+            const DataReference& data_ref(*it);
 
             Nodecl::NodeclBase updated_expr = Nodecl::Utils::deep_copy(
                     data_ref, data_ref.retrieve_context(), translation_map);
@@ -244,9 +226,8 @@ namespace TL { namespace OmpSs {
                 it != _copy_in.end();
                 it++)
         {
-            CopyItem item = *it;
-            CopyDirection dir = item.get_kind();
-            DataReference data_ref = item.get_copy_expression();
+            CopyDirection dir = it->get_kind();
+            const DataReference& data_ref(*it);
 
             Nodecl::NodeclBase updated_expr =
                 instantiate_expression(data_ref.get_internal_nodecl(), instantiation_context, instantiation_symbol_map, /* pack index*/ -1);
@@ -276,9 +257,8 @@ namespace TL { namespace OmpSs {
                 it != _copy_out.end();
                 it++)
         {
-            CopyItem item = *it;
-            CopyDirection dir = item.get_kind();
-            DataReference data_ref = item.get_copy_expression();
+            CopyDirection dir = it->get_kind();
+            const DataReference& data_ref(*it);
 
             Nodecl::NodeclBase updated_expr =
                 instantiate_expression(data_ref.get_internal_nodecl(), instantiation_context, instantiation_symbol_map, /* pack index*/ -1);
@@ -308,9 +288,8 @@ namespace TL { namespace OmpSs {
                 it != _copy_inout.end();
                 it++)
         {
-            CopyItem item = *it;
-            CopyDirection dir = item.get_kind();
-            DataReference data_ref = item.get_copy_expression();
+            CopyDirection dir = it->get_kind();
+            const DataReference& data_ref(*it);
 
             Nodecl::NodeclBase updated_expr =
                 instantiate_expression(data_ref.get_internal_nodecl(), instantiation_context, instantiation_symbol_map, /* pack index*/ -1);
@@ -642,7 +621,7 @@ namespace TL { namespace OmpSs {
     }
 
     FunctionTaskInfo::FunctionTaskInfo(Symbol sym,
-            ObjectList<FunctionTaskDependency> parameter_info)
+            ObjectList<TL::OpenMP::DependencyItem> parameter_info)
         : _sym(sym),
         _parameters(parameter_info)
     {
@@ -660,13 +639,12 @@ namespace TL { namespace OmpSs {
         set_target_info(TargetInfo(task_info._target_info, translation_map, function_sym));
 
         // Copy the function task dependences
-        for (TL::ObjectList<FunctionTaskDependency>::const_iterator it = task_info._parameters.begin();
+        for (TL::ObjectList<TL::OpenMP::DependencyItem>::const_iterator it = task_info._parameters.begin();
                 it != task_info._parameters.end();
                 it++)
         {
-            FunctionTaskDependency dep_item = *it;
-            TL::OpenMP::DependencyDirection dir = dep_item.get_direction();
-            DataReference data_ref = dep_item.get_data_reference();
+            const DataReference& data_ref(*it);
+            TL::OpenMP::DependencyDirection dir = it->get_kind();
 
             Nodecl::NodeclBase updated_expr = Nodecl::Utils::deep_copy(
                     data_ref,
@@ -675,7 +653,7 @@ namespace TL { namespace OmpSs {
 
             DataReference updated_data_ref(updated_expr);
 
-            FunctionTaskDependency updated_dep_item(updated_data_ref, dir);
+            TL::OpenMP::DependencyItem updated_dep_item(updated_data_ref, dir);
             _parameters.append(updated_dep_item);
         }
 
@@ -714,19 +692,18 @@ namespace TL { namespace OmpSs {
         new_function_task_info._wait = _wait;
 
         // Second, instantiate all the dependences
-        for (TL::ObjectList<FunctionTaskDependency>::iterator it = _parameters.begin();
+        for (TL::ObjectList<TL::OpenMP::DependencyItem>::iterator it = _parameters.begin();
                 it != _parameters.end();
                 ++it)
         {
-            FunctionTaskDependency dep = *it;
-            TL::OpenMP::DependencyDirection dir = dep.get_direction();
-            DataReference data_ref = dep.get_data_reference();
+            DataReference& data_ref(*it);
+            TL::OpenMP::DependencyDirection dir = it->get_kind();
 
             // Update the dependence expression
             Nodecl::NodeclBase new_expr = instantiate_expression(data_ref.get_internal_nodecl(),
                     instantiation_context, instantiation_symbol_map, /* pack index */ -1);
 
-            new_function_task_info.add_function_task_dependency(FunctionTaskDependency(new_expr, dir));
+            new_function_task_info.add_function_task_dependency(TL::OpenMP::DependencyItem(new_expr, dir));
         }
 
 
@@ -821,29 +798,12 @@ namespace TL { namespace OmpSs {
         return _shared_closure;
     }
 
-    ObjectList<Symbol> FunctionTaskInfo::get_involved_parameters() const
-    {
-        ObjectList<Symbol> result;
-
-        for (ObjectList<FunctionTaskDependency>::const_iterator it = _parameters.begin();
-                it != _parameters.end();
-                it++)
-        {
-            Nodecl::NodeclBase expr(it->get_data_reference());
-
-            ObjectList<Symbol> current_syms = Nodecl::Utils::get_all_symbols(expr);
-            result.insert(current_syms);
-        }
-
-        return result;
-    }
-
-    ObjectList<FunctionTaskDependency> FunctionTaskInfo::get_parameter_info() const
+    ObjectList<TL::OpenMP::DependencyItem> FunctionTaskInfo::get_parameter_info() const
     {
         return _parameters;
     }
 
-    void FunctionTaskInfo::add_function_task_dependency(const FunctionTaskDependency& dependence)
+    void FunctionTaskInfo::add_function_task_dependency(const TL::OpenMP::DependencyItem& dependence)
     {
         _parameters.append(dependence);
     }
@@ -1066,15 +1026,25 @@ namespace TL { namespace OmpSs {
         }
     }
 
+    CopyItem::CopyItem(DataReference copy_expr, ItemDirection direction)
+        : DataReference(copy_expr), _kind(direction)
+    {
+    }
+
+    CopyItem::ItemDirection CopyItem::get_kind() const
+    {
+        return _kind;
+    }
+
     void CopyItem::module_write(ModuleWriter& mw)
     {
-        mw.write(_copy_expr);
+        this->TL::DataReference::module_write(mw);
         mw.write(_kind);
     }
 
     void CopyItem::module_read(ModuleReader& mr)
     {
-        mr.read(_copy_expr);
+        this->TL::DataReference::module_read(mr);
         mr.read(_kind);
     }
 } }

@@ -1,5 +1,5 @@
 ! <testinfo>
-! test_generator=(config/mercurium-ompss "config/mercurium-ompss-v2 openmp-compatibility")
+! test_generator=(config/mercurium-ompss "config/mercurium-ompss-2 openmp-compatibility")
 ! </testinfo>
 MODULE TYPES
     TYPE T
@@ -8,8 +8,8 @@ MODULE TYPES
 END MODULE TYPES
 
 MODULE FOO
-    IMPLICIT NONE
     USE TYPES, ONLY : T
+    IMPLICIT NONE
     CONTAINS
 
         SUBROUTINE S

@@ -568,19 +568,19 @@ AC_ARG_ENABLE([openmp],
 )
 
 
-dnl --------------------- Support for OmpSs-v2  --------------------------------------
-is_enabled_ompss_v2="no"
-AC_MSG_CHECKING([if enabled OmpSs-v2 support in the compiler for Nanos6])
-AC_ARG_ENABLE([ompss-v2],
-  AS_HELP_STRING([--enable-ompss-v2], [Enables support of OmpSs-v2 using Nanos6 (default is disabled)]),
+dnl --------------------- Support for OmpSs-2  --------------------------------------
+is_enabled_ompss_2="no"
+AC_MSG_CHECKING([if enabled OmpSs-2 support in the compiler for Nanos6])
+AC_ARG_ENABLE([ompss-2],
+  AS_HELP_STRING([--enable-ompss-2], [Enables support of OmpSs-2 using Nanos6 (default is disabled)]),
   [
     if test x$enableval = xyes -o x$enableval = x;
     then
-        is_enabled_ompss_v2="yes"
+        is_enabled_ompss_2="yes"
         AC_MSG_RESULT([yes])
     else if test x$enableval = xno;
          then
-            is_enabled_ompss_v2="no"
+            is_enabled_ompss_2="no"
             AC_MSG_RESULT([no])
          else
             AC_MSG_ERROR([This option can only be given 'yes' or 'no' values])
@@ -588,7 +588,7 @@ AC_ARG_ENABLE([ompss-v2],
     fi
   ],
   [
-     is_enabled_ompss_v2="no"
+     is_enabled_ompss_2="no"
      AC_MSG_RESULT([no])
   ]
 )
@@ -609,6 +609,8 @@ nanox_mic_include=""
 nanox_mic_lib=""
 nanox=""
 nanox_pm_selection="none"
+# Nanos++ automatic features detection mechanism
+nanox_auto_feat_detection="new"
 NANOX=""
 NANOX_ENABLED="$is_enabled_tl_omp_nanox"
 NANOX_INCLUDES=""
@@ -625,7 +627,7 @@ MIC_LIBS=""
 NANOX_GATE=":false:"
 NANOX_NEW_LINK=":false:"
 NANOX_OLD_LINK=":false:"
-
+NANOX_DYNAMIC_LIST=":false:"
 
 if test x$is_enabled_tl_omp_nanox = xyes;
 then
@@ -667,8 +669,33 @@ then
                    [break],
                    [AC_MSG_ERROR([Nanos++ support was required but 'nanos.h' was not found])])
 
-   CPPFLAGS="$CPPFLAGSBACKUP"
-   CFLAGS="$CFLAGSBACKUP"
+   AC_MSG_CHECKING([Checking Nanos++ RTL automatic features detection mechanism version])
+   AC_PREPROC_IFELSE(
+                     [AC_LANG_SOURCE([[
+                      #include "nanos_version.h"
+
+                      #if NANOS_API_MASTER < 5040
+                      #error "old runtime"
+                      #endif
+                      ]])],
+                      [
+                       AC_MSG_RESULT([new version])
+                       nanox_auto_feat_detection="new"
+                      ],
+                      [
+                       AC_MSG_RESULT([old version])
+                       nanox_auto_feat_detection="old"
+                       ])
+
+    if test x$nanox_auto_feat_detection = xnew;
+    then
+        NANOX_DYNAMIC_LIST=":false:"
+    else
+        NANOX_DYNAMIC_LIST=":true:"
+    fi
+
+    CPPFLAGS="$CPPFLAGSBACKUP"
+    CFLAGS="$CFLAGSBACKUP"
 
    AC_MSG_CHECKING([linking mechanism of Nanos++])
 
@@ -811,11 +838,13 @@ AC_SUBST([NANOX_ENABLED])
 AC_SUBST([NANOX_GATE])
 AC_SUBST([NANOX_NEW_LINK])
 AC_SUBST([NANOX_OLD_LINK])
+AC_SUBST([NANOX_DYNAMIC_LIST])
 
 AM_CONDITIONAL([BUILD_NANOS_COMMON], test x$is_enabled_tl_omp_nanox = xyes)
 AM_CONDITIONAL([BUILD_NANOX_NODECL], test x$is_enabled_tl_omp_nanox = xyes)
 AM_CONDITIONAL([BUILD_NANOX_DEVICE_SMP], test x$is_enabled_tl_omp_nanox = xyes)
 AM_CONDITIONAL([BUILD_NANOX_NANOSMAIN], test x$is_enabled_tl_omp_nanox = xyes)
+AM_CONDITIONAL([DISTRIBUTE_NANOS_EXPORTS], test x$nanox_auto_feat_detection = xold)
 
 NANOX_INSTRUMENTATION=""
 NANOX_MIC_INSTRUMENTATION=""
@@ -909,9 +938,10 @@ AC_SUBST([NANOX_AVX2])
 dnl --------------------- End of Support for OpenMP Nanox -------------------------------
 
 
-dnl ---------------------- Support for OmpSs-v2 Nanos6 -----------------------------------------
+dnl ---------------------- Support for OmpSs-2 Nanos6 -----------------------------------------
 is_enabled_tl_ompss_nanos6="no"
-if test x$is_enabled_ompss_v2 = xyes;
+is_enabled_tl_ompss_nanos6_tests="no"
+if test x$is_enabled_ompss_2 = xyes;
 then
     is_enabled_tl_ompss_nanos6="yes"
 fi
@@ -958,9 +988,26 @@ then
    CPPFLAGS="$CPPFLAGS -I$nanos6_include"
    CFLAGS="$CFLAGS -I$nanos6_include"
 
-   AC_CHECK_HEADER([nanos6.h],
+	AC_MSG_CHECKING([if boostraping Nanos6])
+	AC_ARG_ENABLE([nanos6-bootstrap],
+		AS_HELP_STRING([--enable-nanos6-bootstrap], [Enable compilation before Nanos6 is installed]),
+		[
+			AC_MSG_RESULT([yes])
+			boostrapping_nanos6=yes
+			is_enabled_tl_ompss_nanos6_tests=no
+		],
+		[
+			AC_MSG_RESULT([no])
+			boostrapping_nanos6=no
+			is_enabled_tl_ompss_nanos6_tests=yes
+		]
+	)
+
+	if test x"${boostrapping_nanos6}" != x"yes" ; then
+   	AC_CHECK_HEADER([nanos6.h],
                    [break],
                    [AC_MSG_ERROR([Nanos6 support was required but 'nanos6.h' was not found])])
+	fi
 
    CPPFLAGS="$CPPFLAGSBACKUP"
    CFLAGS="$CFLAGSBACKUP"
@@ -972,6 +1019,7 @@ AC_SUBST([NANOS6],          ["${nanos6}"])
 AC_SUBST([NANOS6_INCLUDES], ["${nanos6_include}"])
 AC_SUBST([NANOS6_LIB],      ["${nanos6_lib}"])
 AC_SUBST([NANOS6_ENABLED],  ["${is_enabled_tl_ompss_nanos6}"])
+AC_SUBST([NANOS6_TESTS_ENABLED],  ["${is_enabled_tl_ompss_nanos6_tests}"])
 
 AC_SUBST([NANOS6_GATE])
 
@@ -979,7 +1027,7 @@ if test x$is_enabled_tl_ompss_nanos6 = xyes -o x$is_enabled_tl_omp_nanox = xyes;
 then
    COMPILER_NAMES="${COMPILER_NAMES} mcc mcxx mf95 mfc"
 fi
-dnl ---------------------- End of Support for OmpSs-v2 Nanos6 -----------------------------------------
+dnl ---------------------- End of Support for OmpSs-2 Nanos6 -----------------------------------------
 
 
 dnl --------------------- Dynamic Load Balancing -------------------------------
@@ -1072,8 +1120,7 @@ AC_SUBST([GOMP_OMP_LIB])
 dnl --------------------- End of Support for GOMP ---------------------------
 
 dnl --------------------- Support for Intel OpenMP RTL ---------------------------------
-is_enabled_tl_omp_intel="no"
-
+is_enabled_tl_omp_intel=""
 AC_MSG_CHECKING([if enabled OpenMP TL support for Intel OpenMP RTL])
 AC_ARG_ENABLE([tl-openmp-intel],
   AS_HELP_STRING([--enable-tl-openmp-intel], [Enables support of OpenMP TL for Intel OpenMP RTL]),
@@ -1097,15 +1144,10 @@ AC_ARG_ENABLE([tl-openmp-intel],
   ]
 )
 
-INTEL_OMP_INCLUDE=""
-INTEL_OMP_LIB=""
-
+intel_omp_include=""
+intel_omp_lib=""
 if test x$is_enabled_tl_omp_intel = xyes;
 then
-
-    intel_omp_include=""
-    intel_omp_lib=""
-
     AC_ARG_WITH([intel-omp],
             AS_HELP_STRING([--with-intel-omp=dir], [Directory of Intel OpenMP RTL]),
             [
@@ -1136,28 +1178,24 @@ dnl             esac
             ]
         )
 
-   INTEL_OMP_INCLUDE=${intel_omp_include}
-   INTEL_OMP_LIB=${intel_omp_lib}
-
-   if test x$"ICC" = x;
-   then
-       AC_MSG_WARN([Intel OpenMP RTL has been enabled but Intel C (icc) has not been found or has been disabled])
-   fi
-
-   if test x$"ICPC" = x;
-   then
-       AC_MSG_WARN([Intel OpenMP RTL has been enabled but Intel C++ (icpc) has not been found or has been disabled])
-   fi
-
-   COMPILER_NAMES="${COMPILER_NAMES} intel-mcc intel-mcxx intel-mfc intel-mf95"
    INSTALL_CONFIG_FILES="${INSTALL_CONFIG_FILES} 10.config.intel-omp-base 50.config.omp.intel-rtl"
+   COMPILER_NAMES="${COMPILER_NAMES} iomp-mcc iomp-mcxx"
+
+   if test x"$ICC" != x;
+   then
+       COMPILER_NAMES="${COMPILER_NAMES} iomp-imcc"
+   fi
+
+   if test x"$ICPC" != x;
+   then
+       COMPILER_NAMES="${COMPILER_NAMES} iomp-imcxx"
+   fi
 fi
 
 AM_CONDITIONAL([BUILD_OMP_INTEL], test x$is_enabled_tl_omp_intel = xyes)
 
-AC_SUBST([INTEL_OMP_INCLUDE])
-AC_SUBST([INTEL_OMP_LIB])
-
+AC_SUBST([INTEL_OMP_INCLUDE], ${intel_omp_include})
+AC_SUBST([INTEL_OMP_LIB], ${intel_omp_lib})
 dnl --------------------- End of Support for Intel OpenMP RTL ---------------------------
 
 dnl --------------------- Support for CUDA devices in Nanox --------------------------------
@@ -1733,6 +1771,7 @@ then
 fi
 
 AC_SUBST([CORRECTNESS_LOG_DIR])
+AC_SUBST([ANALYSIS_ENABLED], $is_enabled_analysis)
 dnl ------------------------------------
 
 dnl ---------------------- TL Vectorization ----------------------------
@@ -2394,12 +2433,13 @@ AC_CONFIG_FILES([tests/config/mercurium-extensions], [chmod +x tests/config/merc
 AC_CONFIG_FILES([tests/config/mercurium-fe-only], [chmod +x tests/config/mercurium-fe-only])
 AC_CONFIG_FILES([tests/config/mercurium-fortran], [chmod +x tests/config/mercurium-fortran])
 AC_CONFIG_FILES([tests/config/mercurium-hlt], [chmod +x tests/config/mercurium-hlt])
+AC_CONFIG_FILES([tests/config/mercurium-iomp], [chmod +x tests/config/mercurium-iomp])
 AC_CONFIG_FILES([tests/config/mercurium-libraries], [chmod +x tests/config/mercurium-libraries])
 AC_CONFIG_FILES([tests/config/mercurium-nanos6], [chmod +x tests/config/mercurium-nanos6])
 AC_CONFIG_FILES([tests/config/mercurium-nanox], [chmod +x tests/config/mercurium-nanox])
 AC_CONFIG_FILES([tests/config/mercurium-omp], [chmod +x tests/config/mercurium-omp])
 AC_CONFIG_FILES([tests/config/mercurium-ompss], [chmod +x tests/config/mercurium-ompss])
-AC_CONFIG_FILES([tests/config/mercurium-ompss-v2], [chmod +x tests/config/mercurium-ompss-v2])
+AC_CONFIG_FILES([tests/config/mercurium-ompss-2], [chmod +x tests/config/mercurium-ompss-2])
 AC_CONFIG_FILES([tests/config/mercurium-opencl], [chmod +x tests/config/mercurium-opencl])
 AC_CONFIG_FILES([tests/config/mercurium-parallel-simd], [chmod +x tests/config/mercurium-parallel-simd])
 AC_CONFIG_FILES([tests/config/mercurium-parallel-simd-avx2], [chmod +x tests/config/mercurium-parallel-simd-avx2])
@@ -2524,7 +2564,7 @@ then
 fi
 
 echo ""
-echo " * Nanos6 OmpSs-v2 :" $is_enabled_tl_ompss_nanos6
+echo " * Nanos6 OmpSs-2 :" $is_enabled_tl_ompss_nanos6
 if test x$is_enabled_tl_ompss_nanos6 = xyes;
 then
   echo ""

@@ -529,12 +529,8 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
         //can be run in several accelerators
 
         Nodecl::NodeclBase onto_acc = onto_clause[0];
-        if (onto_clause.size() > 1*info._target_info.get_device_names().size())
+        if (onto_clause.size() > 1)
         {
-           /*
-            * NOTE: Restrict the number of onto values to one for each device as a workarround
-            *       to issue https://pm.bsc.es/gitlab/mercurium/mcxx/issues/2779
-            */
             warn_printf_at(onto_acc.get_locus(), "More than one argument in onto clause. Using only first one\n");
             error_printf_at(onto_acc.get_locus(),
                 "The syntax 'onto(type, count)' is no longer supported. Use 'onto(type) num_instances(count)' instead\n");
@@ -575,12 +571,8 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
     if (numins_clause.size() >= 1)
     {
         Nodecl::NodeclBase numins_acc = numins_clause[0];
-        if (numins_clause.size() > 1*info._target_info.get_device_names().size())
+        if (numins_clause.size() > 1)
         {
-           /*
-            * NOTE: Restrict the number of num_instance values to one for each device as a workarround
-            *       to issue https://pm.bsc.es/gitlab/mercurium/mcxx/issues/2779
-            */
             warn_printf_at(numins_acc.get_locus(), "More than one argument in num_instances clause. Using only first one\n");
         }
 

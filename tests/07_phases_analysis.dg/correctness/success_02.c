@@ -33,6 +33,7 @@ test_nolink=yes
 </testinfo>
 */
 
+
 #include <stdlib.h>
 
 const unsigned int N = 1024;

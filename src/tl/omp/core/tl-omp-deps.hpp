@@ -61,28 +61,32 @@ namespace TL { namespace OpenMP {
         DEP_OMPSS_WEAK_OUT = BITMAP(7),
         DEP_OMPSS_WEAK_INOUT = DEP_OMPSS_WEAK_IN | DEP_OMPSS_WEAK_OUT,
         //   Reduction dependence type
-        DEP_OMPSS_REDUCTION = BITMAP(8)
+        DEP_OMPSS_REDUCTION = BITMAP(8),
+        //   Weakreduction dependence type
+        DEP_OMPSS_WEAK_REDUCTION = BITMAP(9)
     };
 
     bool is_strict_dependency(DependencyDirection dir);
     bool is_weak_dependency(DependencyDirection dir);
 
-    std::string dependency_direction_to_str(DependencyDirection d);
+    //! We have the same function name for CopyDirection
+    std::string directionality_to_str(DependencyDirection d);
 
-    class LIBTL_CLASS DependencyItem : public TL::Object
+    class LIBTL_CLASS DependencyItem : public TL::DataReference
     {
-        private:
-            DataReference _dep_expr;
-            DependencyDirection _kind;
         public:
+            typedef DependencyDirection ItemDirection;
+
             DependencyItem() { }
-            DependencyItem(DataReference dep_expr, DependencyDirection kind);
+            DependencyItem(DataReference dep_expr, ItemDirection kind);
 
             DependencyDirection get_kind() const;
-            DataReference get_dependency_expression() const;
 
             void module_write(ModuleWriter& mw);
             void module_read(ModuleReader& mw);
+
+        private:
+            ItemDirection _kind;
     };
 
 } }

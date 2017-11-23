@@ -139,15 +139,41 @@ namespace Analysis {
     // ******************************************************************* //
     // **************** Flow and Expanded TDG components ***************** //
 
-    FTDGNode::FTDGNode(Node* n, FTDGNodeType type)
-        : _n(n), _type(type), _inner_true(), _inner_false()
+    FTDGNode::FTDGNode(unsigned id, Node* n, FTDGNodeType type)
+        : _id(id), _n(n), _parent(NULL), _predecessors(),
+          _type(type), _inner_true(), _inner_false()
     {
-        pcfg_to_tdg.insert(std::pair<Node*, FTDGNode*>(n, this));
+        pcfg_to_ftdg.insert(std::pair<Node*, FTDGNode*>(n, this));
+    }
+
+    unsigned FTDGNode::get_id() const
+    {
+        return _id;
     }
 
     Node* FTDGNode::get_pcfg_node() const
     {
         return _n;
+    }
+
+    FTDGNode* FTDGNode::get_parent() const
+    {
+        return _parent;
+    }
+
+    void FTDGNode::set_parent(FTDGNode* parent)
+    {
+        _parent = parent;
+    }
+
+    const ObjectList<FTDGNode*>& FTDGNode::get_predecessors() const
+    {
+        return _predecessors;
+    }
+
+    void FTDGNode::add_predecessor(FTDGNode* predecessor)
+    {
+        _predecessors.push_back(predecessor);
     }
 
     FTDGNodeType FTDGNode::get_type() const
@@ -162,17 +188,17 @@ namespace Analysis {
         return res;
     }
 
-    ObjectList<FTDGNode*> FTDGNode::get_inner_true() const
+    const ObjectList<FTDGNode*>& FTDGNode::get_inner_true() const
     {
         return _inner_true;
     }
 
-    ObjectList<FTDGNode*> FTDGNode::get_inner_false() const
+    const ObjectList<FTDGNode*>& FTDGNode::get_inner_false() const
     {
         return _inner_false;
     }
 
-    ObjectList<FTDGNode*> FTDGNode::get_outer() const
+    const ObjectList<FTDGNode*>& FTDGNode::get_outer() const
     {
         return _outer;
     }
@@ -197,9 +223,9 @@ namespace Analysis {
         _outer.insert(n);
     }
 
-    ETDGNode::ETDGNode(int id, Nodecl::NodeclBase source_task)
-            : _id(id), _var_to_value(), _inputs(), _outputs(),
-              _source_task(source_task), _visited(false)
+    ETDGNode::ETDGNode(int id, Node* pcfg_node)
+        : _id(id), _var_to_value(), _inputs(), _outputs(), _child(NULL),
+          _pcfg_node(pcfg_node), _visited(false)
     {}
 
     int ETDGNode::get_id() const
@@ -237,6 +263,16 @@ namespace Analysis {
         _outputs.erase(n);
     }
 
+    SubETDG* ETDGNode::get_child() const
+    {
+        return _child;
+    }
+
+    void ETDGNode::set_child(SubETDG* child)
+    {
+        _child = child;
+    }
+
     std::map<NBase, const_value_t*, Nodecl::Utils::Nodecl_structural_less> ETDGNode::get_vars_map() const
     {
         return _var_to_value;
@@ -247,9 +283,18 @@ namespace Analysis {
         _var_to_value = var_to_value;
     }
 
+    Node* ETDGNode::get_pcfg_node() const
+    {
+        return _pcfg_node;
+    }
+
     Nodecl::NodeclBase ETDGNode::get_source_task() const
     {
-        return _source_task;
+        ERROR_CONDITION(!_pcfg_node->get_graph_related_ast().is<Nodecl::OpenMP::Task>(),
+                        "Cannot retrieve the source task of a node which does not represent a Task, but a %s instead.\n",
+                        (_pcfg_node->is_graph_node() ? _pcfg_node->get_graph_type_as_string().c_str()
+                                                     : _pcfg_node->get_type_as_string().c_str()));
+        return _pcfg_node->get_graph_related_ast();
     }
 
     bool ETDGNode::is_visited() const

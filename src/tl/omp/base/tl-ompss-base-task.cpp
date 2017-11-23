@@ -409,61 +409,61 @@ namespace TL { namespace OmpSs {
 
         TL::ObjectList<Nodecl::NodeclBase> result_list;
 
-        TL::ObjectList<TL::OmpSs::FunctionTaskDependency> task_dependences = function_task_info.get_parameter_info();
+        TL::ObjectList<TL::OpenMP::DependencyItem> task_dependences = function_task_info.get_parameter_info();
 
         // This makes the report confusing, disable it
         bool old_omp_report = _base->emit_omp_report();
 
         _base->set_omp_report(false);
-        _base->make_dependency_list<Nodecl::OpenMP::DepIn>(
+        _base->make_item_list<Nodecl::OpenMP::DepIn>(
                 task_dependences,
                 OpenMP::DEP_DIR_IN,
                 locus,
                 result_list);
 
-        _base->make_dependency_list<Nodecl::OmpSs::DepWeakIn>(
+        _base->make_item_list<Nodecl::OmpSs::DepWeakIn>(
                 task_dependences,
                 OpenMP::DEP_OMPSS_WEAK_IN,
                 locus,
                 result_list);
 
-        _base->make_dependency_list<Nodecl::OmpSs::DepInPrivate>(
+        _base->make_item_list<Nodecl::OmpSs::DepInPrivate>(
                 task_dependences,
                 OpenMP::DEP_OMPSS_DIR_IN_PRIVATE,
                 locus,
                 result_list);
 
-        _base->make_dependency_list<Nodecl::OpenMP::DepOut>(
+        _base->make_item_list<Nodecl::OpenMP::DepOut>(
                 task_dependences,
                 OpenMP::DEP_DIR_OUT,
                 locus,
                 result_list);
 
-        _base->make_dependency_list<Nodecl::OmpSs::DepWeakOut>(
+        _base->make_item_list<Nodecl::OmpSs::DepWeakOut>(
                 task_dependences,
                 OpenMP::DEP_OMPSS_WEAK_OUT,
                 locus,
                 result_list);
 
-        _base->make_dependency_list<Nodecl::OpenMP::DepInout>(
+        _base->make_item_list<Nodecl::OpenMP::DepInout>(
                 task_dependences,
                 OpenMP::DEP_DIR_INOUT,
                 locus,
                 result_list);
 
-        _base->make_dependency_list<Nodecl::OmpSs::DepWeakInout>(
+        _base->make_item_list<Nodecl::OmpSs::DepWeakInout>(
                 task_dependences,
                 OpenMP::DEP_OMPSS_WEAK_INOUT,
                 locus,
                 result_list);
 
-        _base->make_dependency_list<Nodecl::OmpSs::Concurrent>(
+        _base->make_item_list<Nodecl::OmpSs::DepConcurrent>(
                 task_dependences,
                 OpenMP::DEP_OMPSS_CONCURRENT,
                 locus,
                 result_list);
 
-        _base->make_dependency_list<Nodecl::OmpSs::Commutative>(
+        _base->make_item_list<Nodecl::OmpSs::DepCommutative>(
                 task_dependences,
                 OpenMP::DEP_OMPSS_COMMUTATIVE,
                 locus,
@@ -473,11 +473,11 @@ namespace TL { namespace OmpSs {
         std::vector<bool> has_dep(function_sym.get_type().parameters().size(), false);
 
         TL::ObjectList<Nodecl::NodeclBase> assumed_firstprivates, assumed_shareds;
-        for (TL::ObjectList<TL::OmpSs::FunctionTaskDependency>::iterator it = task_dependences.begin();
+        for (TL::ObjectList<TL::OpenMP::DependencyItem>::iterator it = task_dependences.begin();
                 it != task_dependences.end();
                 it++)
         {
-            TL::DataReference data_ref = it->get_data_reference();
+            TL::DataReference& data_ref(*it);
             TL::Symbol base_sym = data_ref.get_base_symbol();
 
             // OmpSs Assumption: dependences are passed always as SHARED
@@ -763,12 +763,12 @@ namespace TL { namespace OmpSs {
             there_are_dependences = true;
         }
 
-        void visit(const Nodecl::OmpSs::Concurrent& dep_inout)
+        void visit(const Nodecl::OmpSs::DepConcurrent& dep_inout)
         {
             there_are_dependences = true;
         }
 
-        void visit(const Nodecl::OmpSs::Commutative& dep_inout)
+        void visit(const Nodecl::OmpSs::DepCommutative& dep_inout)
         {
             there_are_dependences = true;
         }
@@ -840,7 +840,7 @@ namespace TL { namespace OmpSs {
                     std::fill_n( std::ostream_iterator<const char*>(ss), diff, " ");
 
                 ss
-                    << " " << dependency_direction_to_str(kind) << "\n"
+                    << " " << directionality_to_str(kind) << "\n"
                     ;
 
                 *_omp_report_file
@@ -883,12 +883,12 @@ namespace TL { namespace OmpSs {
             report_dep(dep_in.get_exprs(), OpenMP::DEP_OMPSS_DIR_IN_PRIVATE);
         }
 
-        void visit(const Nodecl::OmpSs::Concurrent& dep_inout)
+        void visit(const Nodecl::OmpSs::DepConcurrent& dep_inout)
         {
             report_dep(dep_inout.get_exprs(), OpenMP::DEP_OMPSS_CONCURRENT);
         }
 
-        void visit(const Nodecl::OmpSs::Commutative& dep_inout)
+        void visit(const Nodecl::OmpSs::DepCommutative& dep_inout)
         {
             report_dep(dep_inout.get_exprs(), OpenMP::DEP_OMPSS_COMMUTATIVE);
         }
@@ -925,7 +925,7 @@ namespace TL { namespace OmpSs {
                     std::fill_n( std::ostream_iterator<const char*>(ss), diff, " ");
 
                 ss
-                    << " " << copy_direction_to_str(kind) << "\n"
+                    << " " << directionality_to_str(kind) << "\n"
                     ;
 
                 *_omp_report_file
@@ -1278,7 +1278,7 @@ namespace TL { namespace OmpSs {
         if (!concurrent_deps.empty())
         {
             exec_environment.append(
-                    Nodecl::OmpSs::Concurrent::make(
+                    Nodecl::OmpSs::DepConcurrent::make(
                         Nodecl::List::make(concurrent_deps),
                         locus));
         }
@@ -1938,7 +1938,7 @@ namespace TL { namespace OmpSs {
                         return_argument_nodecl.get_type().no_ref().points_to().get_lvalue_reference_to(),
                         return_argument.get_locus()));
 
-            TL::OmpSs::FunctionTaskDependency result_dependence(data_ref_dep, dep_dir_ret_arg);
+            TL::OpenMP::DependencyItem result_dependence(data_ref_dep, dep_dir_ret_arg);
             new_funct_task_info.add_function_task_dependency(result_dependence);
 
             TL::OmpSs::TargetInfo& target_info = new_funct_task_info.get_target_info();

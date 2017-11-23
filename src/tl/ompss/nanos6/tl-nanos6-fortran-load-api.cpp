@@ -68,6 +68,20 @@ const char *register_dependences[] =
     "nanos_register_region_reduction_depinfo",
 };
 
+// We have '__nanos6_max_dimensions' different versions for each symbol, for
+// this reason they're treated a bit different
+const char* release_dependences[] =
+{
+    "nanos_release_read_",
+    "nanos_release_write_",
+    "nanos_release_readwrite_",
+    "nanos_release_weak_read_",
+    "nanos_release_weak_write_",
+    "nanos_release_weak_readwrite_",
+    "nanos_release_commutative_",
+    "nanos_release_concurrent_" ,
+};
+
 void fix_entry_point(std::string name)
 {
     TL::Symbol sym = TL::Scope::get_global_scope().get_symbol_from_name(name);
@@ -101,9 +115,19 @@ void fixup_entry_points(int deps_max_dimensions)
         }
     }
 
-    if (Interface::family_is_at_least("nanos6_utils_api", 1))
+    fix_entry_point("nanos6_bzero");
+
+    for(int dim = 1; dim <= deps_max_dimensions; dim++)
     {
-        fix_entry_point("nanos6_bzero");
+        for(const char **it = release_dependences;
+                it < (const char**)(&release_dependences + 1);
+                it++)
+        {
+            std::stringstream ss;
+            ss << *it << dim;
+
+            fix_entry_point(ss.str());
+        }
     }
 }
 }
@@ -180,8 +204,7 @@ void fixup_entry_points(int deps_max_dimensions)
     void LoweringPhase::fortran_fixup_api()
     {
         ERROR_CONDITION(!IS_FORTRAN_LANGUAGE, "This is only for Fortran", 0);
-        fixup_entry_points(get_deps_max_dimensions());
+        fixup_entry_points(nanos6_api_max_dimensions());
     }
-
 
 } }

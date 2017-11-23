@@ -25,13 +25,13 @@
 --------------------------------------------------------------------*/
 
 
-
 /*
 <testinfo>
 test_generator=config/mercurium-analysis
 test_nolink=yes
 </testinfo>
 */
+
 
 void matmul(double  *A, double *B, double *C, unsigned long NB)
 {

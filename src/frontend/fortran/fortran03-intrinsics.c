@@ -305,7 +305,10 @@ FORTRAN_GENERIC_INTRINSIC(NULL, ftell, NULL, M, NULL) \
 FORTRAN_GENERIC_INTRINSIC(NULL, getarg, NULL, S, NULL) \
 FORTRAN_GENERIC_INTRINSIC(NULL, getcwd, NULL, M, NULL) \
 FORTRAN_GENERIC_INTRINSIC(NULL, getlog, NULL, S, NULL) \
+FORTRAN_GENERIC_INTRINSIC(NULL, getpid, NULL, T, NULL) \
 FORTRAN_GENERIC_INTRINSIC(NULL, hostnm, NULL, M, NULL) \
+FORTRAN_GENERIC_INTRINSIC(NULL, int2, "A", E, NULL)  \
+FORTRAN_GENERIC_INTRINSIC(NULL, int8, "A", E, NULL)  \
 FORTRAN_GENERIC_INTRINSIC(NULL, irand, "?I", T, NULL)  \
 FORTRAN_GENERIC_INTRINSIC(NULL, isnan, "X", E, NULL)  \
 FORTRAN_GENERIC_INTRINSIC(NULL, loc, NULL, E, NULL)  \
@@ -1146,10 +1149,7 @@ static scope_entry_t* get_intrinsic_symbol_(
         char is_inquiry UNUSED_PARAMETER)
 {
     ERROR_CONDITION(result_type == NULL, "This should be void", 0);
-
-    if (generic_symbol != NULL
-            && generic_symbol->symbol_name != NULL)
-        name = generic_symbol->symbol_name;
+    ERROR_CONDITION(name == NULL, "name cannot be null", 0);
 
     int i;
     for (i = 0; i < num_types; i++)
@@ -1498,6 +1498,10 @@ static scope_entry_t* register_specific_intrinsic_name(
     if (strcasecmp(generic_name, specific_name) == 0)
     {
         // If the name is the same, mark it as the specific interface of this intrinsic
+        ERROR_CONDITION(
+            symbol_entity_specs_get_specific_intrinsic(generic_entry) != NULL,
+            "Overwriting the specific intrinsic of generic name '%s'",
+            generic_entry->symbol_name);
         symbol_entity_specs_set_specific_intrinsic(generic_entry, specific_entry);
     }
     else
@@ -1530,15 +1534,10 @@ static scope_entry_t* register_specific_intrinsic_name(
                 result_type,
                 real_num_parameters, param_types,
                 generic_entry->decl_context,
-                symbol_entity_specs_get_is_elemental(generic_entry),
-                symbol_entity_specs_get_is_pure(generic_entry),
+                symbol_entity_specs_get_is_elemental(specific_entry),
+                symbol_entity_specs_get_is_pure(specific_entry),
                 /* is_transformational */ 0,
                 /* is_inquiry */ 0);
-
-        // Note that get_intrinsic_symbol_ uses the name in generic_entry
-        // if it is not NULL, and here it will never be null, so overwrite
-        // the name now
-        new_specific_entry->symbol_name = uniquestr(specific_name);
 
         // Add the keywords that are non null
         for (i = 0; i < MAX_SPECIFIC_PARAMETERS; i++)
@@ -3346,6 +3345,15 @@ scope_entry_t* compute_intrinsic_getlog(scope_entry_t* symbol UNUSED_PARAMETER,
     return NULL;
 }
 
+scope_entry_t* compute_intrinsic_getpid(scope_entry_t* symbol UNUSED_PARAMETER,
+        type_t** argument_types UNUSED_PARAMETER,
+        nodecl_t* argument_expressions UNUSED_PARAMETER,
+        int num_arguments UNUSED_PARAMETER,
+        const_value_t** const_value UNUSED_PARAMETER)
+{
+        return GET_INTRINSIC_TRANSFORMATIONAL(symbol, "getpid", fortran_choose_int_type_from_kind(4));
+}
+
 scope_entry_t* compute_intrinsic_get_command(scope_entry_t* symbol UNUSED_PARAMETER,
         type_t** argument_types UNUSED_PARAMETER,
         nodecl_t* argument_expressions UNUSED_PARAMETER,
@@ -3763,6 +3771,42 @@ scope_entry_t* compute_intrinsic_int(scope_entry_t* symbol UNUSED_PARAMETER,
                 lvalue_ref(fortran_get_default_integer_type()));
     }
     return NULL;
+}
+
+static scope_entry_t* compute_intrinsic_int_x(
+        scope_entry_t* symbol,
+        type_t** argument_types UNUSED_PARAMETER,
+        int int_kind_ret_type)
+{
+    type_t* t0 = fortran_get_rank0_type(argument_types[0]);
+    if (is_integer_type(t0)
+                || is_floating_type(t0)
+                || is_complex_type(t0))
+    {
+        return GET_INTRINSIC_ELEMENTAL(symbol, symbol->symbol_name,
+                fortran_choose_int_type_from_kind(int_kind_ret_type),
+                lvalue_ref(t0));
+    }
+    return NULL;
+
+}
+
+scope_entry_t* compute_intrinsic_int2(scope_entry_t* symbol UNUSED_PARAMETER,
+        type_t** argument_types UNUSED_PARAMETER,
+        nodecl_t* argument_expressions UNUSED_PARAMETER,
+        int num_arguments UNUSED_PARAMETER,
+        const_value_t** const_value UNUSED_PARAMETER)
+{
+    return compute_intrinsic_int_x(symbol, argument_types, 2);
+}
+
+scope_entry_t* compute_intrinsic_int8(scope_entry_t* symbol UNUSED_PARAMETER,
+        type_t** argument_types UNUSED_PARAMETER,
+        nodecl_t* argument_expressions UNUSED_PARAMETER,
+        int num_arguments UNUSED_PARAMETER,
+        const_value_t** const_value UNUSED_PARAMETER)
+{
+    return compute_intrinsic_int_x(symbol, argument_types, 8);
 }
 
 scope_entry_t* compute_intrinsic_ior(scope_entry_t* symbol UNUSED_PARAMETER,
@@ -7249,7 +7293,10 @@ static void fortran_init_intrinsic_module_iso_c_binding(const decl_context_t* de
             UNIQUESTR_LITERAL("c_null_ptr"));
     c_null_ptr->locus = locus;
     c_null_ptr->kind = SK_VARIABLE;
-    c_null_ptr->type_information = get_user_defined_type(c_ptr);
+    c_null_ptr->type_information = get_const_qualified_type(get_user_defined_type(c_ptr));
+    c_null_ptr->value = const_value_to_nodecl(
+            const_value_make_struct(0, NULL,
+                get_user_defined_type(c_ptr)));
     symbol_entity_specs_set_in_module(c_null_ptr, iso_c_binding);
     symbol_entity_specs_set_access(c_null_ptr, AS_PUBLIC);
     symbol_entity_specs_add_related_symbols(iso_c_binding,

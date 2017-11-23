@@ -40,6 +40,7 @@ namespace TaskAnalysis{
 namespace {
     // #define TASK_SYNC_DEBUG
 
+    std::map<Node*, ObjectList<Nodecl::NodeclBase> > task_matched_src_deps;
     std::set<Node*> dead_tasks_before_sync;
 
     bool function_waits_tasks(TL::Symbol sym)
@@ -63,6 +64,7 @@ namespace {
     void set_sync_relationship(tribool& task_sync_rel,
             AliveTaskSet::iterator& alive_tasks_it,
             PointsOfSync& points_of_sync,
+            bool keep_alive,
             Node* current,
             Node* current_sync_point)
     {
@@ -108,7 +110,7 @@ namespace {
                     if (!already_a_point_of_sync)
                         points_of_sync[alive_tasks_it->node].insert(std::make_pair(current_sync_point, sync_kind));
 
-                    if (task_sync_rel == tribool::yes)
+                    if (task_sync_rel == tribool::yes && !keep_alive)
                     {
 #ifdef TASK_SYNC_DEBUG
                         std::cerr << __FILE__ << ":" << __LINE__ << " but we know it statically synchronizes" << std::endl;
@@ -414,7 +416,7 @@ namespace {
                 source_dep_out = *it;
             else if (it->is<Nodecl::OpenMP::DepInout>())
                 source_dep_inout = *it;
-            else if (it->is<Nodecl::OmpSs::Commutative>())
+            else if (it->is<Nodecl::OmpSs::DepCommutative>())
                 source_dep_commutative = *it;
         }
 
@@ -478,7 +480,7 @@ namespace {
     }
 
     // Computes if task source will synchronize with the creation of the task target
-    tribool compute_task_sync_relationship(Node* source, Node* target)
+    tribool compute_task_sync_relationship(Node* source, Node* target, bool keep_alive)
     {
 #ifdef TASK_SYNC_DEBUG
         std::cerr << "CHECKING DEPENDENCES STATICALLY " << source->get_id() << " -> " << target->get_id() << std::endl;
@@ -517,24 +519,20 @@ namespace {
             internal_error("Code unreachable", 0);
         }
 
-        // FIXME: These should be lists. Otherwise, when we have more than one clause of the same type, we will end up with the last one
         // FIXME: Extend support for concurrent dependencies
-        Nodecl::NodeclBase source_dep_in;
-        Nodecl::NodeclBase source_dep_out;
-        Nodecl::NodeclBase source_dep_inout;
-        Nodecl::NodeclBase source_dep_commutative;
+        Nodecl::List in_sources, out_sources;
         for (Nodecl::List::iterator it = task_source_env.begin();
                 it != task_source_env.end();
                 it++)
         {
             if (it->is<Nodecl::OpenMP::DepIn>())
-                source_dep_in = *it;
+                in_sources.append(it->as<Nodecl::OpenMP::DepIn>().get_exprs().shallow_copy());
             else if (it->is<Nodecl::OpenMP::DepOut>())
-                source_dep_out = *it;
-            else if (it->is<Nodecl::OpenMP::DepInout>())
-                source_dep_inout = *it;
-            else if (it->is<Nodecl::OmpSs::Commutative>())
-                source_dep_commutative = *it;
+                out_sources.append(it->as<Nodecl::OpenMP::DepOut>().get_exprs().shallow_copy());
+            else if (it->is<Nodecl::OpenMP::DepInout>() || it->is<Nodecl::OmpSs::DepCommutative>()) {
+                in_sources.append(it->as<Nodecl::OpenMP::DepInout>().get_exprs().shallow_copy());
+                out_sources.append(it->as<Nodecl::OpenMP::DepInout>().get_exprs().shallow_copy());
+            }
         }
 
         // TL::NodeclList target_statements = target->get_statements();
@@ -570,75 +568,80 @@ namespace {
             internal_error("Code unreachable", 0);
         }
 
-        NBase target_dep_in;
-        NBase target_dep_out;
-        NBase target_dep_inout;
-        NBase target_dep_commutative;
+        Nodecl::List all_targets, out_targets;
         for (Nodecl::List::iterator it = task_target_env.begin();
                 it != task_target_env.end();
                 it++)
         {
             if (it->is<Nodecl::OpenMP::DepIn>())
-                target_dep_in = *it;
-            else if (it->is<Nodecl::OpenMP::DepOut>())
-                target_dep_out = *it;
-            else if (it->is<Nodecl::OpenMP::DepInout>())
-                target_dep_inout = *it;
-            else if (it->is<Nodecl::OmpSs::Commutative>())
-                target_dep_commutative = *it;
+                all_targets.append(it->as<Nodecl::OpenMP::DepIn>().get_exprs().shallow_copy());
+            else if (it->is<Nodecl::OpenMP::DepOut>()
+                    || it->is<Nodecl::OpenMP::DepInout>()
+                    || it->is<Nodecl::OmpSs::DepCommutative>()) {
+                all_targets.append(it->as<Nodecl::OpenMP::DepOut>().get_exprs().shallow_copy());
+                out_targets.append(it->as<Nodecl::OpenMP::DepOut>().get_exprs().shallow_copy());
+            }
         }
 
         tribool may_have_dep = tribool::no;
 
         // DRY
-        Nodecl::NodeclBase sources[] = { source_dep_in, source_dep_inout, source_dep_out, source_dep_commutative };
-        int num_sources = sizeof(sources)/sizeof(sources[0]);
-        Nodecl::NodeclBase targets[] = { target_dep_in, target_dep_inout, target_dep_out, target_dep_commutative };
-        int num_targets = sizeof(targets)/sizeof(targets[0]);
-
-        bool all_sources_are_inputs = true, all_targets_are_inputs = true;;
-        for (int n_source = 0; n_source < num_sources; n_source++)
+        // Match source inputs with target outputs
+        for (Nodecl::List::iterator its = in_sources.begin(); its != in_sources.end(); ++its)
         {
-            if (sources[n_source].is_null())
-                continue;
-            for (int n_target = 0; n_target < num_targets; n_target++)
+            for (Nodecl::List::iterator itt = out_targets.begin(); itt != out_targets.end(); ++itt)
             {
-                if (targets[n_target].is_null())
-                    continue;
-                // in/out/inout -> out  =>  synchronizes for sure
-                //    out/inout -> in   =>  it may still be alive
-                if (!is_only_input_dependence(sources[n_source])
-                    || !is_only_input_dependence(targets[n_target]))
-                {
-                    tribool may_have_dependence_l = may_have_dependence_list(
-                                sources[n_source].as<Nodecl::OpenMP::DepOut>().get_exprs().as<Nodecl::List>(),
-                                targets[n_target].as<Nodecl::OpenMP::DepIn>().get_exprs().as<Nodecl::List>());
-                    if (may_have_dependence_l == tribool::unknown
-                        || may_have_dependence_l == tribool::yes)
-                    {
-                        if (!is_only_input_dependence(sources[n_source]))
-                            all_sources_are_inputs = false;
-                        if (!is_only_input_dependence(targets[n_target]))
-                            all_targets_are_inputs = false;
-                        may_have_dep = may_have_dep || may_have_dependence_l;
-                    }
-                }
+                may_have_dep = may_have_dep || may_have_dependence(*its, *itt);
             }
         }
+
+        // Match source outputs with target inputs and outputs
+        task_matched_src_deps.insert(std::pair<Node*, ObjectList<Nodecl::NodeclBase> >(source, in_sources.to_object_list()));
+        bool all_sources_are_inputs = false, all_targets_are_inputs = true;
+        for (Nodecl::List::iterator its = out_sources.begin(); its != out_sources.end(); ++its)
+        {
+            tribool pair_may_have_dep = tribool::no;
+            for (Nodecl::List::iterator itt = all_targets.begin(); itt != all_targets.end(); ++itt)
+            {
+                pair_may_have_dep = pair_may_have_dep || may_have_dependence(*its, *itt);
+                if (pair_may_have_dep == tribool::yes || pair_may_have_dep == tribool::unknown)
+                {
+                    if (Nodecl::Utils::list_contains_nodecl_by_structure(out_targets.to_object_list(), *itt))
+                        all_targets_are_inputs = false;
+                }
+            }
+
+            if (pair_may_have_dep == tribool::yes)
+            {
+                task_matched_src_deps[source].erase(
+                        std::remove(task_matched_src_deps[source].begin(),
+                                    task_matched_src_deps[source].end(),
+                                    *its),
+                        task_matched_src_deps[source].end());
+            }
+            may_have_dep = may_have_dep || pair_may_have_dep;
+        }
+
         if (may_have_dep == tribool::no)
             return may_have_dep;
 
-        // out/inout -> in
-        if (!all_sources_are_inputs && all_targets_are_inputs)
-        {
-            may_have_dep = tribool::unknown;
-        }
-
         // This tasks will be dead when the next taskwait/barrier is encountered
-        // but we have to kkep themn alive since they may sincronize in other task
-        if (all_targets_are_inputs && may_have_dep == tribool::unknown)
+        // but we have to keep them alive since they may sincronize in other task
+        if (all_targets_are_inputs && may_have_dep == tribool::yes)
         {
             dead_tasks_before_sync.insert(source);
+        }
+
+        // It may happen that, even though a task is synchronized for sure in a nother task,
+        // we may want to keep it alive. This happens when:
+        // * An output dependence has been synchronized with an input dependence
+        //        => other posterior inputs/outputs may need to synchronize with the same source
+        // * There are still dependences in the source that have not match
+        //        => other posterior dependences may match with those previously unmatched
+        if ((!all_sources_are_inputs && all_targets_are_inputs)
+            || !task_matched_src_deps[source].empty())
+        {
+            keep_alive = true;
         }
 
         return may_have_dep;
@@ -798,7 +801,7 @@ namespace {
                 {
                     task_sync_rel = tribool::no;
                 }
-                set_sync_relationship(task_sync_rel, alive_tasks_it, points_of_sync, current, current);
+                set_sync_relationship(task_sync_rel, alive_tasks_it, points_of_sync, /*keep_alive*/false, current, current);
             }
         }
         else if (current->is_omp_task_creation_node())
@@ -813,15 +816,16 @@ namespace {
                     alive_tasks_it++)
             {
                 tribool task_sync_rel;
+                bool keep_alive = false;
                 if (alive_tasks_it->domain == current_domain_id)
                 {
-                    task_sync_rel = compute_task_sync_relationship(alive_tasks_it->node, task);
+                    task_sync_rel = compute_task_sync_relationship(alive_tasks_it->node, task, keep_alive);
                 }
                 else
                 {
                     task_sync_rel = tribool::no;
                 }
-                set_sync_relationship(task_sync_rel, alive_tasks_it, points_of_sync, current, task);
+                set_sync_relationship(task_sync_rel, alive_tasks_it, points_of_sync, keep_alive, current, task);
             }
 
             // Add the newly created task as well

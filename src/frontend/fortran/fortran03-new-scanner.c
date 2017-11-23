@@ -211,10 +211,22 @@ extern int new_mf03_open_file_for_scanning(const char* scanned_filename,
         fatal_error("error: cannot get status of file '%s' (%s)", scanned_filename, strerror(errno));
     }
 
-    const char *mmapped_addr = mmap(0, s.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
-    if (mmapped_addr == MAP_FAILED)
+    const char *mmapped_addr;
+    if (s.st_size > 0)
     {
-        fatal_error("error: cannot map file '%s' in memory (%s)", scanned_filename, strerror(errno));
+        mmapped_addr = mmap(0, s.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+        if (mmapped_addr == MAP_FAILED)
+        {
+            fatal_error("error: cannot map file '%s' in memory (%s)",
+                        scanned_filename,
+                        strerror(errno));
+        }
+    }
+    else
+    {
+        mmapped_addr = NULL;
+        // Not an mmap.
+        fd = -1;
     }
 
     lexer_state.form = !is_fixed_form ? LEXER_TEXTUAL_FREE_FORM : LEXER_TEXTUAL_FIXED_FORM;
@@ -2427,17 +2439,23 @@ static char is_include_line(void)
                 include_filename, strerror(errno));
     }
 
-    const char *mmapped_addr = mmap(0, s.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
-    if (mmapped_addr == MAP_FAILED)
+    const char *mmapped_addr;
+    if (s.st_size > 0)
     {
-        fatal_printf_at(
-                make_locus(
-                    loc.filename,
-                    loc.line,
-                    loc.column),
-                "cannot map included file '%s' in memory (%s)",
-                include_filename,
-                strerror(errno));
+        mmapped_addr = mmap(0, s.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+        if (mmapped_addr == MAP_FAILED)
+        {
+            fatal_printf_at(make_locus(loc.filename, loc.line, loc.column),
+                            "cannot map included file '%s' in memory (%s)",
+                            include_filename,
+                            strerror(errno));
+        }
+    }
+    else
+    {
+        mmapped_addr = NULL;
+        // Not an mmap.
+        fd = -1;
     }
 
     lexer_state.include_stack_size++;
@@ -3139,6 +3157,8 @@ static inline void preanalyze_statement(char expect_label)
                     {
                         // INTEGER*8E1 cannot be lexed as
                         // [INTEGER][*][REAL_LITERAL=8E1] but like [INTEGER][*][INTEGER_LITERAL=8][IDENTIFIER=E1]
+                        // INTEGER*8H12345678 cannot be lexed as
+                        // [INTEGER][*][STRING_LITERAL=12345678] but like [INTEGER][*][INTEGER_LITERAL=8][IDENTIFIER=H12345678]
                         int peek_idx2 = peek_idx_end_of_keyword + 2;
 
                         p = peek(peek_idx2);
@@ -3152,7 +3172,9 @@ static inline void preanalyze_statement(char expect_label)
 
                             if (tolower(p) == 'e'
                                     || tolower(p) == 'd'
-                                    || tolower(p) == 'q')
+                                    || tolower(p) == 'q'
+                                    // Hollerith case
+                                    || tolower(p) == 'h')
                             {
                                 token_location_t loc;
                                 peek_loc(peek_idx2, &loc);
