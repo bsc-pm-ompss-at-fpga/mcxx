@@ -37,15 +37,8 @@
 
 namespace TL
 {
-    template <>
-        struct ModuleWriterTrait<OpenMP::DependencyDirection> : EnumWriterTrait<OpenMP::DependencyDirection> { };
-
-    template <>
-        struct ModuleReaderTrait<OpenMP::DependencyDirection> : EnumReaderTrait<OpenMP::DependencyDirection> { };
-
     namespace OpenMP
     {
-
         DataEnvironment::DataEnvironment(DataEnvironment *enclosing)
             : _num_refs(new int(1)), 
             _data_sharing(new data_sharing_map_t()),
@@ -81,6 +74,7 @@ namespace TL
             _device_mapping(ds._device_mapping),
             _enclosing(ds._enclosing),
             _reduction_symbols(ds._reduction_symbols),
+            _weakreduction_symbols(ds._weakreduction_symbols),
             _dependency_items(ds._dependency_items),
             _target_info(ds._target_info)
         {
@@ -221,6 +215,16 @@ namespace TL
             _simd_reduction_symbols.append(reduction_symbol);
         }
 
+        void DataEnvironment::set_weakreduction(const ReductionSymbol &reduction_symbol,
+                const std::string& reason)
+        {
+            TL::Symbol sym = reduction_symbol.get_symbol();
+            (*_data_sharing)[sym] = DataSharingAttributeInfo(
+                    DataSharingValue(DS_WEAKREDUCTION, DSK_EXPLICIT),
+                    reason);
+            _weakreduction_symbols.append(reduction_symbol);
+        }
+
         void DataEnvironment::get_all_reduction_symbols(ObjectList<ReductionSymbol> &symbols)
         {
             symbols = _reduction_symbols;
@@ -229,6 +233,11 @@ namespace TL
         void DataEnvironment::get_all_simd_reduction_symbols(ObjectList<ReductionSymbol> &symbols)
         {
             symbols = _simd_reduction_symbols;
+        }
+
+        void DataEnvironment::get_all_weakreduction_symbols(ObjectList<ReductionSymbol> &symbols)
+        {
+            symbols = _weakreduction_symbols;
         }
 
         TL::OmpSs::TargetInfo& DataEnvironment::get_target_info()
@@ -460,33 +469,6 @@ namespace TL
                 = new DataEnvironment(NULL);
             // Why stack is so special?
             _stack_data_environment = std::stack<DataEnvironment*>();
-        }
-
-        DependencyItem::DependencyItem(DataReference dep_expr, DependencyDirection kind)
-            : _dep_expr(dep_expr), _kind(kind)
-        {
-        }
-
-        DependencyDirection DependencyItem::get_kind() const
-        {
-            return _kind;
-        }
-
-        DataReference DependencyItem::get_dependency_expression() const
-        {
-            return _dep_expr;
-        }
-
-        void DependencyItem::module_write(ModuleWriter& mw)
-        {
-            mw.write(_dep_expr);
-            mw.write(_kind);
-        }
-
-        void DependencyItem::module_read(ModuleReader& mr)
-        {
-            mr.read(_dep_expr);
-            mr.read(_kind);
         }
     }
 }

@@ -63,8 +63,6 @@ namespace TL { namespace Nanos6 {
         Nodecl::OpenMP::Task new_task = node;
         if (!_phase->_final_clause_transformation_disabled)
         {
-            // Traverse the serial statements since they may contain additional pragmas
-            walk(serial_stmts);
 
             Nodecl::NodeclBase stmts = node.get_statements();
 
@@ -76,13 +74,11 @@ namespace TL { namespace Nanos6 {
                     "Invalid symbol", 0);
 
             Nodecl::NodeclBase call_to_nanos_in_final = Nodecl::FunctionCall::make(
-                nanos_in_final_sym.make_nodecl(/* set_ref_type */ true,
-                    node.get_locus()), /* called */
-                Nodecl::NodeclBase::null(), /* Argument list */
-                Nodecl::NodeclBase::null(), /* Alternate name */
-                Nodecl::NodeclBase::null(), /* Function Form */
-                TL::Type::get_int_type()
-            );
+                /* called */ nanos_in_final_sym.make_nodecl(/* set_ref_type */ true, node.get_locus()),
+                /* arguments */ Nodecl::NodeclBase::null(),
+                /* alternate_name */Nodecl::NodeclBase::null(),
+                /* function_form */ Nodecl::NodeclBase::null(),
+                TL::Type::get_int_type());
 
             new_task = Nodecl::OpenMP::Task::make(node.get_environment(), stmts, node.get_locus());
 
@@ -94,12 +90,9 @@ namespace TL { namespace Nanos6 {
                     Nodecl::CompoundStatement::make(
                         Nodecl::List::make(new_task),
                         /* finally */ Nodecl::NodeclBase::null(),
-                        node.get_locus()
-                        )
-                    ),
+                        node.get_locus())),
                 not_final_context,
-                node.get_locus()
-            );
+                node.get_locus());
 
             Scope in_final_context = new_block_context(sc.get_decl_context());
             Nodecl::NodeclBase in_final_compound_stmts = Nodecl::Context::make(
@@ -107,12 +100,9 @@ namespace TL { namespace Nanos6 {
                     Nodecl::CompoundStatement::make(
                         serial_stmts,
                         /* finally */ Nodecl::NodeclBase::null(),
-                        node.get_locus()
-                        )
-                    ),
+                        node.get_locus())),
                 in_final_context,
-                node.get_locus()
-            );
+                node.get_locus());
 
             Nodecl::NodeclBase if_in_final = Nodecl::IfElseStatement::make(
                     Nodecl::Different::make(
@@ -126,6 +116,9 @@ namespace TL { namespace Nanos6 {
                 );
 
             node.replace(if_in_final);
+
+            // Traverse the serial statements since they may contain additional pragmas
+            walk(serial_stmts);
         }
 
         lower_task(new_task);
@@ -134,7 +127,7 @@ namespace TL { namespace Nanos6 {
     // Creates the task instantiation and submission
     void Lower::lower_task(const Nodecl::OpenMP::Task& node)
     {
-        TaskProperties task_properties = TaskProperties::gather_task_properties(_phase, this, node);
+        TaskProperties task_properties(node, _phase, this);
 
         Nodecl::NodeclBase args_size;
         TL::Type data_env_struct;
@@ -186,7 +179,6 @@ namespace TL { namespace Nanos6 {
         Nodecl::List new_stmts;
 
         TL::Symbol taskloop_bounds_ptr;
-        if (Interface::family_is_at_least("nanos6_task_execution_api", 1))
         {
             TL::Counter &counter = TL::CounterManager::get_counter("nanos6-taskloop-bounds");
             std::stringstream ss;
@@ -285,7 +277,6 @@ namespace TL { namespace Nanos6 {
 
 
             // (void**) &taskloop_bounds_ptr
-            if (Interface::family_is_at_least("nanos6_instantiation_api", 2))
             {
                 Nodecl::NodeclBase taskloop_bounds_out =
                     cast = Nodecl::Conversion::make(
@@ -358,8 +349,6 @@ namespace TL { namespace Nanos6 {
             // FORTRAN ONLY
             ERROR_CONDITION(IS_CXX_LANGUAGE || IS_C_LANGUAGE, "Unreachable code\n", 0);
 
-            Interface::family_must_be_at_least("nanos6_utils_api", 1, "the 'nanos6_bzero' function");
-
             TL::Symbol nanos6_bzero_sym =
                 TL::Scope::get_global_scope().get_symbol_from_name("nanos6_bzero");
             ERROR_CONDITION(!nanos6_bzero_sym.is_valid()
@@ -404,7 +393,7 @@ namespace TL { namespace Nanos6 {
         }
 
         // Compute taskloop information initialization
-        if (task_properties.is_taskloop)
+        if (task_properties.is_taskloop())
         {
             Nodecl::NodeclBase taskloop_info_stmts;
             task_properties.capture_taskloop_information(

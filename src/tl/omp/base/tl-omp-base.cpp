@@ -127,55 +127,50 @@ namespace TL { namespace OpenMP {
                 _enable_nonvoid_function_tasks,
                 "0").connect(std::bind(&Core::set_enable_nonvoid_function_tasks_from_str, &this->_core, std::placeholders::_1));
 
-        register_omp();
-        register_ompss();
+        bind_omp_constructs();
+        bind_oss_constructs();
     }
 
-    void Base::register_omp()
+#define BIND_DIRECTIVE(_sentinel, _directive, _name, _pred, _func_prefix) \
+                if (_pred) { \
+                    std::string directive_name = remove_separators_of_directive(_directive); \
+                    dispatcher(_sentinel).directive.pre[directive_name].connect(\
+                            std::bind(&Base::_func_prefix##_name##_handler_pre, this, std::placeholders::_1)); \
+                    dispatcher(_sentinel).directive.post[directive_name].connect(std::bind(\
+                                &Base::_func_prefix##_name##_handler_post, this, std::placeholders::_1)); \
+                }
+#define BIND_CONSTRUCT(_sentinel, _directive, _name, _pred, _func_prefix) \
+                if (_pred) { \
+                    std::string directive_name = remove_separators_of_directive(_directive); \
+                    dispatcher(_sentinel).declaration.pre[directive_name].connect(\
+                            std::bind((void (Base::*)(TL::PragmaCustomDeclaration))&Base::_func_prefix##_name##_handler_pre, this, std::placeholders::_1)); \
+                    dispatcher(_sentinel).declaration.post[directive_name].connect(\
+                            std::bind((void (Base::*)(TL::PragmaCustomDeclaration))&Base::_func_prefix##_name##_handler_post, this, std::placeholders::_1)); \
+                    dispatcher(_sentinel).statement.pre[directive_name].connect(std::bind(\
+                                (void (Base::*)(TL::PragmaCustomStatement))&Base::_func_prefix##_name##_handler_pre, this, std::placeholders::_1)); \
+                    dispatcher(_sentinel).statement.post[directive_name].connect(std::bind(\
+                                (void (Base::*)(TL::PragmaCustomStatement))&Base::_func_prefix##_name##_handler_post, this, std::placeholders::_1)); \
+                }
+    void Base::bind_omp_constructs()
     {
-#define OMP_DIRECTIVE(_directive, _name, _pred) \
-                if (_pred) { \
-                    std::string directive_name = remove_separators_of_directive(_directive); \
-                    dispatcher("omp").directive.pre[directive_name].connect(std::bind(&Base::_name##_handler_pre, this, std::placeholders::_1)); \
-                    dispatcher("omp").directive.post[directive_name].connect(std::bind(&Base::_name##_handler_post, this, std::placeholders::_1)); \
-                }
-#define OMP_CONSTRUCT_COMMON(_directive, _name, _noend, _pred) \
-                if (_pred) { \
-                    std::string directive_name = remove_separators_of_directive(_directive); \
-                    dispatcher("omp").declaration.pre[directive_name].connect(std::bind((void (Base::*)(TL::PragmaCustomDeclaration))&Base::_name##_handler_pre, this, std::placeholders::_1)); \
-                    dispatcher("omp").declaration.post[directive_name].connect(std::bind((void (Base::*)(TL::PragmaCustomDeclaration))&Base::_name##_handler_post, this, std::placeholders::_1)); \
-                    dispatcher("omp").statement.pre[directive_name].connect(std::bind((void (Base::*)(TL::PragmaCustomStatement))&Base::_name##_handler_pre, this, std::placeholders::_1)); \
-                    dispatcher("omp").statement.post[directive_name].connect(std::bind((void (Base::*)(TL::PragmaCustomStatement))&Base::_name##_handler_post, this, std::placeholders::_1)); \
-                }
-#define OMP_CONSTRUCT(_directive, _name, _pred) OMP_CONSTRUCT_COMMON(_directive, _name, false, _pred)
-#define OMP_CONSTRUCT_NOEND(_directive, _name, _pred) OMP_CONSTRUCT_COMMON(_directive, _name, true, _pred)
+#define OMP_DIRECTIVE(_directive, _name, _pred) BIND_DIRECTIVE("omp", _directive, _name, _pred, /*empty_prefix*/)
+#define OMP_CONSTRUCT(_directive, _name, _pred) BIND_CONSTRUCT("omp", _directive, _name, _pred, /*empty_prefix*/)
+#define OMP_CONSTRUCT_NOEND(_directive, _name, _pred) OMP_CONSTRUCT(_directive, _name, _pred)
 #include "tl-omp-constructs.def"
 #undef OMP_DIRECTIVE
-#undef OMP_CONSTRUCT_COMMON
 #undef OMP_CONSTRUCT
 #undef OMP_CONSTRUCT_NOEND
     }
 
-    void Base::register_ompss()
+    void Base::bind_oss_constructs()
     {
-        // OSS constructs
-        dispatcher("oss").directive.pre["taskwait"].connect(std::bind(&Base::taskwait_handler_pre, this, std::placeholders::_1));
-        dispatcher("oss").directive.post["taskwait"].connect(std::bind(&Base::taskwait_handler_post, this, std::placeholders::_1));
-
-        dispatcher("oss").declaration.pre["task"].connect(
-                std::bind((void (Base::*)(TL::PragmaCustomDeclaration))&Base::task_handler_pre, this, std::placeholders::_1));
-        dispatcher("oss").declaration.post["task"].connect(
-                std::bind((void (Base::*)(TL::PragmaCustomDeclaration))&Base::task_handler_post, this, std::placeholders::_1));
-
-        dispatcher("oss").statement.pre["task"].connect(
-                std::bind((void (Base::*)(TL::PragmaCustomStatement))&Base::task_handler_pre, this, std::placeholders::_1));
-        dispatcher("oss").statement.post["task"].connect(
-                std::bind((void (Base::*)(TL::PragmaCustomStatement))&Base::task_handler_post, this, std::placeholders::_1));
-
-        dispatcher("oss").statement.pre["critical"].connect(
-                std::bind((void (Base::*)(TL::PragmaCustomStatement))&Base::critical_handler_pre, this, std::placeholders::_1));
-        dispatcher("oss").statement.post["critical"].connect(
-                std::bind((void (Base::*)(TL::PragmaCustomStatement))&Base::critical_handler_post, this, std::placeholders::_1));
+#define OSS_DIRECTIVE(_directive, _name, _pred) BIND_DIRECTIVE("oss", _directive, _name, _pred, oss_)
+#define OSS_CONSTRUCT(_directive, _name, _pred) BIND_CONSTRUCT("oss", _directive, _name, _pred, oss_)
+#define OSS_CONSTRUCT_NOEND(_directive, _name, _pred) OSS_CONSTRUCT(_directive, _name, _pred)
+#include "tl-oss-constructs.def"
+#undef OSS_DIRECTIVE
+#undef OSS_CONSTRUCT
+#undef OSS_CONSTRUCT_NOEND
     }
 
     void Base::pre_run(TL::DTO& dto)
@@ -352,6 +347,39 @@ namespace TL { namespace OpenMP {
         EMPTY_HANDLERS_STATEMENT(teams_distribute_parallel_do)
         EMPTY_HANDLERS_STATEMENT(target_teams_distribute_parallel_for)
         EMPTY_HANDLERS_STATEMENT(target_teams_distribute_parallel_do)
+
+#define OSS_WRAPPER_TO_OMP_DECLARATION(_name) \
+        void Base::oss_##_name##_handler_pre(TL::PragmaCustomDeclaration construct) {\
+            _name##_handler_pre(construct); \
+        } \
+        void Base::oss_##_name##_handler_post(TL::PragmaCustomDeclaration construct) {\
+            _name##_handler_post(construct); \
+        }
+#define OSS_WRAPPER_TO_OMP_DIRECTIVE(_name) \
+        void Base::oss_##_name##_handler_pre(TL::PragmaCustomDirective construct) {\
+            _name##_handler_pre(construct); \
+        } \
+        void Base::oss_##_name##_handler_post(TL::PragmaCustomDirective construct) {\
+            _name##_handler_post(construct); \
+        }
+#define OSS_WRAPPER_TO_OMP_STATEMENT(_name) \
+        void Base::oss_##_name##_handler_pre(TL::PragmaCustomStatement construct) {\
+            _name##_handler_pre(construct); \
+        } \
+        void Base::oss_##_name##_handler_post(TL::PragmaCustomStatement construct) {\
+            _name##_handler_post(construct); \
+        }
+        OSS_WRAPPER_TO_OMP_DIRECTIVE(taskwait)
+        OSS_WRAPPER_TO_OMP_DECLARATION(task)
+        OSS_WRAPPER_TO_OMP_STATEMENT(task)
+        OSS_WRAPPER_TO_OMP_STATEMENT(critical)
+        OSS_WRAPPER_TO_OMP_DECLARATION(critical)
+        OSS_WRAPPER_TO_OMP_STATEMENT(atomic)
+        OSS_WRAPPER_TO_OMP_DECLARATION(atomic)
+
+#undef OSS_WRAPPER_TO_OMP_DECLARATION
+#undef OSS_WRAPPER_TO_OMP_DIRECTIVE
+#undef OSS_WRAPPER_TO_OMP_STATEMENT
 
     void Base::set_simd(const std::string &simd_enabled_str)
     {
@@ -651,7 +679,7 @@ namespace TL { namespace OpenMP {
     // Inline tasks
     void Base::task_handler_pre(TL::PragmaCustomStatement construct)
     {
-        // In OmpSs-v2 the taskloop construct is supported as '#pragma oss task loop'
+        // In OmpSs-2 the taskloop construct is supported as '#pragma oss task loop'
         if(PragmaUtils::is_pragma_construct("oss", construct)
                 && construct.get_pragma_line().get_clause("loop").is_defined())
         {
@@ -665,7 +693,7 @@ namespace TL { namespace OpenMP {
 
     void Base::task_handler_post(TL::PragmaCustomStatement directive)
     {
-        // In OmpSs-v2 the taskloop construct is supported as '#pragma oss task loop'
+        // In OmpSs-2 the taskloop construct is supported as '#pragma oss task loop'
         PragmaCustomLine pragma_line = directive.get_pragma_line();
         if(PragmaUtils::is_pragma_construct("oss", directive)
                 && pragma_line.get_clause("loop").is_defined())
@@ -2947,32 +2975,53 @@ namespace TL { namespace OpenMP {
         directive.replace(new_register_directive);
     }
 
+
+    void Base::oss_release_handler_pre(TL::PragmaCustomDirective construct) { }
+    void Base::oss_release_handler_post(TL::PragmaCustomDirective directive)
+    {
+        PragmaCustomLine pragma_line = directive.get_pragma_line();
+
+        if (emit_omp_report())
+        {
+            *_omp_report_file
+                << "\n"
+                << directive.get_locus_str() << ": " << "RELEASE construct\n"
+                << directive.get_locus_str() << ": " << "------------------\n"
+                ;
+        }
+
+        OpenMP::DataEnvironment &data_environment =
+            _core.get_openmp_info()->get_data_environment(directive);
+        Nodecl::List environment = this->make_execution_environment(
+                data_environment,
+                pragma_line,
+                /* ignore_target_info */ true,
+                /* is_inline_task */ false);
+
+        pragma_line.diagnostic_unused_clauses();
+
+        TL::ObjectList<OpenMP::DependencyItem> dependences;
+        data_environment.get_all_dependences(dependences);
+
+        directive.replace(
+                Nodecl::OmpSs::Release::make(
+                    environment,
+                    directive.get_locus()));
+    }
+
+
     struct SymbolBuilder
     {
         private:
             const locus_t* _locus;
 
         public:
-            SymbolBuilder(const locus_t* locus)
-                : _locus(locus)
-            {
-            }
+            SymbolBuilder(const locus_t* locus) : _locus(locus)
+            {}
 
             Nodecl::NodeclBase operator()(TL::Symbol arg) const
             {
                 return arg.make_nodecl(/*set_ref*/true, _locus);
-            }
-    };
-
-    struct SymbolReasonBuilder
-    {
-        private:
-            const locus_t* _locus;
-
-        public:
-            SymbolReasonBuilder(const locus_t* locus)
-                : _locus(locus)
-            {
             }
 
             Nodecl::NodeclBase operator()(DataEnvironment::DataSharingInfoPair arg) const
@@ -3079,13 +3128,12 @@ namespace TL { namespace OpenMP {
     {
         private:
             std::ofstream* _omp_report_file;
+            const char* _red_clause_name;
 
         public:
-            ReportReductions(const locus_t*,
-                    std::ofstream* omp_report_file)
-                : _omp_report_file(omp_report_file)
-            {
-            }
+            ReportReductions(const locus_t*, std::ofstream* omp_report_file, const char* red_clause_name)
+                : _omp_report_file(omp_report_file), _red_clause_name(red_clause_name)
+            {}
 
             void operator()(ReductionSymbol arg) const
             {
@@ -3101,7 +3149,7 @@ namespace TL { namespace OpenMP {
                 if (diff > 0)
                     std::fill_n( std::ostream_iterator<const char*>(ss), diff, " ");
 
-                ss << "reduction";
+                ss << _red_clause_name;
 
                 length = ss.str().size();
                 diff = 26 - length;
@@ -3109,7 +3157,7 @@ namespace TL { namespace OpenMP {
                     std::fill_n( std::ostream_iterator<const char*>(ss), diff, " ");
 
                 ss
-                    << " (explicitly declared as reduction in 'reduction' clause'."
+                    << " (explicitly declared as " << _red_clause_name << " in '" << _red_clause_name << "' clause."
                     " Using reduction declared in '"
                     << arg.get_reduction()->get_symbol().get_locus_str() << ")\n";
 
@@ -3122,16 +3170,20 @@ namespace TL { namespace OpenMP {
     void Base::make_data_sharing_list(
             OpenMP::DataEnvironment &data_sharing_env,
             OpenMP::DataSharingAttribute data_attr,
+            const std::function<bool(const DataEnvironment::DataSharingInfoPair&)>& filter_fun,
             const locus_t* locus,
             ObjectList<Nodecl::NodeclBase>& result_list)
     {
         TL::ObjectList<DataEnvironment::DataSharingInfoPair> symbols;
         data_sharing_env.get_all_symbols_info(data_attr, symbols);
 
+        if (filter_fun)
+            symbols = symbols.filter(filter_fun);
+
         if (!symbols.empty())
         {
-            TL::ObjectList<Nodecl::NodeclBase> nodecl_symbols =
-                symbols.map<Nodecl::NodeclBase>(SymbolReasonBuilder(locus));
+            TL::ObjectList<Nodecl::NodeclBase> nodecl_symbols
+                = symbols.map<Nodecl::NodeclBase>(SymbolBuilder(locus));
 
             if (emit_omp_report())
             {
@@ -3140,6 +3192,16 @@ namespace TL { namespace OpenMP {
 
             result_list.append(T::make(Nodecl::List::make(nodecl_symbols), locus));
         }
+    }
+
+    template <typename T>
+    void Base::make_data_sharing_list(
+            OpenMP::DataEnvironment &data_sharing_env,
+            OpenMP::DataSharingAttribute data_attr,
+            const locus_t* locus,
+            ObjectList<Nodecl::NodeclBase>& result_list)
+    {
+        make_data_sharing_list<T>(data_sharing_env, data_attr, /* filter */ NULL, locus, result_list);
     }
 
     void Base::make_execution_environment_target_information(
@@ -3179,19 +3241,19 @@ namespace TL { namespace OpenMP {
                     ;
             }
         }
-        make_copy_list<Nodecl::OmpSs::CopyIn>(
+        make_item_list<Nodecl::OmpSs::CopyIn>(
                 copy_in,
                 TL::OmpSs::COPY_DIR_IN,
                 locus,
                 target_items);
 
-        make_copy_list<Nodecl::OmpSs::CopyOut>(
+        make_item_list<Nodecl::OmpSs::CopyOut>(
                 copy_out,
                 TL::OmpSs::COPY_DIR_OUT,
                 locus,
                 target_items);
 
-        make_copy_list<Nodecl::OmpSs::CopyInout>(
+        make_item_list<Nodecl::OmpSs::CopyInout>(
                 copy_inout,
                 TL::OmpSs::COPY_DIR_INOUT,
                 locus,
@@ -3297,6 +3359,13 @@ namespace TL { namespace OpenMP {
                     locus));
     }
 
+    namespace {
+        bool datasharing_pair_is_allocatable(const DataEnvironment::DataSharingInfoPair& p)
+        {
+            return p.first.is_allocatable();
+        }
+    }
+
     Nodecl::List Base::make_execution_environment_for_combined_worksharings(
             OpenMP::DataEnvironment &data_sharing_env,
             PragmaCustomLine pragma_line)
@@ -3311,9 +3380,12 @@ namespace TL { namespace OpenMP {
 
         // Everything here but 'private' datasharings should go transparent
 
-        // 'private' datasharings aren't computed as shared as their type gives
-        // enough information and their current value is meaningless to the
-        // inner scope
+        // 'private' datasharings are only computed as SHARED for allocatable
+        // symbols. For the other cases we only need the type information.
+        make_data_sharing_list<Nodecl::OpenMP::Shared>(
+                data_sharing_env, OpenMP::DS_PRIVATE,
+                datasharing_pair_is_allocatable, locus,
+                result_list);
 
         make_data_sharing_list<Nodecl::OpenMP::Shared>(
                 data_sharing_env, OpenMP::DS_FIRSTPRIVATE,
@@ -3443,7 +3515,7 @@ namespace TL { namespace OpenMP {
 
             if (emit_omp_report())
             {
-                reductions.map(ReportReductions(locus, this->_omp_report_file));
+                reductions.map(ReportReductions(locus, this->_omp_report_file, "reduction"));
             }
 
             if (is_inline_task)
@@ -3469,6 +3541,19 @@ namespace TL { namespace OpenMP {
                     Nodecl::OpenMP::SimdReduction::make(Nodecl::List::make(simd_reduction_nodes),
                         locus)
                     );
+        }
+
+        TL::ObjectList<ReductionSymbol> weakreductions;
+        data_sharing_env.get_all_weakreduction_symbols(weakreductions);
+        if (!weakreductions.empty())
+        {
+            if (emit_omp_report())
+                weakreductions.map(ReportReductions(locus, this->_omp_report_file, "weakreduction"));
+
+            TL::ObjectList<Nodecl::NodeclBase> weakreduction_nodes =
+                weakreductions.map<Nodecl::NodeclBase>(ReductionSymbolBuilder(locus));
+
+            result_list.append(Nodecl::OmpSs::TaskWeakReduction::make(Nodecl::List::make(weakreduction_nodes), locus));
         }
 
         if (emit_omp_report())
@@ -3502,59 +3587,64 @@ namespace TL { namespace OpenMP {
             }
         }
 
-        make_dependency_list<Nodecl::OpenMP::DepIn>(
+        make_item_list<Nodecl::OpenMP::DepIn>(
                 dependences,
                 OpenMP::DEP_DIR_IN,
                 locus,
                 result_list);
 
-        make_dependency_list<Nodecl::OmpSs::DepWeakIn>(
+        make_item_list<Nodecl::OmpSs::DepWeakIn>(
                 dependences,
                 OpenMP::DEP_OMPSS_WEAK_IN,
                 locus,
                 result_list);
 
-        make_dependency_list<Nodecl::OmpSs::DepInPrivate>(
+        make_item_list<Nodecl::OmpSs::DepInPrivate>(
                 dependences,
                 OpenMP::DEP_OMPSS_DIR_IN_PRIVATE,
                 locus,
                 result_list);
 
-        make_dependency_list<Nodecl::OpenMP::DepOut>(
+        make_item_list<Nodecl::OpenMP::DepOut>(
                 dependences,
                 OpenMP::DEP_DIR_OUT,
                 locus,
                 result_list);
 
-        make_dependency_list<Nodecl::OmpSs::DepWeakOut>(
+        make_item_list<Nodecl::OmpSs::DepWeakOut>(
                 dependences,
                 OpenMP::DEP_OMPSS_WEAK_OUT,
                 locus,
                 result_list);
 
-        make_dependency_list<Nodecl::OpenMP::DepInout>(
+        make_item_list<Nodecl::OpenMP::DepInout>(
                 dependences, OpenMP::DEP_DIR_INOUT,
                 locus,
                 result_list);
 
-        make_dependency_list<Nodecl::OmpSs::DepWeakInout>(
+        make_item_list<Nodecl::OmpSs::DepWeakInout>(
                 dependences,
                 OpenMP::DEP_OMPSS_WEAK_INOUT,
                 locus,
                 result_list);
 
-        make_dependency_list<Nodecl::OmpSs::Concurrent>(
+        make_item_list<Nodecl::OmpSs::DepConcurrent>(
                 dependences, OpenMP::DEP_OMPSS_CONCURRENT,
                 locus,
                 result_list);
 
-        make_dependency_list<Nodecl::OmpSs::Commutative>(
+        make_item_list<Nodecl::OmpSs::DepCommutative>(
                 dependences, OpenMP::DEP_OMPSS_COMMUTATIVE,
                 locus,
                 result_list);
 
-        make_dependency_list<Nodecl::OmpSs::DepReduction>(
+        make_item_list<Nodecl::OmpSs::DepReduction>(
                 dependences, OpenMP::DEP_OMPSS_REDUCTION,
+                locus,
+                result_list);
+
+        make_item_list<Nodecl::OmpSs::DepWeakReduction>(
+                dependences, OpenMP::DEP_OMPSS_WEAK_REDUCTION,
                 locus,
                 result_list);
 
@@ -4312,12 +4402,12 @@ namespace TL { namespace OpenMP {
     //           common_dependency_handler(n);
     //       }
 
-    //       virtual void visit(const Nodecl::OmpSs::Concurrent& n)
+    //       virtual void visit(const Nodecl::OmpSs::DepConcurrent& n)
     //       {
     //           common_dependency_handler(n);
     //       }
 
-    //       virtual void visit(const Nodecl::OmpSs::Commutative& n)
+    //       virtual void visit(const Nodecl::OmpSs::DepCommutative& n)
     //       {
     //           common_dependency_handler(n);
     //       }
@@ -4381,14 +4471,14 @@ namespace TL { namespace OpenMP {
                 _replacing_mode = false;
             }
 
-            virtual void visit(const Nodecl::OmpSs::Concurrent& n)
+            virtual void visit(const Nodecl::OmpSs::DepConcurrent& n)
             {
                 _replacing_mode = true;
                 Nodecl::ExhaustiveVisitor<void>::visit(n);
                 _replacing_mode = false;
             }
 
-            virtual void visit(const Nodecl::OmpSs::Commutative& n)
+            virtual void visit(const Nodecl::OmpSs::DepCommutative& n)
             {
                 _replacing_mode = true;
                 Nodecl::ExhaustiveVisitor<void>::visit(n);

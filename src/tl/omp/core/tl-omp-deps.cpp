@@ -37,9 +37,41 @@
 // Needed for parsing OpenMP standard clauses
 #include <sys/types.h>
 #include <regex.h>
+#include "tl-modules.hpp"
 
 
-namespace TL { namespace OpenMP {
+namespace TL {
+
+    template <>
+    struct ModuleWriterTrait<OpenMP::DependencyItem::ItemDirection>
+        : EnumWriterTrait<OpenMP::DependencyItem::ItemDirection> { };
+
+    template <>
+    struct ModuleReaderTrait<OpenMP::DependencyItem::ItemDirection>
+        : EnumReaderTrait<OpenMP::DependencyItem::ItemDirection> { };
+
+    namespace OpenMP {
+
+    DependencyItem::DependencyItem(DataReference dep_expr, ItemDirection kind)
+        : DataReference(dep_expr), _kind(kind)
+    { }
+
+    DependencyItem::ItemDirection DependencyItem::get_kind() const
+    {
+        return _kind;
+    }
+
+    void DependencyItem::module_write(ModuleWriter& mw)
+    {
+        this->TL::DataReference::module_write(mw);
+        mw.write(_kind);
+    }
+
+    void DependencyItem::module_read(ModuleReader& mr)
+    {
+        this->TL::DataReference::module_read(mr);
+        mr.read(_kind);
+    }
 
     void add_extra_symbols(Nodecl::NodeclBase data_ref,
             DataEnvironment& ds,
@@ -297,7 +329,7 @@ namespace TL { namespace OpenMP {
                     existing_dep != all_deps.end();
                     existing_dep++)
             {
-                Nodecl::NodeclBase existing_dep_expr = existing_dep->get_dependency_expression();
+                Nodecl::NodeclBase existing_dep_expr(*existing_dep);
                 // We only check symbols here because some testcases exists where the
                 // user does inout(a[i][j]) and concurrent(a[0][0]) at the same time
                 if (!expr.is<Nodecl::Symbol>()
@@ -314,14 +346,14 @@ namespace TL { namespace OpenMP {
                         {
                             error_printf_at(it->get_locus(),
                                     "cannot override '%s' directionality of symbol '%s'\n",
-                                    dependency_direction_to_str(existing_dep_dir).c_str(),
+                                    directionality_to_str(existing_dep_dir).c_str(),
                                     expr.get_base_symbol().get_name().c_str());
                         }
                         else
                         {
                             warn_printf_at(it->get_locus(),
                                     "redundant '%s' directionality clause for symbol '%s'\n",
-                                    dependency_direction_to_str(existing_dep_dir).c_str(),
+                                    directionality_to_str(existing_dep_dir).c_str(),
                                     expr.get_base_symbol().get_name().c_str()
                                     );
                         }
@@ -333,9 +365,9 @@ namespace TL { namespace OpenMP {
                     {
                         error_printf_at(it->get_locus(),
                                 "cannot override '%s' directionality of symbol '%s' with directionality '%s'\n",
-                                dependency_direction_to_str(existing_dep_dir).c_str(),
+                                directionality_to_str(existing_dep_dir).c_str(),
                                 expr.get_base_symbol().get_name().c_str(),
-                                dependency_direction_to_str(dep_dir).c_str());
+                                directionality_to_str(dep_dir).c_str());
                     }
                 }
             }
@@ -479,16 +511,28 @@ namespace TL { namespace OpenMP {
             DataEnvironment& data_sharing_environment,
             ObjectList<Symbol>& extra_symbols)
     {
-        Nodecl::NodeclBase parsing_context = pragma_line;
-        TL::ObjectList<ReductionSymbol> reductions;
-        data_sharing_environment.get_all_reduction_symbols(reductions);
+        {
+            TL::ObjectList<ReductionSymbol> reductions;
+            data_sharing_environment.get_all_reduction_symbols(reductions);
 
-        TL::ObjectList<Nodecl::NodeclBase> reduction_expressions =
-            reductions.map<Nodecl::NodeclBase>(&ReductionSymbol::get_reduction_expression);
+            TL::ObjectList<Nodecl::NodeclBase> reduction_expressions =
+                reductions.map<Nodecl::NodeclBase>(&ReductionSymbol::get_reduction_expression);
 
-        get_info_from_dependences<DEP_OMPSS_REDUCTION>(
-                reduction_expressions, default_data_attr, this->in_ompss_mode(),
-                "reduction", data_sharing_environment, extra_symbols);
+            get_info_from_dependences<DEP_OMPSS_REDUCTION>(
+                    reduction_expressions, default_data_attr, this->in_ompss_mode(),
+                    "reduction", data_sharing_environment, extra_symbols);
+        }
+        {
+            TL::ObjectList<ReductionSymbol> weakreductions;
+            data_sharing_environment.get_all_weakreduction_symbols(weakreductions);
+
+            TL::ObjectList<Nodecl::NodeclBase> weakreduction_expressions =
+                weakreductions.map<Nodecl::NodeclBase>(&ReductionSymbol::get_reduction_expression);
+
+            get_info_from_dependences<DEP_OMPSS_WEAK_REDUCTION>(
+                    weakreduction_expressions, default_data_attr, this->in_ompss_mode(),
+                    "weakreduction", data_sharing_environment, extra_symbols);
+        }
     }
 
     namespace {
@@ -723,6 +767,7 @@ namespace TL { namespace OpenMP {
             case DEP_DIR_OUT:
             case DEP_DIR_INOUT:
             case DEP_OMPSS_DIR_IN_PRIVATE:
+            case DEP_OMPSS_REDUCTION:
                 return true;
             default:
                 return false;
@@ -736,13 +781,14 @@ namespace TL { namespace OpenMP {
             case DEP_OMPSS_WEAK_IN:
             case DEP_OMPSS_WEAK_OUT:
             case DEP_OMPSS_WEAK_INOUT:
+            case DEP_OMPSS_WEAK_REDUCTION:
                 return true;
             default:
                 return false;
         }
     }
 
-    std::string dependency_direction_to_str(DependencyDirection d)
+    std::string directionality_to_str(DependencyDirection d)
     {
         switch (d)
         {
@@ -766,6 +812,8 @@ namespace TL { namespace OpenMP {
                 return "weakinout";
             case DEP_OMPSS_REDUCTION:
                 return "reduction";
+            case DEP_OMPSS_WEAK_REDUCTION:
+                return "weakreduction";
             default:
                 return "<<unknown-dependence-kind?>>";
         }

@@ -2219,6 +2219,7 @@ static scope_entry_list_t* name_lookup(const decl_context_t* decl_context,
                 SK_TYPEDEF,
                 SK_TEMPLATE_TYPE_PARAMETER,
                 SK_USING,
+                SK_USING_TYPENAME
             };
 
             enum cxx_symbol_kind nested_name_first_cxx11[] = {
@@ -2227,6 +2228,7 @@ static scope_entry_list_t* name_lookup(const decl_context_t* decl_context,
                 SK_TYPEDEF,
                 SK_TEMPLATE_TYPE_PARAMETER,
                 SK_USING,
+                SK_USING_TYPENAME,
                 // C++11
                 SK_ENUM,
                 SK_TEMPLATE_TYPE_PARAMETER_PACK,
@@ -3369,7 +3371,10 @@ static type_t* update_type_aux_(type_t* orig_type,
                                 new_sym->type_information,
                                 pack_index);
 
-                        return get_cv_qualified_type(item, cv_qualif_orig | cv_qualif_new);
+                        cv_qualifier_t cv_qualif_item = CV_NONE;
+                        advance_over_typedefs_with_cv_qualif(item, &cv_qualif_item);
+
+                        return get_cv_qualified_type(item, cv_qualif_orig | cv_qualif_item);
                     }
                 }
             }
@@ -7215,8 +7220,17 @@ static scope_entry_list_t* query_nodecl_qualified_name_internal(
                 || (IS_CXX11_LANGUAGE && current_symbol->kind == SK_DECLTYPE)
                 || current_symbol->kind == SK_TYPEDEF
                 || current_symbol->kind == SK_TEMPLATE_TYPE_PARAMETER
-                || current_symbol->kind == SK_DEPENDENT_ENTITY)
+                || current_symbol->kind == SK_DEPENDENT_ENTITY
+                || current_symbol->kind == SK_USING_TYPENAME)
         {
+            if (current_symbol->kind == SK_USING_TYPENAME)
+            {
+                // In this scenario, the current symbol must be an alias
+                // to a dependent entity. Use this dependent entity instead.
+                current_symbol = symbol_entity_specs_get_alias_to(current_symbol);
+                ERROR_CONDITION(current_symbol->kind != SK_DEPENDENT_ENTITY, "Expecting a dependent entity", 0);
+            }
+
             if (current_symbol->kind == SK_TYPEDEF
                     || current_symbol->kind == SK_TEMPLATE_ALIAS)
             {

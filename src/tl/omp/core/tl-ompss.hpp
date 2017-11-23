@@ -49,29 +49,24 @@ namespace TL { namespace OmpSs {
 //        COPY_DIR_INOUT_ADDR = COPY_DIR_IN_ADDR | COPY_DIR_OUT_ADDR,
     };
 
-    std::string copy_direction_to_str(CopyDirection dir);
+    //! We have the same function name for DependencyDirection
+    std::string directionality_to_str(CopyDirection dir);
 
-    class LIBTL_CLASS CopyItem : public TL::Object
+    class LIBTL_CLASS CopyItem : public TL::DataReference
     {
-        private:
-            DataReference _copy_expr;
-            CopyDirection _kind;
         public:
+            typedef CopyDirection ItemDirection;
+
             CopyItem() { }
 
-            CopyItem(DataReference data_reference, CopyDirection direction);
+            CopyItem(DataReference data_reference, ItemDirection direction);
 
-            CopyDirection get_kind() const;
-            DataReference get_copy_expression() const;
-
-            // Convenience operator
-            bool operator==(const CopyItem& c) const
-            {
-                return _copy_expr.get_base_symbol() == c._copy_expr.get_base_symbol();
-            }
+            ItemDirection get_kind() const;
 
             void module_write(ModuleWriter& mw);
             void module_read(ModuleReader& mw);
+        private:
+            ItemDirection _kind;
     };
 
     class LIBTL_CLASS TargetInfo
@@ -173,46 +168,12 @@ namespace TL { namespace OmpSs {
     };
 
 
-    class LIBTL_CLASS FunctionTaskDependency : public OpenMP::DependencyItem
-    {
-        public:
-            FunctionTaskDependency() { }
-
-            FunctionTaskDependency(DataReference expr, OpenMP::DependencyDirection direction)
-                : OpenMP::DependencyItem(expr, direction) { }
-
-            OpenMP::DependencyDirection get_direction() const
-            {
-                return this->get_kind();
-            }
-
-            DataReference get_data_reference() const
-            {
-                return this->get_dependency_expression();
-            }
-
-            bool is_valid() const
-            {
-                DataReference d = this->get_dependency_expression();
-                return d.is_valid();
-            }
-
-            void module_write(ModuleWriter& mw)
-            {
-                this->OpenMP::DependencyItem::module_write(mw);
-            }
-            void module_read(ModuleReader& mw)
-            {
-                this->OpenMP::DependencyItem::module_read(mw);
-            }
-    };
-
     class LIBTL_CLASS FunctionTaskInfo
     {
         private:
             Symbol _sym;
 
-            ObjectList<FunctionTaskDependency> _parameters;
+            ObjectList<TL::OpenMP::DependencyItem> _parameters;
             ObjectList<TL::Symbol> _shared_closure;
 
             TargetInfo _target_info;
@@ -234,7 +195,7 @@ namespace TL { namespace OmpSs {
             FunctionTaskInfo() : _untied(false), _wait(false) { }
 
             FunctionTaskInfo(Symbol sym,
-                    ObjectList<FunctionTaskDependency> parameter_info);
+                    ObjectList<TL::OpenMP::DependencyItem> parameter_info);
 
             FunctionTaskInfo(
                     const FunctionTaskInfo& task_info,
@@ -246,11 +207,9 @@ namespace TL { namespace OmpSs {
                     TL::Scope context_of_being_instantiated,
                     instantiation_symbol_map_t* instantiation_symbol_map);
 
-            ObjectList<FunctionTaskDependency> get_parameter_info() const;
+            ObjectList<TL::OpenMP::DependencyItem> get_parameter_info() const;
 
-            void add_function_task_dependency(const FunctionTaskDependency& dep);
-
-            ObjectList<Symbol> get_involved_parameters() const;
+            void add_function_task_dependency(const TL::OpenMP::DependencyItem& dep);
 
             TargetInfo& get_target_info();
             void set_target_info(const TargetInfo& target_info);

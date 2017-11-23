@@ -121,7 +121,7 @@ namespace TL { namespace OpenMP {
                                     "skipping useless dependence %s(%s) since it only names a parameter."
                                     "The value of a parameter is never copied out of a function "
                                     "so it cannot generate an output dependence\n",
-                                    dependency_direction_to_str(_direction).c_str(),
+                                    directionality_to_str(_direction).c_str(),
                                     expr.prettyprint().c_str());
                             return true;
                         }
@@ -131,7 +131,7 @@ namespace TL { namespace OpenMP {
                                     expr.get_locus(),
                                     "skipping useless dependence %s(%s) since it only names a parameter."
                                     "The value of a parameter is always copied in and will never define such dependence\n",
-                                    dependency_direction_to_str(_direction).c_str(),
+                                    directionality_to_str(_direction).c_str(),
                                     expr.prettyprint().c_str());
                             return true;
                         }
@@ -141,7 +141,7 @@ namespace TL { namespace OpenMP {
             }
     };
 
-    static void dependence_list_check(
+    static void remove_wrong_or_useless_dependences(
             ObjectList<Nodecl::NodeclBase>& expression_list,
             TL::OpenMP::DependencyDirection direction,
             TL::Symbol function)
@@ -264,52 +264,35 @@ namespace TL { namespace OpenMP {
         return updated_clauses;
     }
 
-    struct FunctionTaskDependencyGenerator
+
+    //! This functor builds, for a certain expression, a new object of type T using that
+    //! expression and the directionality specified in the constructor.
+    template < typename T>
+    struct ItemGenerator
     {
         private:
-            TL::OpenMP::DependencyDirection _direction;
+            typename T::ItemDirection _direction;
         public:
-            FunctionTaskDependencyGenerator(TL::OpenMP::DependencyDirection direction)
+            ItemGenerator(typename T::ItemDirection direction)
                 : _direction(direction)
-            {
-            }
+            { }
 
-            TL::OmpSs::FunctionTaskDependency operator()(Nodecl::NodeclBase nodecl) const
-            {
-                DataReference expr(nodecl);
-
-                if (!expr.is_valid())
-                {
-                    warn_printf_at(
-                            nodecl.get_locus(),
-                            "invalid dependency expression '%s(%s)', skipping\n",
-                            dependency_direction_to_str(_direction).c_str(),
-                            expr.prettyprint().c_str());
-                }
-
-                return TL::OmpSs::FunctionTaskDependency(expr, _direction);
-            }
-    };
-
-    struct FunctionCopyItemGenerator
-    {
-        private:
-            TL::OmpSs::CopyDirection _copy_direction;
-
-        public:
-            FunctionCopyItemGenerator(TL::OmpSs::CopyDirection copy_direction)
-                : _copy_direction(copy_direction)
-            {
-            }
-
-            TL::OmpSs::CopyItem operator()(Nodecl::NodeclBase node) const
+            T operator()(Nodecl::NodeclBase node) const
             {
                 DataReference data_ref(node);
 
-                return TL::OmpSs::CopyItem(data_ref, _copy_direction);
+                if (!data_ref.is_valid())
+                {
+                    warn_printf_at(
+                            node.get_locus(),
+                            "invalid expression '%s(%s)', skipping\n",
+                            directionality_to_str(_direction).c_str(),
+                            data_ref.prettyprint().c_str());
+                }
+
+                return T(data_ref, _direction);
             }
     };
-
 
     void Core::task_function_handler_pre(TL::PragmaCustomDeclaration construct)
     {
@@ -327,63 +310,50 @@ namespace TL { namespace OpenMP {
             return;
         }
 
-        ObjectList<Nodecl::NodeclBase> input_arguments;
-        PragmaCustomClause input_clause = pragma_line.get_clause("in", /* deprecated name */ "input");
-        if (input_clause.is_defined())
-        {
-            input_arguments = parse_dependences_ompss_clause(input_clause, parsing_scope);
-            input_arguments = update_clauses(input_arguments, function_sym);
-        }
+        ObjectList<Nodecl::NodeclBase>
+            input_arguments,
+            weakinput_arguments,
+            input_private_arguments,
+            output_arguments,
+            weakoutput_arguments,
+            inout_arguments,
+            weakinout_arguments,
+            concurrent_arguments,
+            commutative_arguments;
 
-        ObjectList<Nodecl::NodeclBase> weakinput_arguments;
-        PragmaCustomClause weakinput_clause = pragma_line.get_clause("weakin");
-        if (weakinput_clause.is_defined())
         {
-            weakinput_arguments = parse_dependences_ompss_clause(weakinput_clause, parsing_scope);
-            weakinput_arguments = update_clauses(weakinput_arguments, function_sym);
-        }
+            struct DependencesClauses
+            {
+                ObjectList<Nodecl::NodeclBase>& deps_nodes;
+                const char* dep_name;
+                const char* dep_deprecated_name;
+            } deps_clauses[] = {
+                { input_arguments, "in", "input" },
+                { weakinput_arguments, "weakin", NULL },
+                { input_private_arguments, "inprivate", NULL },
+                { output_arguments, "out", "output" },
+                { weakoutput_arguments, "weakout", NULL },
+                { inout_arguments, "inout", NULL },
+                { weakinout_arguments, "weakinout", NULL },
+                { concurrent_arguments, "concurrent", NULL },
+                { commutative_arguments, "commutative", NULL },
+            };
 
-        TL::ObjectList<std::string> input_private_names;
-        input_private_names.append("inprivate");
-        PragmaCustomClause input_private_clause = pragma_line.get_clause(input_private_names);
-        ObjectList<Nodecl::NodeclBase> input_private_arguments;
-        if (input_private_clause.is_defined())
-        {
-            input_private_arguments = parse_dependences_ompss_clause(input_private_clause, parsing_scope);
-            input_private_arguments = update_clauses(input_private_arguments, function_sym);
-        }
+            for (DependencesClauses* it = deps_clauses;
+                    it != (DependencesClauses*) (&deps_clauses + 1);
+                    it++)
+            {
+                PragmaCustomClause clause =
+                    (it->dep_deprecated_name) ?
+                    pragma_line.get_clause(it->dep_name, it->dep_deprecated_name) :
+                    pragma_line.get_clause(it->dep_name);
 
-        PragmaCustomClause output_clause = pragma_line.get_clause("out",
-                /* deprecated name */ "output");
-        ObjectList<Nodecl::NodeclBase> output_arguments;
-        if (output_clause.is_defined())
-        {
-            output_arguments = parse_dependences_ompss_clause(output_clause, parsing_scope);
-            output_arguments = update_clauses(output_arguments, function_sym);
-        }
-
-        ObjectList<Nodecl::NodeclBase> weakoutput_arguments;
-        PragmaCustomClause weakoutput_clause = pragma_line.get_clause("weakout");
-        if (weakoutput_clause.is_defined())
-        {
-            weakoutput_arguments = parse_dependences_ompss_clause(weakoutput_clause, parsing_scope);
-            weakoutput_arguments = update_clauses(weakoutput_arguments, function_sym);
-        }
-
-        PragmaCustomClause inout_clause = pragma_line.get_clause("inout");
-        ObjectList<Nodecl::NodeclBase> inout_arguments;
-        if (inout_clause.is_defined())
-        {
-            inout_arguments = parse_dependences_ompss_clause(inout_clause, parsing_scope);
-            inout_arguments = update_clauses(inout_arguments, function_sym);
-        }
-
-        ObjectList<Nodecl::NodeclBase> weakinout_arguments;
-        PragmaCustomClause weakinout_clause = pragma_line.get_clause("weakinout");
-        if (weakinout_clause.is_defined())
-        {
-            weakinout_arguments = parse_dependences_ompss_clause(weakinout_clause, parsing_scope);
-            weakinout_arguments = update_clauses(weakinout_arguments, function_sym);
+                if (clause.is_defined())
+                {
+                    it->deps_nodes =
+                        update_clauses(parse_dependences_ompss_clause(clause, parsing_scope), function_sym);
+                }
+            }
         }
 
         {
@@ -397,22 +367,6 @@ namespace TL { namespace OpenMP {
             input_arguments.append(std_in);
             output_arguments.append(std_out);
             inout_arguments.append(std_inout);
-        }
-
-        PragmaCustomClause concurrent_clause = pragma_line.get_clause("concurrent");
-        ObjectList<Nodecl::NodeclBase> concurrent_arguments;
-        if (concurrent_clause.is_defined())
-        {
-            concurrent_arguments = parse_dependences_ompss_clause(concurrent_clause, parsing_scope);
-            concurrent_arguments = update_clauses(concurrent_arguments, function_sym);
-        }
-
-        PragmaCustomClause commutative_clause = pragma_line.get_clause("commutative");
-        ObjectList<Nodecl::NodeclBase> commutative_arguments;
-        if (commutative_clause.is_defined())
-        {
-            commutative_arguments = parse_dependences_ompss_clause(commutative_clause, parsing_scope);
-            commutative_arguments = update_clauses(commutative_arguments, function_sym);
         }
 
         TL::ObjectList<TL::Symbol> shared_vars;
@@ -483,52 +437,34 @@ namespace TL { namespace OpenMP {
             return;
         }
 
-        ObjectList<TL::OmpSs::FunctionTaskDependency> dependence_list;
+        ObjectList<TL::OpenMP::DependencyItem> dependence_list;
+        {
+            struct DependencesInformation {
+                TL::ObjectList<Nodecl::NodeclBase>& deps_nodes;
+                DependencyItem::ItemDirection direction;
+            } deps_info[] = {
+                { input_arguments,         DEP_DIR_IN               },
+                { weakinput_arguments,     DEP_OMPSS_WEAK_IN        },
+                { input_private_arguments, DEP_OMPSS_DIR_IN_PRIVATE },
+                { output_arguments,        DEP_DIR_OUT              },
+                { weakoutput_arguments,    DEP_OMPSS_WEAK_OUT       },
+                { inout_arguments,         DEP_DIR_INOUT            },
+                { weakinout_arguments,     DEP_OMPSS_WEAK_INOUT     },
+                { concurrent_arguments,    DEP_OMPSS_CONCURRENT     },
+                { commutative_arguments,   DEP_OMPSS_COMMUTATIVE    },
+            };
 
-        dependence_list_check(input_arguments, DEP_DIR_IN, function_sym);
-        dependence_list.append(input_arguments
-                .map<TL::OmpSs::FunctionTaskDependency>(FunctionTaskDependencyGenerator(DEP_DIR_IN))
-                .filter(&TL::OmpSs::FunctionTaskDependency::is_valid));
-
-        dependence_list_check(weakinput_arguments, DEP_OMPSS_WEAK_IN, function_sym);
-        dependence_list.append(weakinput_arguments
-                .map<TL::OmpSs::FunctionTaskDependency>(FunctionTaskDependencyGenerator(DEP_OMPSS_WEAK_IN))
-                .filter(&TL::OmpSs::FunctionTaskDependency::is_valid));
-
-        dependence_list_check(input_private_arguments, DEP_OMPSS_DIR_IN_PRIVATE, function_sym);
-        dependence_list.append(input_private_arguments
-                .map<TL::OmpSs::FunctionTaskDependency>(FunctionTaskDependencyGenerator(DEP_OMPSS_DIR_IN_PRIVATE))
-                .filter(&TL::OmpSs::FunctionTaskDependency::is_valid));
-
-        dependence_list_check(output_arguments, DEP_DIR_OUT, function_sym);
-        dependence_list.append(output_arguments
-                .map<TL::OmpSs::FunctionTaskDependency>(FunctionTaskDependencyGenerator(DEP_DIR_OUT))
-                .filter(&TL::OmpSs::FunctionTaskDependency::is_valid));
-
-        dependence_list_check(weakoutput_arguments, DEP_OMPSS_WEAK_OUT, function_sym);
-        dependence_list.append(weakoutput_arguments
-                .map<TL::OmpSs::FunctionTaskDependency>(FunctionTaskDependencyGenerator(DEP_OMPSS_WEAK_OUT))
-                .filter(&TL::OmpSs::FunctionTaskDependency::is_valid));
-
-        dependence_list_check(inout_arguments, DEP_DIR_INOUT, function_sym);
-        dependence_list.append(inout_arguments
-                .map<TL::OmpSs::FunctionTaskDependency>(FunctionTaskDependencyGenerator(DEP_DIR_INOUT))
-                .filter(&TL::OmpSs::FunctionTaskDependency::is_valid));
-
-        dependence_list_check(weakinout_arguments, DEP_OMPSS_WEAK_INOUT, function_sym);
-        dependence_list.append(weakinout_arguments
-                .map<TL::OmpSs::FunctionTaskDependency>(FunctionTaskDependencyGenerator(DEP_OMPSS_WEAK_INOUT))
-                .filter(&TL::OmpSs::FunctionTaskDependency::is_valid));
-
-        dependence_list_check(concurrent_arguments, DEP_OMPSS_CONCURRENT, function_sym);
-        dependence_list.append(concurrent_arguments
-                .map<TL::OmpSs::FunctionTaskDependency>(FunctionTaskDependencyGenerator(DEP_OMPSS_CONCURRENT))
-                .filter(&TL::OmpSs::FunctionTaskDependency::is_valid));
-
-        dependence_list_check(commutative_arguments, DEP_OMPSS_COMMUTATIVE, function_sym);
-        dependence_list.append(commutative_arguments
-                .map<TL::OmpSs::FunctionTaskDependency>(FunctionTaskDependencyGenerator(DEP_OMPSS_COMMUTATIVE))
-                .filter(&TL::OmpSs::FunctionTaskDependency::is_valid));
+            for (DependencesInformation* it = deps_info;
+                    it != (DependencesInformation*) (&deps_info + 1);
+                    it++)
+            {
+                remove_wrong_or_useless_dependences(it->deps_nodes, it->direction, function_sym);
+                dependence_list.append(
+                        it->deps_nodes
+                        .map<TL::OpenMP::DependencyItem>(ItemGenerator<DependencyItem>(it->direction))
+                        .filter(&TL::DataReference::is_valid));
+            }
+        }
 
         // Target-style clauses
         if (_target_context.empty())
@@ -560,11 +496,8 @@ namespace TL { namespace OpenMP {
             OmpSs::TargetContext& target_context = _target_context.top();
 
             TL::ObjectList<Nodecl::NodeclBase> target_ctx_copy_in = update_clauses(target_context.copy_in, function_sym);
-//            TL::ObjectList<Nodecl::NodeclBase> target_ctx_copy_in_addr = update_clauses(target_context.copy_in_addr, function_sym);
             TL::ObjectList<Nodecl::NodeclBase> target_ctx_copy_out = update_clauses(target_context.copy_out, function_sym);
-//            TL::ObjectList<Nodecl::NodeclBase> target_ctx_copy_out_addr = update_clauses(target_context.copy_out_addr, function_sym);
             TL::ObjectList<Nodecl::NodeclBase> target_ctx_copy_inout = update_clauses(target_context.copy_inout, function_sym);
-//            TL::ObjectList<Nodecl::NodeclBase> target_ctx_copy_inout_addr = update_clauses(target_context.copy_inout_addr, function_sym);
 
             if (target_context.copy_deps == OmpSs::TargetContext::COPY_DEPS)
             {
@@ -572,55 +505,37 @@ namespace TL { namespace OpenMP {
                 target_ctx_copy_in.append(input_arguments);
                 target_ctx_copy_out.append(output_arguments);
                 target_ctx_copy_inout.append(inout_arguments);
-//                target_ctx_copy_in_addr.append(input_arguments);
-//                target_ctx_copy_out_addr.append(output_arguments);
-//                target_ctx_copy_inout_addr.append(inout_arguments);
 
                 // Concurrent/Commutative deps with target attribute 'copy_deps'
                 // should generate copy_inout information
                 target_ctx_copy_inout.append(concurrent_arguments);
                 target_ctx_copy_inout.append(commutative_arguments);
-
-                //TODO copy_inout_addr???
-
             }
 
-            ObjectList<TL::OmpSs::CopyItem> copy_in =
-                target_ctx_copy_in.map<TL::OmpSs::CopyItem>(
-                    FunctionCopyItemGenerator(TL::OmpSs::COPY_DIR_IN));
-            target_info.append_to_copy_in(copy_in);
 
-/*
-            ObjectList<TL::OmpSs::CopyItem> copy_in_addr =
-                target_ctx_copy_in_addr.map<TL::OmpSs::CopyItem>(
-                    FunctionCopyItemGenerator(TL::OmpSs::COPY_DIR_IN_ADDR));
-            target_info.append_to_copy_in_addr(copy_in_addr);
-*/
+            struct CopiesInformation
+            {
+                const TL::ObjectList<Nodecl::NodeclBase>& copies_nodes;
+                TL::OmpSs::CopyItem::ItemDirection direction;
+                void (TL::OmpSs::TargetInfo::*pfunc)(const TL::ObjectList<TL::OmpSs::CopyItem>&);
 
-            ObjectList<TL::OmpSs::CopyItem> copy_out =
-                target_ctx_copy_out.map<TL::OmpSs::CopyItem>(
-                    FunctionCopyItemGenerator(TL::OmpSs::COPY_DIR_OUT));
-            target_info.append_to_copy_out(copy_out);
+            } copies_data[] = {
+                { target_ctx_copy_in,    TL::OmpSs::COPY_DIR_IN,    &TL::OmpSs::TargetInfo::append_to_copy_in    },
+                { target_ctx_copy_out,   TL::OmpSs::COPY_DIR_OUT,    &TL::OmpSs::TargetInfo::append_to_copy_out  },
+                { target_ctx_copy_inout, TL::OmpSs::COPY_DIR_INOUT, &TL::OmpSs::TargetInfo::append_to_copy_inout },
+            };
 
-/*
-            ObjectList<TL::OmpSs::CopyItem> copy_out_addr =
-                target_ctx_copy_out_addr.map<TL::OmpSs::CopyItem>(
-                    FunctionCopyItemGenerator(TL::OmpSs::COPY_DIR_OUT_ADDR));
-            target_info.append_to_copy_out_addr(copy_out_addr);
-*/
+            for (CopiesInformation* it = copies_data;
+                    it != (CopiesInformation*)(&copies_data + 1);
+                    it++)
+            {
+                ObjectList<TL::OmpSs::CopyItem> copy_items =
+                    it->copies_nodes
+                    .map<TL::OmpSs::CopyItem>(ItemGenerator<TL::OmpSs::CopyItem>(it->direction))
+                    .filter(&TL::DataReference::is_valid);
 
-
-            ObjectList<TL::OmpSs::CopyItem> copy_inout =
-                target_ctx_copy_inout.map<TL::OmpSs::CopyItem>(
-                    FunctionCopyItemGenerator(TL::OmpSs::COPY_DIR_INOUT));
-            target_info.append_to_copy_inout(copy_inout);
-
-/*
-            ObjectList<TL::OmpSs::CopyItem> copy_inout_addr =
-                target_ctx_copy_inout_addr.map<TL::OmpSs::CopyItem>(
-                    FunctionCopyItemGenerator(TL::OmpSs::COPY_DIR_INOUT_ADDR));
-            target_info.append_to_copy_inout_addr(copy_inout_addr);
-*/
+                (target_info.*(it->pfunc))(copy_items);
+            }
 
             target_info.set_file(target_context.file);
             target_info.set_name(target_context.name);
@@ -849,6 +764,38 @@ namespace TL { namespace OpenMP {
         // Recall that std::stack does not have a clear operation so we assign
         // to it a new std::stack
         _target_context = std::stack<TL::OmpSs::TargetContext>();
+    }
+
+    void Core::oss_release_handler_pre(TL::PragmaCustomDirective construct)
+    {
+        TL::PragmaCustomLine pragma_line = construct.get_pragma_line();
+
+        DataEnvironment& data_environment =
+            _openmp_info->get_new_data_environment(construct);
+        _openmp_info->push_current_data_environment(data_environment);
+
+        bool there_is_default_clause = false;
+        DataSharingAttribute default_data_attr = get_default_data_sharing(pragma_line,
+                /* fallback */ DS_UNDEFINED,
+                there_is_default_clause,
+                /*allow_default_auto*/ true);
+
+        ObjectList<Symbol> extra_symbols;
+
+        handle_task_dependences(
+                pragma_line, /* parsing_scope */ pragma_line,
+                default_data_attr, data_environment, extra_symbols);
+
+        handle_implicit_dependences_of_task_reductions(
+                pragma_line, default_data_attr,
+                data_environment, extra_symbols);
+
+        get_data_extra_symbols(data_environment, extra_symbols);
+    }
+
+    void Core::oss_release_handler_post(TL::PragmaCustomDirective construct)
+    {
+        _openmp_info->pop_current_data_environment();
     }
 
 } }

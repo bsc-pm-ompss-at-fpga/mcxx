@@ -1769,7 +1769,8 @@ src_tl_omp_core_libtlomp_core_la_LIBADD = $(phases_libadd) \
 		$(top_builddir)/src/tl/omp/common/libtlomp-common.la \
 		$(END)
 
-EXTRA_DIST += src/tl/omp/core/tl-omp-constructs.def
+EXTRA_DIST += src/tl/omp/core/tl-omp-constructs.def \
+	      src/tl/omp/core/tl-oss-constructs.def
 
 src_tl_omp_core_libtlomp_core_la_SOURCES = \
    src/tl/omp/core/tl-omp-core.hpp \
@@ -2020,19 +2021,22 @@ src_tl_omp_nanox_nodecl_libtlnanox_lowering_la_SOURCES = \
 								 src/tl/omp/nanox-nodecl/tl-nanox-array-descriptor.cpp \
 								 src/tl/omp/nanox-nodecl/tl-devices.cpp \
 								 src/tl/omp/nanox-nodecl/tl-devices.hpp \
-								 src/tl/omp/nanox-nodecl/tl-target-information.cpp \
 								 src/tl/omp/nanox-nodecl/tl-target-information.hpp \
 								 src/tl/omp/nanox-nodecl/tl-reduction-task.cpp \
 								 $(END)
 
+if DISTRIBUTE_NANOS_EXPORTS
 nanoxdatadir = $(pkgdatadir)/nanos
 nanoxdata_DATA = \
 				 src/tl/omp/nanos-common/nanos-exports.def \
 				 $(END)
+endif
 
 endif
 
+if DISTRIBUTE_NANOS_EXPORTS
 EXTRA_DIST += src/tl/omp/nanos-common/nanos-exports.def
+endif
 
 ##########################################################################
 # src/tl/omp/nanos-main/
@@ -2355,6 +2359,8 @@ src_tl_ompss_nanos6_libtlnanos6_lowering_la_SOURCES = \
 								 src/tl/ompss/nanos6/tl-nanos6-task.cpp \
 								 src/tl/ompss/nanos6/tl-nanos6-taskcall.cpp \
 								 src/tl/ompss/nanos6/tl-nanos6-taskloop.cpp \
+								 src/tl/ompss/nanos6/tl-nanos6-directive-environment.cpp \
+								 src/tl/ompss/nanos6/tl-nanos6-directive-environment.hpp \
 								 src/tl/ompss/nanos6/tl-nanos6-task-properties.hpp \
 								 src/tl/ompss/nanos6/tl-nanos6-task-properties.cpp \
 								 src/tl/ompss/nanos6/tl-nanos6-support.hpp \
@@ -2364,9 +2370,11 @@ src_tl_ompss_nanos6_libtlnanos6_lowering_la_SOURCES = \
 								 src/tl/ompss/nanos6/tl-nanos6-fortran-support.cpp \
 								 src/tl/ompss/nanos6/tl-nanos6-taskwait.cpp \
 								 src/tl/ompss/nanos6/tl-nanos6-critical.cpp \
+								 src/tl/ompss/nanos6/tl-nanos6-atomic.cpp \
 								 src/tl/ompss/nanos6/tl-nanos6-unsupported.cpp \
 								 src/tl/ompss/nanos6/tl-nanos6-interface.hpp \
 								 src/tl/ompss/nanos6/tl-nanos6-interface.cpp \
+								 src/tl/ompss/nanos6/tl-nanos6-release.cpp
 								 $(END)
 
 endif
@@ -3240,6 +3248,7 @@ config_edit = \
      -e 's|@NANOX_LIBS[@]|$(NANOX_LIBS)|g' \
      -e 's|@NANOX_NEW_LINK[@]|$(NANOX_NEW_LINK)|g' \
      -e 's|@NANOX_OLD_LINK[@]|$(NANOX_OLD_LINK)|g' \
+     -e 's|@NANOX_DYNAMIC_LIST[@]|$(NANOX_DYNAMIC_LIST)|g' \
      -e 's|@NANOX[@]|$(NANOX)|g' \
      -e 's|@NANOX_GNU_LDFLAGS[@]|$(NANOX_GNU_LDFLAGS)|g' \
      -e 's|@NANOX_IBM_LDFLAGS[@]|$(NANOX_IBM_LDFLAGS)|g' \

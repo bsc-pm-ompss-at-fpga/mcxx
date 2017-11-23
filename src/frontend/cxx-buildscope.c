@@ -1515,7 +1515,6 @@ static void build_scope_using_directive(AST a, const decl_context_t* decl_contex
 }
 
 void introduce_using_entities_in_class(
-        nodecl_t nodecl_name,
         scope_entry_list_t* used_entities,
         const decl_context_t* decl_context,
         scope_entry_t* current_class,
@@ -1584,13 +1583,12 @@ void introduce_using_entities_in_class(
         else if (entry->kind == SK_DEPENDENT_ENTITY)
         {
             // Dependent entity like _Base::f where _Base is a template parameter
-            if (nodecl_is_null(nodecl_name))
-            {
-                internal_error("Invalid dependent name found", 0);
-            }
+            scope_entry_t* dependent_entry = NULL;
+            nodecl_t nodecl_dependent_parts = nodecl_null();
+            dependent_typename_get_components(entry->type_information, &dependent_entry, &nodecl_dependent_parts);
 
             // The name of the symbol will be _Base but we do not want that one, we want f
-            nodecl_t nodecl_last_part = nodecl_name_get_last_part(nodecl_name);
+            nodecl_t nodecl_last_part = nodecl_name_get_last_part(nodecl_dependent_parts);
             symbol_name = nodecl_get_text(nodecl_last_part);
         }
         else if (!symbol_entity_specs_get_is_member(entry))
@@ -1764,7 +1762,7 @@ static void introduce_using_entity_nodecl_name(nodecl_t nodecl_name,
     if (is_class_scope)
     {
         introduce_using_entities_in_class(
-                nodecl_name, used_entities,
+                used_entities,
                 decl_context,
                 current_class,
                 current_access,
@@ -3033,6 +3031,19 @@ static void add_gcc_attribute_noreturn(
             gcc_attr);
 }
 
+static void add_gcc_attribute_unused(
+        AST attr_item UNUSED_PARAMETER,
+        gather_decl_spec_t* gather_info,
+        const decl_context_t* decl_context UNUSED_PARAMETER)
+{
+    gcc_attribute_t gcc_attr = { "unused", nodecl_null() };
+
+    P_LIST_ADD(
+            gather_info->gcc_attributes,
+            gather_info->num_gcc_attributes,
+            gcc_attr);
+}
+
 static void add_gcc_attribute_deprecated(
         AST attr_item UNUSED_PARAMETER,
         gather_decl_spec_t* gather_info,
@@ -3065,6 +3076,7 @@ static void gather_std_attribute_spec(AST attribute_spec,
         // "name",              just-once,   0, fun
         { "noreturn",           1,           0, add_gcc_attribute_noreturn },
         { "gnu::noreturn",      1,           0, add_gcc_attribute_noreturn },
+        { "gnu::unused",        1,           0, add_gcc_attribute_unused },
         { "deprecated",         1,           0, add_gcc_attribute_deprecated },
 
         // GCC does not implement this one
@@ -4303,11 +4315,7 @@ static void gather_extra_attributes(AST a,
                 }
             case AST_ATTRIBUTE_SPECIFIER:
                 {
-                    AST attr_list = ASTSon1(item);
-                    if (attr_list != NULL)
-                    {
-                        warn_printf_at(ast_get_locus(attr_list), "ignoring attribute-specifier\n");
-                    }
+                    gather_std_attribute_spec(item, gather_info, decl_context);
                     break;
                 }
             default:
@@ -11544,9 +11552,12 @@ void set_function_type_for_lambda(type_t** declarator_type,
 // This function traverses the declarator tree gathering all attributes that might appear there
 // We need to traverse the declarator twice because of gcc allowing attributes appear in many
 // places
-static void gather_extra_attributes_in_declarator(AST a, gather_decl_spec_t* gather_info, const decl_context_t* declarator_context)
+static void gather_extra_attributes_in_declarator(
+        AST a,
+        gather_decl_spec_t* gather_info,
+        const decl_context_t* declarator_context)
 {
-    // FIXME - This function is a no-op currently
+    // FIXME - Currently we only gather the attributes of a DECLARATOR_ID_EXPR
 
     if (a == NULL)
         return;
@@ -11586,6 +11597,11 @@ static void gather_extra_attributes_in_declarator(AST a, gather_decl_spec_t* gat
                 break;
             }
         case AST_DECLARATOR_ID_EXPR :
+            {
+                AST attribute_list = ASTSon1(a);
+                gather_extra_attributes(attribute_list, gather_info, declarator_context);
+                break;
+            };
         case AST_DECLARATOR_ID_PACK :
             {
                 gather_extra_attributes_in_declarator(ASTSon1(a), gather_info, declarator_context);
@@ -22021,9 +22037,10 @@ AST get_function_declarator_parameter_list(AST funct_declarator, const decl_cont
     switch (ASTKind(funct_declarator))
     {
         case AST_DECLARATOR :
+        case AST_DECLARATOR_ARRAY :
         case AST_PARENTHESIZED_DECLARATOR :
             {
-                return get_function_declarator_parameter_list(ASTSon0(funct_declarator), decl_context); 
+                return get_function_declarator_parameter_list(ASTSon0(funct_declarator), decl_context);
                 break;
             }
         case AST_POINTER_DECLARATOR :
@@ -22074,29 +22091,21 @@ AST get_declarator_id_expression(AST a, const decl_context_t* decl_context)
 
     switch(ASTKind(a))
     {
+        case AST_DECLARATOR :
+        case AST_DECLARATOR_ARRAY :
+        case AST_DECLARATOR_FUNC :
+        case AST_DECLARATOR_FUNC_TRAIL :
+        case AST_DECLARATOR_ID_PACK :
         case AST_INIT_DECLARATOR :
         case AST_MEMBER_DECLARATOR :
-        case AST_DECLARATOR :
-        case AST_DECLARATOR_ID_PACK:
         case AST_PARENTHESIZED_DECLARATOR :
             {
-                return get_declarator_id_expression(ASTSon0(a), decl_context); 
+                return get_declarator_id_expression(ASTSon0(a), decl_context);
                 break;
             }
         case AST_POINTER_DECLARATOR :
             {
                 return get_declarator_id_expression(ASTSon1(a), decl_context);
-                break;
-            }
-        case AST_DECLARATOR_ARRAY :
-            {
-                return get_declarator_id_expression(ASTSon0(a), decl_context);
-                break;
-            }
-        case AST_DECLARATOR_FUNC :
-        case AST_DECLARATOR_FUNC_TRAIL :
-            {
-                return get_declarator_id_expression(ASTSon0(a), decl_context);
                 break;
             }
         case AST_DECLARATOR_ID_EXPR :
@@ -22254,9 +22263,10 @@ nodecl_t internal_expression_parse(const char *source, const decl_context_t* dec
     return nodecl_expr;
 }
 
+//! Note that this function does not advance SK_USING_TYPENAME symbols
 scope_entry_t* entry_advance_aliases(scope_entry_t* entry)
 {
-    if (entry != NULL 
+    if (entry != NULL
             && (entry->kind == SK_USING))
         return entry_advance_aliases(symbol_entity_specs_get_alias_to(entry));
 
