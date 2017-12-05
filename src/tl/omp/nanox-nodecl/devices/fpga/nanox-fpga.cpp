@@ -694,10 +694,21 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
         std::string original_filename = TL::CompilationProcess::get_current_file().get_filename();
         std::string new_filename = (*it2) + ".cpp";
 
-        std::ofstream hls_file;
+        std::fstream hls_file;
 
-        hls_file.open(new_filename.c_str()); //open as output
+        // Check if file exist
+        hls_file.open(new_filename.c_str(), std::ios_base::in);
+        if (hls_file.is_open())
+        {
+            hls_file.close();
+            fatal_error("ERROR: Trying to create '%s' which already exists.\n%s\n%s",
+                new_filename.c_str(),
+                "       If you have two FPGA tasks with the same function name, you should use the onto(type) clause in the target directive.",
+                "       Otherwise, you must clean the running directory before linking.");
+        }
+        hls_file.clear();
 
+        hls_file.open(new_filename.c_str(), std::ios_base::out); //open as output
         if (! hls_file.is_open())
         {
             fatal_error("%s: error: cannot open file %s\n",
