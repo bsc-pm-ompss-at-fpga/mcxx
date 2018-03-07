@@ -4717,12 +4717,11 @@ static void link_files(const char** file_list, int num_files,
     if (num_args_linker_options_fpga)
     {
       //Adding linker options fpga
-      asprintf(linker_args_fpga, "fpgacc-bit.sh");
       for(j = 0; j < num_args_linker_options_fpga-1; j++)
       {
-          linker_args_fpga[j+1] = compilation_configuration->linker_options_fpga[j];
+          linker_args_fpga[j] = compilation_configuration->linker_options_fpga[j];
       }
-      linker_args_fpga[j] = NULL;
+      linker_args_fpga[j-1] = NULL;
     }
 
     timing_t timing_link;
@@ -4745,7 +4744,7 @@ static void link_files(const char** file_list, int num_files,
       // FPGA linker
       timing_start(&timing_link_automatic);
 
-      if (execute_program("/bin/bash", linker_args_fpga) != 0)
+      if (execute_program("autoVivado.py", linker_args_fpga) != 0)
       {
           fatal_error("Link fpga failed");
       }
