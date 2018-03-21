@@ -190,7 +190,7 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
 				preappend_list_sources_and_reset(outline_src, full_src, scope);
 
 				_fpga_source_codes.append(full_src);
-				_fpga_source_name.append(_acc_num + ":" + _num_acc_instances + ":" +  called_task.get_name() + "_hls_automatic_mcxx");
+				_fpga_source_name.append(_acc_type + ":" + _num_acc_instances + ":" +  called_task.get_name() + "_hls_automatic_mcxx");
 			}
 		} else if (IS_FORTRAN_LANGUAGE) {
 			fatal_error("There is no fortran support for FPGA devices\n");
@@ -517,21 +517,23 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
     // Restore the original name of the current function
     current_function.set_name(original_name);
 
+    // Generate a unique identifier for the accelerator type
+    // NOTE: Not using the line number to allow future modifications of source code without afecting the accelerator hash
+    std::stringstream type_str;
+    type_str << current_function.get_filename() << /*" " << current_function.get_line() <<*/ " " << current_function.get_name();
+    std::cout << type_str.str() << std::endl;
+    _acc_type = std::to_string(simple_hash_str(type_str.str().c_str()));
+
     //get onto information
     ObjectList<Nodecl::NodeclBase> onto_clause = info._target_info.get_onto();
     Nodecl::Utils::SimpleSymbolMap param_to_args_map = info._target_info.get_param_arg_map();
-
-    _acc_num = "0"; //Default is type 0
     if (onto_clause.size() >= 1)
     {
-        //TODO
-        //Process list of values in onto clause. Multiple values mean that the task
-        //can be run in several accelerators
-
         Nodecl::NodeclBase onto_acc = onto_clause[0];
+        warn_printf_at(onto_acc.get_locus(),
+            "The use of onto clause is no longer needed unless you have a collision between two FPGA tasks that yeld the same type hash\n");
         if (onto_clause.size() > 1)
         {
-            warn_printf_at(onto_acc.get_locus(), "More than one argument in onto clause. Using only first one\n");
             error_printf_at(onto_acc.get_locus(),
                 "The syntax 'onto(type, count)' is no longer supported. Use 'onto(type) num_instances(count)' instead\n");
         }
@@ -546,22 +548,16 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
             else
             {
                 int acc = const_value_cast_to_signed_int(ct_val);
-                std::stringstream tmp_str;
-                tmp_str << acc;
-                _acc_num = tmp_str.str();
+                _acc_type = std::to_string(acc);
             }
         }
         else
         {
             if (onto_acc.get_symbol().is_valid()) {
-                _acc_num = as_symbol(onto_acc.get_symbol());
+                _acc_type = as_symbol(onto_acc.get_symbol());
                 //as_symbol(param_to_args_map.map(onto_acc.get_symbol()));
             }
         }
-    }
-    else
-    {
-        //warning??
     }
 
     //get num_instances information
@@ -624,7 +620,7 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
             << comment("device argument type")
             << "static nanos_fpga_args_t " << args_name << ";"
             << args_name << ".outline = (void(*)(void*))" << extra_cast << "&" << qualified_name << ";"
-            << args_name << ".acc_num = " << _acc_num << ";"
+            << args_name << ".acc_num = " << _acc_type << ";"
             ;
 
         Source ancillary_device_description_2;
@@ -632,7 +628,7 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
             << comment("device argument type")
             << "static nanos_fpga_args_t " << args_name << ";"
             << args_name << ".outline = (void(*)(void*)) " << extra_cast << " &" << qualified_name << ";"
-            << args_name << ".acc_num = " << _acc_num << ";"
+            << args_name << ".acc_num = " << _acc_type << ";"
             ;
 
         device_descriptor
@@ -698,10 +694,21 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
         std::string original_filename = TL::CompilationProcess::get_current_file().get_filename();
         std::string new_filename = (*it2) + ".cpp";
 
-        std::ofstream hls_file;
+        std::fstream hls_file;
 
-        hls_file.open(new_filename.c_str()); //open as output
+        // Check if file exist
+        hls_file.open(new_filename.c_str(), std::ios_base::in);
+        if (hls_file.is_open())
+        {
+            hls_file.close();
+            fatal_error("ERROR: Trying to create '%s' which already exists.\n%s\n%s",
+                new_filename.c_str(),
+                "       If you have two FPGA tasks with the same function name, you should use the onto(type) clause in the target directive.",
+                "       Otherwise, you must clean the running directory before linking.");
+        }
+        hls_file.clear();
 
+        hls_file.open(new_filename.c_str(), std::ios_base::out); //open as output
         if (! hls_file.is_open())
         {
             fatal_error("%s: error: cannot open file %s\n",
@@ -713,7 +720,7 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
 
         hls_file << "/////////////////// Automatic IP Generated by OmpSs@FPGA compiler\n"
                  << "///////////////////\n"
-                 << "// Top IP Function: "<< (*it2) << "_wrapper AccID: " << _acc_num << " #Instances: "<<_num_acc_instances << "\n"
+                 << "// Top IP Function: "<< (*it2) << "_wrapper AccID: " << _acc_type << " #Instances: "<<_num_acc_instances << "\n"
                  << "///////////////////\n"
                  << "\n"
 				 << "#include <stdint.h>\n"
