@@ -126,6 +126,8 @@ namespace TL
                 void copy_stuff_to_device_file_expand( const TL::ObjectList<Nodecl::NodeclBase> stuff_to_be_copied);
                 void preappend_list_sources_and_reset(Source outline_src, Source& full_src, TL::Scope scope);
 
+                void add_included_fpga_files(std::ofstream &hls_file);
+
             protected:
                 static const std::string hls_in;
                 static const std::string hls_out;
