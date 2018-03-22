@@ -749,18 +749,21 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
     }
 }
 
-void DeviceFPGA::add_included_fpga_files(std::ofstream &hls_file)
+void DeviceFPGA::add_included_fpga_files(std::ostream &hls_file)
 {
     ObjectList<IncludeLine> lines = CurrentFile::get_top_level_included_files();
-    std::string fpga_file_ext(".fpga\"");
-    std::string fpga_header_ext(".fpga.h\"");
+    std::string fpga_header_exts[] = {".fpga\"", ".fpga.h\"", ".fpga.hpp\""};
 
     for (ObjectList<IncludeLine>::iterator it = lines.begin(); it != lines.end(); it++)
     {
         std::string line = (*it).get_preprocessor_line();
-        if (line.rfind(fpga_file_ext) != std::string::npos || line.rfind(fpga_header_ext) != std::string::npos)
+        for (size_t idx = 0; idx < sizeof(fpga_header_exts)/sizeof(std::string); ++idx)
         {
-            hls_file << line << std::endl;
+            if (line.rfind(fpga_header_exts[idx]) != std::string::npos)
+            {
+                hls_file << line << std::endl;
+                break;
+            }
         }
     }
 }
