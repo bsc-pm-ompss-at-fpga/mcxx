@@ -749,7 +749,7 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
     }
 }
 
-void DeviceFPGA::add_included_fpga_files(std::ofstream &hls_file)
+void DeviceFPGA::add_included_fpga_files(std::ostream &hls_file)
 {
     ObjectList<IncludeLine> lines = CurrentFile::get_top_level_included_files();
     std::string fpga_file_ext(".fpga\"");
