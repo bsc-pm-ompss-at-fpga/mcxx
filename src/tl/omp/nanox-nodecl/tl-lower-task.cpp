@@ -415,6 +415,7 @@ Source LoweringVisitor::fill_const_wd_info(
 }
 
 void LoweringVisitor::allocate_immediate_structure(
+        TL::Type structure_type,
         OutlineInfo& outline_info,
         Source &struct_arg_type_name,
         Source &struct_size,
@@ -447,7 +448,11 @@ void LoweringVisitor::allocate_immediate_structure(
         }
     }
 
-    if (there_are_overallocated)
+    if (there_are_overallocated ||
+            (IS_CXX_LANGUAGE &&
+             !structure_type.is_dependent() &&
+             structure_type.is_class() &&
+             !structure_type.is_pod()))
     {
         immediate_is_alloca = true;
     }
@@ -523,6 +528,7 @@ void LoweringVisitor::emit_async_common(
     // Declare argument structure
     TL::Scope function_scope = context.retrieve_context();
     TL::Symbol structure_symbol = declare_argument_structure(outline_info, construct);
+
     struct_arg_type_name
          << ((structure_symbol.get_type().is_template_specialized_type()
                      &&  structure_symbol.get_type().is_dependent()) ? "typename " : "")
@@ -598,6 +604,7 @@ void LoweringVisitor::emit_async_common(
     struct_size << "sizeof(imm_args)" << dynamic_size;
 
     allocate_immediate_structure(
+            structure_symbol.get_user_defined_type(),
             outline_info,
             struct_arg_type_name,
             struct_size,
@@ -913,7 +920,7 @@ void LoweringVisitor::visit_task(
     Scope  enclosing_scope = construct.retrieve_context();
     Symbol function_symbol = Nodecl::Utils::get_enclosing_function(construct);
 
-    OutlineInfo outline_info(*_lowering, environment, function_symbol);
+    OutlineInfo outline_info(*_lowering, environment, function_symbol, /* is_task_construct */ 1);
 
     bool generate_final_stmts = Nanos::Version::interface_is_at_least("master", 5024)
             && !_lowering->final_clause_transformation_disabled()
@@ -1619,12 +1626,24 @@ void LoweringVisitor::fill_arguments(
                             }
                             else
                             {
+                                if (sym.is_allocatable())
+                                {
+                                    fill_outline_arguments   << "if (allocated(" << sym.get_name() << ")) then\n";
+                                    fill_immediate_arguments << "if (allocated(" << sym.get_name() << ")) then\n";
+                                }
+
                                 fill_outline_arguments <<
                                     "ol_args % " << (*it)->get_field_name() << " = " << (*it)->get_symbol().get_name() << "\n"
                                     ;
                                 fill_immediate_arguments <<
                                     "imm_args % " << (*it)->get_field_name() << " = " << (*it)->get_symbol().get_name() << "\n"
                                     ;
+
+                                if (sym.is_allocatable())
+                                {
+                                    fill_outline_arguments << "endif\n";
+                                    fill_immediate_arguments << "endif\n";
+                                }
                             }
                         }
                         else
@@ -1827,8 +1846,11 @@ Nodecl::NodeclBase LoweringVisitor::count_multidependences_extent(
             mit++)
     {
         // TL::Symbol iterator_sym = mit->first;
+        //
+        // [beg:end:step]
         Nodecl::Range range = mit->second.as<Nodecl::Range>();
 
+        // m = end - beg;
         Nodecl::NodeclBase m;
         if (range.get_upper().is_constant()
                 && range.get_lower().is_constant())
@@ -1847,19 +1869,28 @@ Nodecl::NodeclBase LoweringVisitor::count_multidependences_extent(
                     range.get_locus());
         }
 
+        // a = (m + step)/step = (end - beg + step)/step
         Nodecl::NodeclBase a;
-        if (m.is_constant())
+        Nodecl::NodeclBase step = range.get_stride();
+        if (m.is_constant() &&
+                step.is_constant())
         {
             a = const_value_to_nodecl(
-                    const_value_add(
-                        m.get_constant(),
-                        const_value_get_signed_int(1)));
+                    const_value_div(
+                        const_value_add(
+                            m.get_constant(),
+                            step.get_constant()),
+                        step.get_constant()));
         }
         else
         {
-            a = Nodecl::Add::make(
-                    m,
-                    const_value_to_nodecl(const_value_get_signed_int(1)),
+            a = Nodecl::Div::make(
+                    Nodecl::Add::make(
+                        m,
+                        step.shallow_copy(),
+                        TL::Type::get_int_type(),
+                        range.get_locus()),
+                    step.shallow_copy(),
                     TL::Type::get_int_type(),
                     range.get_locus());
         }
@@ -2848,7 +2879,7 @@ void LoweringVisitor::fill_dependences(
         // out
         Source& result_src)
 {
-    fill_dependences_internal(ctr, outline_info, /* on_wait */ false,
+    fill_dependences_internal(ctr, outline_info,
             num_static_dependences,
             num_dynamic_dependences,
             runtime_num_dependences,
@@ -3146,37 +3177,25 @@ void LoweringVisitor::handle_dependency_item(
 void LoweringVisitor::fill_dependences_internal(
         Nodecl::NodeclBase ctr,
         OutlineInfo& outline_info,
-        bool on_wait,
         int num_static_dependences,
         int num_dynamic_dependences,
         Source& runtime_num_dependences,
         // out
         Source& result_src)
 {
-    TL::ObjectList<OutlineDataItem*> data_items = outline_info.get_data_items();
-
-    int total_dependences = num_static_dependences + num_dynamic_dependences;
-    if (total_dependences == 0)
-    {
-        if (Nanos::Version::interface_is_at_least("deps_api", 1001))
-        {
-            result_src << "nanos_data_access_t dependences[1];"
-                ;
-        }
-        else
-        {
-            result_src << "nanos_dependence_t dependences[1];"
-                ;
-        }
-
-        return;
-    }
-
     if (!Nanos::Version::interface_is_at_least("deps_api", 1001))
     {
         fatal_printf_at(ctr.get_locus(),
                 "please update your runtime version. deps_api < 1001 not supported\n");
     }
+
+    int total_dependences = num_static_dependences + num_dynamic_dependences;
+    if (total_dependences == 0)
+    {
+        result_src << "nanos_data_access_t dependences[1];";
+        return;
+    }
+
 
     Source dependency_regions;
 
@@ -3186,65 +3205,61 @@ void LoweringVisitor::fill_dependences_internal(
         ;
 
 
-    int current_static_dep_idx = 0;
-    bool there_are_dynamic_dependences = false;
+    TL::ObjectList<OutlineDataItem*> data_items = outline_info.get_data_items();
 
     // Static dependences
-    for (TL::ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
-            it != data_items.end();
-            it++)
+    if (num_static_dependences)
     {
-        TL::ObjectList<OutlineDataItem::DependencyItem> deps = (*it)->get_dependences();
-        for (ObjectList<OutlineDataItem::DependencyItem>::iterator dep_it = deps.begin();
-                dep_it != deps.end();
-                dep_it++)
+        int current_static_dep_idx = 0;
+        for (TL::ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
+                it != data_items.end();
+                it++)
         {
-            OutlineDataItem::DependencyDirectionality dir = dep_it->directionality;
-            TL::DataReference dep_expr(dep_it->expression);
-
-            if (dep_expr.is_multireference())
+            TL::ObjectList<OutlineDataItem::DependencyItem> deps = (*it)->get_dependences();
+            for (ObjectList<OutlineDataItem::DependencyItem>::iterator dep_it = deps.begin();
+                    dep_it != deps.end();
+                    dep_it++)
             {
-                there_are_dynamic_dependences = true;
-                // We will handle them later
-                continue;
+                OutlineDataItem::DependencyDirectionality dir = dep_it->directionality;
+                TL::DataReference dep_expr(dep_it->expression);
+
+                // Multideps are handled later
+                if (dep_expr.is_multireference())
+                    continue;
+
+                Source current_dep_num;
+                current_dep_num << current_static_dep_idx;
+
+                Type dependency_type = dep_expr.get_data_type();
+                int num_dimensions = dependency_type.get_num_dimensions();
+
+                TL::Counter &dep_dim_num = TL::CounterManager::get_counter("nanos++-copy-deps-dimensions");
+                Source dimension_name;
+                dimension_name << "dimensions_" << (int)dep_dim_num;
+                dep_dim_num++;
+                dependency_regions << "nanos_region_dimension_t " << dimension_name << "[" << std::max(num_dimensions, 1) << "];";
+
+                handle_dependency_item(ctr, dep_expr, dir,
+                        dimension_name, current_dep_num, result_src);
+
+                current_static_dep_idx++;
             }
-
-            Source current_dep_num;
-            current_dep_num << current_static_dep_idx;
-
-            Type dependency_type = dep_expr.get_data_type();
-            int num_dimensions = dependency_type.get_num_dimensions();
-
-            TL::Counter &dep_dim_num = TL::CounterManager::get_counter("nanos++-copy-deps-dimensions");
-            Source dimension_name;
-            dimension_name << "dimensions_" << (int)dep_dim_num;
-            dep_dim_num++;
-            dependency_regions << "nanos_region_dimension_t " << dimension_name << "[" << std::max(num_dimensions, 1) << "];"
-                ;
-
-            handle_dependency_item(ctr, dep_expr, dir,
-                    dimension_name, current_dep_num, result_src);
-
-            current_static_dep_idx++;
         }
     }
 
     // Dynamic dependences
-    if (there_are_dynamic_dependences)
+    if (num_dynamic_dependences)
     {
-        TL::Scope sc = ctr.retrieve_context();
-        TL::Symbol dyn_dep_idx;
-
         TL::Counter &dep_dim_num = TL::CounterManager::get_counter("nanos++-dynamic-deps");
         std::stringstream ss; ss << "nanos_dyn_dep_idx_" << (int)dep_dim_num;
         dep_dim_num++;
 
         // Create the global dynamic index
-        dyn_dep_idx = sc.new_symbol(ss.str());
+        TL::Scope sc = ctr.retrieve_context();
+        TL::Symbol dyn_dep_idx = sc.new_symbol(ss.str());
         dyn_dep_idx.get_internal_symbol()->kind = SK_VARIABLE;
         dyn_dep_idx.get_internal_symbol()->type_information = get_signed_int_type();
-        dyn_dep_idx.get_internal_symbol()->value =
-            const_value_to_nodecl(const_value_get_signed_int(0));
+        dyn_dep_idx.get_internal_symbol()->value = const_value_to_nodecl(const_value_get_signed_int(0));
         symbol_entity_specs_set_is_user_declared(dyn_dep_idx.get_internal_symbol(), 1);
 
         result_src << as_symbol(dyn_dep_idx) << " = " << num_static_dependences << ";";
@@ -3264,7 +3279,6 @@ void LoweringVisitor::fill_dependences_internal(
                 it++)
         {
             TL::ObjectList<OutlineDataItem::DependencyItem> deps = (*it)->get_dependences();
-
             for (ObjectList<OutlineDataItem::DependencyItem>::iterator dep_it = deps.begin();
                     dep_it != deps.end();
                     dep_it++)
@@ -3272,11 +3286,9 @@ void LoweringVisitor::fill_dependences_internal(
                 OutlineDataItem::DependencyDirectionality dir = dep_it->directionality;
                 TL::DataReference dep_expr(dep_it->expression);
 
+                // Static dependences were handled above
                 if (!dep_expr.is_multireference())
-                {
-                    // Static dependences were handled above
                     continue;
-                }
 
                 Source dependency_loop;
                 ObjectList<DataReference::MultiRefIterator> m = dep_expr.multireferences();

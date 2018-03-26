@@ -32,6 +32,8 @@
 #include "tl-nodecl.hpp"
 #include "tl-nodecl-visitor.hpp"
 
+#include "cxx-diagnostic.h"
+
 namespace TL { namespace Nanos6 {
 
     struct Lower : public Nodecl::ExhaustiveVisitor<void>
@@ -45,23 +47,31 @@ namespace TL { namespace Nanos6 {
                 std::map<Nodecl::NodeclBase, Nodecl::NodeclBase>& final_stmts_map)
             : _phase(phase), _final_stmts_map(final_stmts_map) { }
 
-            void visit(const Nodecl::OpenMP::Task& n);
-            void visit(const Nodecl::OmpSs::TaskCall& n);
-            void visit(const Nodecl::OpenMP::TaskLoop& n);
-
-            void visit(const Nodecl::OpenMP::Taskwait& n);
-            void visit(const Nodecl::OpenMP::Critical& n);
-            void visit(const Nodecl::OpenMP::Atomic& n);
-
+            void visit(const Nodecl::OmpSs::Loop &n);
             void visit(const Nodecl::OmpSs::Release &n);
+            void visit(const Nodecl::OmpSs::TaskCall &n);
+            void visit(const Nodecl::OpenMP::Atomic &n);
+            void visit(const Nodecl::OpenMP::Critical &n);
+            void visit(const Nodecl::OpenMP::Task &n);
+            void visit(const Nodecl::OpenMP::Taskwait &n);
 
             // Unsupported
-            void visit(const Nodecl::OpenMP::Taskyield &n);
-            void visit(const Nodecl::OpenMP::For &n);
-            void visit(const Nodecl::OpenMP::BarrierFull &n);
-            void visit(const Nodecl::OpenMP::FlushMemory &n);
-            void visit(const Nodecl::OmpSs::Register &n);
-            void visit(const Nodecl::OmpSs::Unregister &n);
+#define UNIMPLEMENTED_VISITOR(TYPE) \
+            void visit(const TYPE &n) { \
+                error_printf_at(n.get_locus(), \
+                        "this construct is not supported by Nanos6\n"); \
+            } \
+
+            UNIMPLEMENTED_VISITOR(Nodecl::OmpSs::Register)
+            UNIMPLEMENTED_VISITOR(Nodecl::OmpSs::Unregister)
+            UNIMPLEMENTED_VISITOR(Nodecl::OpenMP::BarrierFull)
+            UNIMPLEMENTED_VISITOR(Nodecl::OpenMP::FlushMemory)
+            UNIMPLEMENTED_VISITOR(Nodecl::OpenMP::For)
+            UNIMPLEMENTED_VISITOR(Nodecl::OpenMP::Taskgroup)
+            UNIMPLEMENTED_VISITOR(Nodecl::OpenMP::Taskloop)
+            UNIMPLEMENTED_VISITOR(Nodecl::OpenMP::Taskyield)
+
+#undef UNIMPLEMENTED_VISITOR
 
         private:
             void lower_taskwait(const Nodecl::OpenMP::Taskwait& n);

@@ -69,6 +69,10 @@ namespace TL
 
                 std::string _disable_task_expr_optim_str;
 
+                std::string _taskloop_as_loop_of_tasks_str;
+                bool _taskloop_as_loop_of_tasks;
+                void set_taskloop_as_loop_of_tasks(const std::string &str);
+
                 // Strings used to store the TL::Core phase flags
                 std::string _ompss_mode_str;
                 std::string _copy_deps_str;
@@ -109,8 +113,6 @@ namespace TL
 
 #undef DECL_DIRECTIVE
 #undef DECL_CONSTRUCT
-                void taskloop_runtime_based_handler_pre(TL::PragmaCustomStatement directive);
-                void taskloop_runtime_based_handler_post(TL::PragmaCustomStatement directive);
 
                 void ompss_target_handler_pre(TL::PragmaCustomStatement stmt);
                 void ompss_target_handler_post(TL::PragmaCustomStatement stmt);
@@ -127,8 +129,7 @@ namespace TL
                 Nodecl::List make_execution_environment(
                         OpenMP::DataEnvironment&,
                         PragmaCustomLine,
-                        bool ignore_targer_info,
-                        bool is_inline_task);
+                        bool ignore_targer_info);
 
                 Nodecl::List make_execution_environment_for_combined_worksharings(OpenMP::DataEnvironment &data_sharing_env, 
                         PragmaCustomLine pragma_line);

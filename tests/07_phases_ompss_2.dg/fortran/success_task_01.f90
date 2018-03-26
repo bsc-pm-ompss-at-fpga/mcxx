@@ -16,10 +16,9 @@ subroutine bar()
         call foo()
     !$oss end task
 
-    !$oss task loop chunksize(4)
+    !$oss loop chunksize(4)
     do i=0, 100
     enddo
-    !$oss end task
 
     !$oss taskwait
 end subroutine bar

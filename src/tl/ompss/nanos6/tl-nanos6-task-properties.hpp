@@ -30,14 +30,15 @@
 
 #include "tl-nanos6.hpp"
 #include "tl-nanos6-directive-environment.hpp"
+#include "tl-nanos6-device.hpp"
 
+#include "tl-datareference.hpp"
 
+#include "tl-object.hpp"
 #include "tl-nodecl.hpp"
 #include "tl-nodecl-utils.hpp"
 #include "tl-type.hpp"
 #include "tl-symbol.hpp"
-#include "tl-datareference.hpp"
-
 
 
 namespace TL { namespace Nanos6 {
@@ -48,19 +49,60 @@ namespace TL { namespace Nanos6 {
     struct TaskProperties
     {
         private:
+            typedef std::map<TL::Symbol, TL::Symbol> field_map_t;
+            typedef std::map<TL::Symbol, TL::Symbol> array_descriptor_map_t;
+
+            struct TaskloopBounds
+            {
+                Nodecl::NodeclBase lower_bound;
+                Nodecl::NodeclBase upper_bound;
+                Nodecl::NodeclBase step;
+            };
+
             //! This member represents the directive environment
             DirectiveEnvironment _env;
+            TL::ObjectList<std::shared_ptr<Device> > _implementations;
 
-            LoweringPhase* phase;
-            Lower* lower_visitor;
+            LoweringPhase* _phase;
 
-            typedef std::map<TL::Symbol, TL::Symbol> field_map_t;
-            field_map_t field_map;
+            //FIXME: Once we have the new implementation of task reductions we may be able to remove this member
+            Lower* _lower_visitor;
 
-            typedef std::map<TL::Symbol, TL::Symbol> array_descriptor_map_t;
-            array_descriptor_map_t array_descriptor_map;
+            field_map_t _field_map;
 
-            void create_outline_function();
+            array_descriptor_map_t _array_descriptor_map;
+
+            static const int VLA_OVERALLOCATION_ALIGN = 8;
+
+            //FIXME: Once we have the new implementation of task reductions we may be able to remove this member
+            unsigned int _num_reductions;
+
+            //! It's used (among other things) to avoid name collision when generating new functions
+            int _nanos6_task_counter;
+
+            TL::Type _info_structure;
+
+            TL::Symbol _dependences_function;
+            TL::Symbol _dependences_function_mangled;
+
+            TL::Symbol _priority_function;
+            TL::Symbol _priority_function_mangled;
+
+            TaskloopBounds _taskloop_bounds;
+
+            Nodecl::NodeclBase _task_body;
+
+            // For inline _related_function is the enclosing task,
+            // for function tasks, it is the function task itself
+            TL::Symbol _related_function;
+
+            const locus_t* _locus_of_task_creation;
+            const locus_t* _locus_of_task_declaration;
+
+        private:
+
+            TL::Symbol create_outline_function(std::shared_ptr<Device> device);
+
             void create_dependences_function();
             void create_dependences_function_c();
 
@@ -69,6 +111,8 @@ namespace TL { namespace Nanos6 {
             void create_dependences_function_fortran_forward();
             void create_dependences_function_fortran_mangled();
 
+
+            TL::Symbol create_constraints_function() const;
             void create_cost_function();
             void create_priority_function();
 
@@ -80,21 +124,6 @@ namespace TL { namespace Nanos6 {
                                           TL::Type field_type);
 
             TL::Scope compute_scope_for_environment_structure();
-
-            static const int VLA_OVERALLOCATION_ALIGN = 8;
-
-            unsigned int num_reductions;
-
-            TL::Type info_structure;
-
-            TL::Symbol outline_function;
-            TL::Symbol outline_function_mangled;
-
-            TL::Symbol dependences_function;
-            TL::Symbol dependences_function_mangled;
-
-            TL::Symbol cost_function;
-            TL::Symbol priority_function;
 
             Nodecl::NodeclBase rewrite_expression_using_args(
                 TL::Symbol args,
@@ -148,53 +177,29 @@ namespace TL { namespace Nanos6 {
                     // Out
                     Nodecl::List &register_statements);
 
-            void create_task_invocation_info(
-                TL::Symbol task_info,
-                /* out */ TL::Symbol &task_invocation_info);
-            void create_task_info_regular_function(
-                TL::Symbol task_info_struct,
-                const std::string &task_info_name,
-                /* out */
-                TL::Symbol &task_info,
-                TL::Symbol &task_invocation_info,
-                Nodecl::NodeclBase &local_init);
-            void create_task_info_nondependent_function(
-                TL::Symbol task_info_struct,
-                const std::string &task_info_name,
-                /* out */
-                TL::Symbol &task_info,
-                TL::Symbol &task_invocation_info,
-                Nodecl::NodeclBase &local_init);
-            void create_task_info_dependent_function(
-                TL::Symbol task_info_struct,
-                const std::string &task_info_name,
-                /* out */
-                TL::Symbol &task_info,
-                TL::Symbol &task_invocation_info,
-                Nodecl::NodeclBase &local_init);
+            void create_static_variable_depending_on_function_context(
+                    const std::string &var_name,
+                    TL::Type var_type,
+                    // Out
+                    TL::Symbol &new_var) const;
 
-            void create_task_info_nondependent_member_function(
-                TL::Symbol task_info_struct,
-                const std::string &task_info_name,
-                /* out */
-                TL::Symbol &task_info,
-                TL::Symbol &task_invocation_info,
-                Nodecl::NodeclBase &local_init);
-            void create_task_info_dependent_nonmember_function(
-                TL::Symbol task_info_struct,
-                const std::string &task_info_name,
-                /* out */
-                TL::Symbol &task_info,
-                TL::Symbol &task_invocation_info,
-                Nodecl::NodeclBase &local_init);
-            void create_task_info_dependent_member_function(
-                TL::Symbol task_info_struct,
-                const std::string &task_info_name,
-                /* out */
-                TL::Symbol &task_info,
-                TL::Symbol &task_invocation_info,
-                Nodecl::NodeclBase &local_init);
+            void create_static_variable_regular_function(
+                    const std::string &var_name,
+                    TL::Type var_type,
+                    // Out
+                    TL::Symbol &new_var) const;
 
+            void create_static_variable_nondependent_function(
+                    const std::string &var_name,
+                    TL::Type var_type,
+                    // Out
+                    TL::Symbol &new_var) const;
+
+            void create_static_variable_dependent_function(
+                    const std::string &var_name,
+                    TL::Type var_type,
+                    // Out
+                    TL::Symbol &new_var) const;
 
             void compute_captured_saved_expressions();
 
@@ -206,27 +211,6 @@ namespace TL { namespace Nanos6 {
             void firstprivatize_symbols_without_data_sharing();
 
         public:
-
-
-            struct TaskloopInfo
-            {
-                Nodecl::NodeclBase lower_bound;
-                Nodecl::NodeclBase upper_bound;
-                Nodecl::NodeclBase step;
-                Nodecl::NodeclBase chunksize;
-            };
-
-            TaskloopInfo taskloop_info;
-
-            Nodecl::NodeclBase task_body;
-
-            // For inline related_function is the enclosing task,
-            // for function tasks, it is the function task itself
-            TL::Symbol related_function;
-
-            const locus_t* locus_of_task_creation;
-            const locus_t* locus_of_task_declaration;
-
             TaskProperties(
                     const Nodecl::OpenMP::Task& node,
                     LoweringPhase* lowering_phase,
@@ -235,11 +219,25 @@ namespace TL { namespace Nanos6 {
             // FIXME: This constructor shouldn't exist
             TaskProperties(const Nodecl::OmpSs::Release& node, LoweringPhase* lowering_phase, Lower* lower);
 
-            void create_task_info(
+            // FIXME
+            std::string get_new_name(const std::string& prefix) const;
+
+            //! This function creates a new static variable that contains the task invocation information
+            void create_task_invocation_info(
+                /* out */ TL::Symbol &task_invocation_info);
+
+            //! This function creates a new global static array variable that contains all
+            //! the information related to each possible implementation of the current task
+            void create_task_implementations_info(
                     /* out */
-                    TL::Symbol &task_info,
-                    TL::Symbol &task_invocation_info,
-                    Nodecl::NodeclBase& local_init);
+                    TL::Symbol &implementations);
+
+            //! This function creates a new global static variable that contains all
+            //! the information associated with a task
+            void create_task_info(
+                    TL::Symbol implementations,
+                    /* out */
+                    TL::Symbol &task_info);
 
             //! This function creates a new class type that represents the arguments structure.
             /*!
@@ -255,18 +253,9 @@ namespace TL { namespace Nanos6 {
 
             void capture_environment(
                     TL::Symbol args,
+                    TL::Scope task_enclosing_scope,
                     /* out */
                     Nodecl::NodeclBase& capture_env);
-
-            //! This function captures the lower bound, upper bound, step and the chunksize of a taskloop construct
-            /*!
-             * @param taskloop_bounds This symbol represents the bariable that we should initialize with the taskloop bounds
-             * @param stmts Node Output parameter that should contain the initialization of the taskloop bounds
-             */
-            void capture_taskloop_information(
-                    TL::Symbol taskloop_bounds_ptr,
-                    /* out */
-                    Nodecl::NodeclBase& stmts) const;
 
             void compute_task_flags(
                     TL::Symbol task_flags,
@@ -285,7 +274,12 @@ namespace TL { namespace Nanos6 {
 
             static bool is_saved_expression(Nodecl::NodeclBase n);
 
-            bool is_taskloop() const;
+            bool task_is_loop() const;
+
+            Nodecl::NodeclBase get_lower_bound() const;
+            Nodecl::NodeclBase get_upper_bound() const;
+            Nodecl::NodeclBase get_step() const;
+            Nodecl::NodeclBase get_chunksize() const;
     };
 
 } }

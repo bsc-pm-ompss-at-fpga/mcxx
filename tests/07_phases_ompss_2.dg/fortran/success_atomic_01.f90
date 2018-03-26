@@ -12,12 +12,11 @@ program p
     real(8) :: validate
     real(8) :: res = 0
 
-    !$oss task loop shared(res)
-        do i = 1, num_iterations
-            !$oss atomic
-            res = res + q*i
-        end do
-    !$oss end task
+    !$oss loop shared(res)
+    do i = 1, num_iterations
+        !$oss atomic
+        res = res + q*i
+    end do
 
     !$oss taskwait
 

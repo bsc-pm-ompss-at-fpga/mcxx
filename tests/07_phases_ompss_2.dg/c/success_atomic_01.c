@@ -17,7 +17,7 @@ int main()
 {
     double res = 0;
 
-    #pragma oss task loop shared(res)
+    #pragma oss loop shared(res)
     for(int i = 0; i < num_iterations; ++i)
     {
         #pragma oss atomic

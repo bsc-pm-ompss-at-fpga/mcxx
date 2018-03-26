@@ -490,14 +490,13 @@ void DeviceMPI::create_outline(CreateOutlineInfo &info,
                         }
                         argument << "args % " << (*it)->get_field_name();
 
-                        bool is_allocatable = (*it)->get_allocation_policy() & OutlineDataItem::ALLOCATION_POLICY_TASK_MUST_DEALLOCATE_ALLOCATABLE;
-                        bool is_pointer = (*it)->get_allocation_policy() & OutlineDataItem::ALLOCATION_POLICY_TASK_MUST_DEALLOCATE_POINTER;
-
-                        if ((((*it)->get_symbol().is_in_module() || (*it)->get_symbol().is_from_module()) && is_allocatable)
-                                || is_pointer)
+                        if ((*it)->get_allocation_policy()
+                                & OutlineDataItem::ALLOCATION_POLICY_TASK_MUST_DEALLOCATE_ALLOCATABLE)
                         {
                             cleanup_code
-                                << "DEALLOCATE(args % " << (*it)->get_field_name() << ")\n"
+                                << "IF (ALLOCATED(args % " << (*it)->get_field_name() << ")) THEN\n"
+                                <<      "DEALLOCATE(args % " << (*it)->get_field_name() << ")\n"
+                                << "ENDIF\n"
                                 ;
                         }
                     }
@@ -915,7 +914,7 @@ void DeviceMPI::get_device_descriptor(DeviceDescriptorInfo& info,
         Source &ancillary_device_description,
         Source &device_descriptor,
         Source &fortran_dynamic_init UNUSED_PARAMETER) {
-    TargetInformation& target_information = info._target_info;
+    const TargetInformation& target_information = info._target_info;
     const std::string& device_outline_name = get_outline_name(info._outline_name);
     const std::string& arguments_struct = info._arguments_struct;
     if (Nanos::Version::interface_is_at_least("master", 5012)) {         

@@ -5,8 +5,8 @@ Mercurium needs at least to be configured with the ``--enable-ompss`` and
 ``--with-nanox=$TARGET`` flags. Some other flags may be needed to suit your
 environment.
 
-In order to support the **OmpSs-v2 programming model**, Mercurium has to be
-configured with the ``--enable-ompss-v2`` and ``--with-nanos6=$TARGET`` flags.
+In order to support the **OmpSs-2 programming model**, Mercurium has to be
+configured with the ``--enable-ompss-2`` and ``--with-nanos6=$TARGET`` flags.
 
 
 | Flags                                           | Description     |
@@ -18,8 +18,8 @@ configured with the ``--enable-ompss-v2`` and ``--with-nanos6=$TARGET`` flags.
 |``--enable-nanos6-bootstrap``                    | Allows to configure Mercurium with Nanos6 support but without requiring Nanos6 to be installed. **Only recommended to break the chicken and egg problem between Nanos6 and Mercurium. Another way to solve it is to configure Nanos6 without Mercurium**
 |``--enable-tl-openmp-intel``                     | Enables support of Intel/LLVM OpenMP RTL.
 |``--with-intel-omp=dir``                         | Directory of Intel/LLVM OpenMP installation.
-|``--with-cuda=dir``                              | Directory of CUDA installation. By default configure checks ``/usr/local/cuda``. If found CUDA support will be enabled
-|``--with-mpi=dir``                               | Directory of MPI installation
+|``--with-dlb=dir``                               | Directory of DLB installation.
+|``--with-mpi=dir``                               | Directory of MPI installation. **Only used to implement the OmpSs Offload feature**
 |``--disable-nanox-cuda-device``                  | Disables CUDA support in the compiler. If CUDA is detected this support is enabled automatically. Use this to disable it
 |``--disable-nanox-opencl-device``                | Disables GPU support in the compiler. If OpenCL is detected this support is enabled automatically. Use this to disable it
 |``--enable-nanox-fpga-device``                   | Enable FPGA support in the compiler

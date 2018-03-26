@@ -522,15 +522,25 @@ namespace TL { namespace OpenMP {
 
             void operator()(ReductionSymbol red_sym)
             {
-                if(_data_attrib == DS_SIMD_REDUCTION)
-                    _data_environment.set_simd_reduction(red_sym);
-                else if (_data_attrib == DS_WEAKREDUCTION)
+                switch(_data_attrib)
                 {
-                    _data_environment.set_weakreduction(red_sym, "mentioned in 'weakreduction' clause");
-                }
-                else
-                {
-                    _data_environment.set_reduction(red_sym, "mentioned in 'reduction' clause");
+                    case DS_REDUCTION:
+                        _data_environment.set_reduction(red_sym, "mentioned in 'reduction' clause");
+                        break;
+                    case DS_TASK_REDUCTION:
+                        _data_environment.set_task_reduction(red_sym, "mentioned in 'task_reduction' clause");
+                        break;
+                    case DS_IN_REDUCTION:
+                        _data_environment.set_in_reduction(red_sym, "mentioned in 'in_reduction' clause");
+                        break;
+                    case DS_SIMD_REDUCTION:
+                        _data_environment.set_simd_reduction(red_sym);
+                        break;
+                    case DS_WEAKREDUCTION:
+                        _data_environment.set_weakreduction(red_sym, "mentioned in 'weakreduction' clause");
+                        break;
+                    default:
+                        internal_error("unreachable code\n", 0);
                 }
             }
     };
@@ -606,23 +616,29 @@ namespace TL { namespace OpenMP {
         std::for_each(firstlastprivate_references.begin(), firstlastprivate_references.end(),
                 DataEnvironmentSetter(construct, data_environment, DS_FIRSTLASTPRIVATE, "firstprivate and lastprivate"));
 
-        ObjectList<OpenMP::ReductionSymbol> reduction_references;
-        get_reduction_symbols(construct, construct.get_clause("reduction"),
-                nonlocal_symbols, data_environment, reduction_references, extra_symbols);
-        std::for_each(reduction_references.begin(), reduction_references.end(),
-                DataEnvironmentSetterReduction(data_environment, DS_REDUCTION));
 
-        ObjectList<OpenMP::ReductionSymbol> simd_reduction_references;
-        get_reduction_symbols(construct, construct.get_clause("simd_reduction"),
-                nonlocal_symbols, data_environment, simd_reduction_references, extra_symbols);
-        std::for_each(simd_reduction_references.begin(), simd_reduction_references.end(),
-                DataEnvironmentSetterReduction(data_environment, DS_SIMD_REDUCTION));
+        struct ReductionClauseInfo {
+            const char* clause_name;
+            DataSharingAttribute data_attr;
+        } reduction_clauses[] = {
+            { "reduction", DS_REDUCTION },
+            { "task_reduction", DS_TASK_REDUCTION },
+            { "in_reduction", DS_IN_REDUCTION },
+            { "weakreduction", DS_WEAKREDUCTION },
+            { "simd_reduction", DS_SIMD_REDUCTION },
+        };
 
-        ObjectList<OpenMP::ReductionSymbol> weakreduction_references;
-        get_reduction_symbols(construct, construct.get_clause("weakreduction"),
-                nonlocal_symbols, data_environment, weakreduction_references, extra_symbols);
-        std::for_each(weakreduction_references.begin(), weakreduction_references.end(),
-                DataEnvironmentSetterReduction(data_environment, DS_WEAKREDUCTION));
+        for (ReductionClauseInfo* it = reduction_clauses;
+                it != (ReductionClauseInfo*) (&reduction_clauses + 1);
+                it++)
+        {
+            ObjectList<OpenMP::ReductionSymbol> reduction_references;
+            get_reduction_symbols(construct, construct.get_clause(it->clause_name),
+                    nonlocal_symbols, data_environment, reduction_references, extra_symbols);
+
+            std::for_each(reduction_references.begin(), reduction_references.end(),
+                    DataEnvironmentSetterReduction(data_environment, it->data_attr));
+        }
 
         // Do not confuse OpenMP copyin (related with threadprivate) with
         // OmpSs copy_in (related to copies between targets)
@@ -2162,30 +2178,21 @@ namespace TL { namespace OpenMP {
     // Inline tasks
     void Core::task_handler_pre(TL::PragmaCustomStatement construct)
     {
-        // In OmpSs-2 the taskloop construct is supported as '#pragma oss task loop'
+        // FIXME: At some point we should remove this error message...
         if (PragmaUtils::is_pragma_construct("oss", construct)
                 && construct.get_pragma_line().get_clause("loop").is_defined())
         {
-            taskloop_handler_pre(construct);
+            error_printf_at(construct.get_locus(),
+                    "The 'loop' clause was an experimental feature and it does not exist anymore."
+                    " Use a 'loop' construct instead.\n");
         }
-        else
-        {
-            task_inline_handler_pre(construct);
-        }
+        task_inline_handler_pre(construct);
     }
+
     void Core::task_handler_post(TL::PragmaCustomStatement construct)
     {
-        // In OmpSs-2 the taskloop construct is supported as '#pragma oss task loop'
-        if (PragmaUtils::is_pragma_construct("oss", construct)
-                && construct.get_pragma_line().get_clause("loop").is_defined())
-        {
-            taskloop_handler_post(construct);
-        }
-        else
-        {
-            ERROR_CONDITION(!_target_context.empty(), "Target context must be empty here", 0);
-            _openmp_info->pop_current_data_environment();
-        }
+        ERROR_CONDITION(!_target_context.empty(), "Target context must be empty here", 0);
+        _openmp_info->pop_current_data_environment();
     }
 
     // Function tasks
@@ -2220,6 +2227,30 @@ namespace TL { namespace OpenMP {
     void Core::taskwait_handler_post(TL::PragmaCustomDirective construct)
     {
         _openmp_info->pop_current_data_environment();
+    }
+
+    void Core::taskgroup_handler_pre(TL::PragmaCustomStatement construct)
+    {
+        DataEnvironment& data_environment = _openmp_info->get_new_data_environment(construct);
+
+        // A taskgroup construct is not associated with a data environment in OpenMP.
+        // Despite that, it's useful to keep the information related to the this construct
+        // in a DataEnvironment. However, we will never update the current data environment.
+        //
+        // _openmp_info->push_current_data_environment(data_environment);
+
+
+        // The only clause that can be applied to the taskloop construct is the 'task_reduction' clause
+        ObjectList<Symbol> extra_symbols;
+        TL::PragmaCustomLine pragma_line = construct.get_pragma_line();
+        get_data_explicit_attributes(pragma_line, construct.get_statements(), data_environment, extra_symbols);
+
+    }
+
+    void Core::taskgroup_handler_post(TL::PragmaCustomStatement construct)
+    {
+        // A taskgroup construct is not associated with a data environment in OpenMP.
+        //_openmp_info->pop_current_data_environment();
     }
 
     // #pragma omp target before a declaration/function-definition
@@ -2580,138 +2611,92 @@ namespace TL { namespace OpenMP {
         sanity_check.walk(l);
     }
 
-#define INVALID_STATEMENT_HANDLER(_name) \
-    void Core::_name##_handler_pre(TL::PragmaCustomStatement ctr) { \
-        error_printf_at(ctr.get_locus(), "invalid '#pragma %s %s'\n",  \
-                ctr.get_text().c_str(), \
-                ctr.get_pragma_line().get_text().c_str()); \
-    } \
-    void Core::_name##_handler_post(TL::PragmaCustomStatement) { }
+#define CLASSNAME Core
+#include "tl-omp-def-undef-macros.hpp"
 
-#define INVALID_DECLARATION_HANDLER(_name) \
-    void Core::_name##_handler_pre(TL::PragmaCustomDeclaration ctr) { \
-        error_printf_at(ctr.get_locus(), "invalid '#pragma %s %s'\n",  \
-                ctr.get_text().c_str(), \
-                ctr.get_pragma_line().get_text().c_str()); \
-    } \
-    void Core::_name##_handler_post(TL::PragmaCustomDeclaration) { }
+    OMP_INVALID_DECLARATION_HANDLER(atomic)
+    OMP_INVALID_DECLARATION_HANDLER(critical)
+    OMP_INVALID_DECLARATION_HANDLER(distribute)
+    OMP_INVALID_DECLARATION_HANDLER(distribute_parallel_do)
+    OMP_INVALID_DECLARATION_HANDLER(distribute_parallel_for)
+    OMP_INVALID_DECLARATION_HANDLER(do)
+    OMP_INVALID_DECLARATION_HANDLER(for)
+    OMP_INVALID_DECLARATION_HANDLER(master)
+    OMP_INVALID_DECLARATION_HANDLER(ordered)
+    OMP_INVALID_DECLARATION_HANDLER(parallel)
+    OMP_INVALID_DECLARATION_HANDLER(parallel_do)
+    OMP_INVALID_DECLARATION_HANDLER(parallel_for)
+    OMP_INVALID_DECLARATION_HANDLER(parallel_sections)
+    OMP_INVALID_DECLARATION_HANDLER(parallel_simd_for)
+    OMP_INVALID_DECLARATION_HANDLER(section)
+    OMP_INVALID_DECLARATION_HANDLER(sections)
+    OMP_INVALID_DECLARATION_HANDLER(simd_for)
+    OMP_INVALID_DECLARATION_HANDLER(simd_fortran)
+    OMP_INVALID_DECLARATION_HANDLER(single)
+    OMP_INVALID_DECLARATION_HANDLER(target_data)
+    OMP_INVALID_DECLARATION_HANDLER(target_teams)
+    OMP_INVALID_DECLARATION_HANDLER(target_teams_distribute)
+    OMP_INVALID_DECLARATION_HANDLER(target_teams_distribute_parallel_do)
+    OMP_INVALID_DECLARATION_HANDLER(target_teams_distribute_parallel_for)
+    OMP_INVALID_DECLARATION_HANDLER(taskgroup)
+    OMP_INVALID_DECLARATION_HANDLER(taskloop)
+    OMP_INVALID_DECLARATION_HANDLER(teams)
+    OMP_INVALID_DECLARATION_HANDLER(teams_distribute)
+    OMP_INVALID_DECLARATION_HANDLER(teams_distribute_parallel_do)
+    OMP_INVALID_DECLARATION_HANDLER(teams_distribute_parallel_for)
+    OMP_INVALID_DECLARATION_HANDLER(workshare)
 
-    INVALID_DECLARATION_HANDLER(parallel)
-        INVALID_DECLARATION_HANDLER(parallel_for)
-        INVALID_DECLARATION_HANDLER(parallel_simd_for)
-        INVALID_DECLARATION_HANDLER(for)
-        INVALID_DECLARATION_HANDLER(simd_for)
-        INVALID_DECLARATION_HANDLER(parallel_do)
-        INVALID_DECLARATION_HANDLER(do)
-        INVALID_DECLARATION_HANDLER(parallel_sections)
-        INVALID_DECLARATION_HANDLER(sections)
-        INVALID_DECLARATION_HANDLER(section)
-        INVALID_DECLARATION_HANDLER(single)
-        INVALID_DECLARATION_HANDLER(workshare)
-        INVALID_DECLARATION_HANDLER(ordered)
-        INVALID_DECLARATION_HANDLER(master)
-        INVALID_DECLARATION_HANDLER(target_data)
-        INVALID_DECLARATION_HANDLER(teams)
-        INVALID_DECLARATION_HANDLER(distribute)
-        INVALID_DECLARATION_HANDLER(distribute_parallel_for)
-        INVALID_DECLARATION_HANDLER(distribute_parallel_do)
-        INVALID_DECLARATION_HANDLER(target_teams)
-        INVALID_DECLARATION_HANDLER(teams_distribute)
-        INVALID_DECLARATION_HANDLER(target_teams_distribute)
-        INVALID_DECLARATION_HANDLER(teams_distribute_parallel_for)
-        INVALID_DECLARATION_HANDLER(teams_distribute_parallel_do)
-        INVALID_DECLARATION_HANDLER(target_teams_distribute_parallel_for)
-        INVALID_DECLARATION_HANDLER(target_teams_distribute_parallel_do)
-        INVALID_DECLARATION_HANDLER(taskloop)
-        INVALID_DECLARATION_HANDLER(atomic)
-        INVALID_DECLARATION_HANDLER(critical)
-        INVALID_DECLARATION_HANDLER(simd_fortran)
+    OMP_INVALID_STATEMENT_HANDLER(declare_simd)
 
-        INVALID_STATEMENT_HANDLER(declare_simd)
+    OMP_EMPTY_STATEMENT_HANDLER(atomic)
+    OMP_EMPTY_STATEMENT_HANDLER(critical)
+    OMP_EMPTY_STATEMENT_HANDLER(master)
+    OMP_EMPTY_STATEMENT_HANDLER(simd_fortran)
 
-#define EMPTY_HANDLERS_STATEMENT(_name) \
-        void Core::_name##_handler_pre(TL::PragmaCustomStatement) { } \
-        void Core::_name##_handler_post(TL::PragmaCustomStatement) { } \
+    OMP_EMPTY_DECLARATION_HANDLER(declare_simd)
+    OMP_EMPTY_DECLARATION_HANDLER(simd)
 
-#define EMPTY_HANDLERS_DECLARATION(_name) \
-        void Core::_name##_handler_pre(TL::PragmaCustomDeclaration) { } \
-        void Core::_name##_handler_post(TL::PragmaCustomDeclaration) { }
+    OMP_EMPTY_DIRECTIVE_HANDLER(barrier)
+    OMP_EMPTY_DIRECTIVE_HANDLER(flush)
+    OMP_EMPTY_DIRECTIVE_HANDLER(register)
+    OMP_EMPTY_DIRECTIVE_HANDLER(taskyield)
+    OMP_EMPTY_DIRECTIVE_HANDLER(unregister)
 
-#define EMPTY_HANDLERS_DIRECTIVE(_name) \
-        void Core::_name##_handler_pre(TL::PragmaCustomDirective) { } \
-        void Core::_name##_handler_post(TL::PragmaCustomDirective) { }
+    OMP_UNIMPLEMENTED_STATEMENT_HANDLER(ordered)
 
-#define UNIMPLEMENTED_HANDLER_STATEMENT(_name) \
-        void Core::_name##_handler_pre(TL::PragmaCustomStatement ctr) { \
-            error_printf_at(ctr.get_locus(), "OpenMP construct not implemented\n");\
-        } \
-        void Core::_name##_handler_post(TL::PragmaCustomStatement) { } \
+    /* --------------- OmpSs-2 ---------------- */
 
-        EMPTY_HANDLERS_STATEMENT(atomic)
-        EMPTY_HANDLERS_STATEMENT(critical)
-        EMPTY_HANDLERS_STATEMENT(master)
-        EMPTY_HANDLERS_STATEMENT(simd_fortran)
+    OSS_TO_OMP_STATEMENT_HANDLER(atomic)
+    OSS_TO_OMP_STATEMENT_HANDLER(critical)
+    OSS_TO_OMP_STATEMENT_HANDLER(task)
 
-        EMPTY_HANDLERS_DECLARATION(simd)
-        EMPTY_HANDLERS_DECLARATION(declare_simd)
+    OSS_TO_OMP_DECLARATION_HANDLER(atomic)
+    OSS_TO_OMP_DECLARATION_HANDLER(critical)
+    OSS_TO_OMP_DECLARATION_HANDLER(task)
 
-        EMPTY_HANDLERS_DIRECTIVE(barrier)
-        EMPTY_HANDLERS_DIRECTIVE(flush)
-        EMPTY_HANDLERS_DIRECTIVE(register)
-        EMPTY_HANDLERS_DIRECTIVE(unregister)
-        EMPTY_HANDLERS_DIRECTIVE(taskyield)
+    OSS_TO_OMP_DIRECTIVE_HANDLER(taskwait)
 
-        UNIMPLEMENTED_HANDLER_STATEMENT(ordered)
+    OSS_INVALID_DECLARATION_HANDLER(loop)
 
-#define OSS_WRAPPER_TO_OMP_DECLARATION(_name) \
-        void Core::oss_##_name##_handler_pre(TL::PragmaCustomDeclaration construct) {\
-            _name##_handler_pre(construct); \
-        } \
-        void Core::oss_##_name##_handler_post(TL::PragmaCustomDeclaration construct) {\
-            _name##_handler_post(construct); \
-        }
-#define OSS_WRAPPER_TO_OMP_DIRECTIVE(_name) \
-        void Core::oss_##_name##_handler_pre(TL::PragmaCustomDirective construct) {\
-            _name##_handler_pre(construct); \
-        } \
-        void Core::oss_##_name##_handler_post(TL::PragmaCustomDirective construct) {\
-            _name##_handler_post(construct); \
-        }
-#define OSS_WRAPPER_TO_OMP_STATEMENT(_name) \
-        void Core::oss_##_name##_handler_pre(TL::PragmaCustomStatement construct) {\
-            _name##_handler_pre(construct); \
-        } \
-        void Core::oss_##_name##_handler_post(TL::PragmaCustomStatement construct) {\
-            _name##_handler_post(construct); \
-        }
-        OSS_WRAPPER_TO_OMP_DIRECTIVE(taskwait)
-        OSS_WRAPPER_TO_OMP_DECLARATION(task)
-        OSS_WRAPPER_TO_OMP_STATEMENT(task)
-        OSS_WRAPPER_TO_OMP_DECLARATION(critical)
-        OSS_WRAPPER_TO_OMP_STATEMENT(critical)
-        OSS_WRAPPER_TO_OMP_DECLARATION(atomic)
-        OSS_WRAPPER_TO_OMP_STATEMENT(atomic)
+#include "tl-omp-def-undef-macros.hpp"
 
-#undef OSS_WRAPPER_TO_OMP_DECLARATION
-#undef OSS_WRAPPER_TO_OMP_DIRECTIVE
-#undef OSS_WRAPPER_TO_OMP_STATEMENT
 
-        Nodecl::NodeclBase get_statement_from_pragma(
-                const TL::PragmaCustomStatement& construct)
-        {
-            Nodecl::NodeclBase stmt = construct.get_statements();
+    Nodecl::NodeclBase get_statement_from_pragma(
+            const TL::PragmaCustomStatement& construct)
+    {
+        Nodecl::NodeclBase stmt = construct.get_statements();
 
-            ERROR_CONDITION(!stmt.is<Nodecl::List>(), "Invalid tree", 0);
-            stmt = stmt.as<Nodecl::List>().front();
+        ERROR_CONDITION(!stmt.is<Nodecl::List>(), "Invalid tree", 0);
+        stmt = stmt.as<Nodecl::List>().front();
 
-            ERROR_CONDITION(!stmt.is<Nodecl::Context>(), "Invalid tree", 0);
-            stmt = stmt.as<Nodecl::Context>().get_in_context();
+        ERROR_CONDITION(!stmt.is<Nodecl::Context>(), "Invalid tree", 0);
+        stmt = stmt.as<Nodecl::Context>().get_in_context();
 
-            ERROR_CONDITION(!stmt.is<Nodecl::List>(), "Invalid tree", 0);
-            stmt = stmt.as<Nodecl::List>().front();
+        ERROR_CONDITION(!stmt.is<Nodecl::List>(), "Invalid tree", 0);
+        stmt = stmt.as<Nodecl::List>().front();
 
-            return stmt;
-        }
+        return stmt;
+    }
 
     void openmp_core_run_next_time(DTO& dto)
     {

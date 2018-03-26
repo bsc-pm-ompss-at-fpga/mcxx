@@ -378,6 +378,7 @@ src_frontend_libgccbuiltins_la_CFLAGS=@NO_VAR_TRACKING_ASSIGNMENTS@ \
 src_frontend_libgccbuiltins_la_SOURCES = \
   src/frontend/cxx-gccbuiltins.h \
   src/frontend/cxx-gccbuiltins-ia32.h \
+  src/frontend/cxx-gccbuiltins-ia32-deprecated.h \
   src/frontend/cxx-gccbuiltins-arm-neon.h \
   src/frontend/cxx-gccbuiltins-arm64-neon.h \
   src/frontend/cxx-gccbuiltins.c \
@@ -704,7 +705,6 @@ src/frontend/cxx-asttype-nodecl.def : $(NODECL_DEPS)
 
 lib_LTLIBRARIES += src/frontend/fortran/libmf03.la src/frontend/fortran/libmf03-prescanner.la
 
-BUILT_SOURCES += src/frontend/fortran/fortran03-flex-scanner.c
 BUILT_SOURCES += src/frontend/fortran/fortran03-parser.c
 BUILT_SOURCES += src/frontend/fortran/fortran03-parser-internal.h
 BUILT_SOURCES += src/frontend/fortran/fortran03.y
@@ -718,8 +718,8 @@ src_frontend_fortran_libmf03_la_SOURCES = \
                      src/frontend/fortran/fortran03-parser.h \
                      src/frontend/fortran/fortran03-lexer.h \
                      src/frontend/fortran/fortran03-keywords.c \
-                     src/frontend/fortran/fortran03-new-scanner.h \
-                     src/frontend/fortran/fortran03-new-scanner.c \
+                     src/frontend/fortran/fortran03-scanner.h \
+                     src/frontend/fortran/fortran03-scanner.c \
                      src/frontend/fortran/fortran03-parser-internal.h \
                      src/frontend/fortran/fortran03-cexpr.h \
                      src/frontend/fortran/fortran03-cexpr.c \
@@ -753,12 +753,6 @@ src_frontend_fortran_libmf03_la_SOURCES = \
                      src/frontend/fortran/fortran03-mangling.c \
                      src/frontend/fortran/libmf03-common.h \
                      $(END)
-
-if !FORTRAN_NEW_SCANNER
-src_frontend_fortran_libmf03_la_SOURCES += \
-                     src/frontend/fortran/fortran03-flex-scanner.c \
-                     $(END)
-endif
 
 src_frontend_fortran_libmf03_la_LIBADD = \
 					$(top_builddir)/lib/libmcxx-utils.la \
@@ -883,19 +877,6 @@ src/frontend/fortran/fortran03-parser-internal.h : src/frontend/fortran/fortran0
 if BISON_BUILDING
 src/frontend/fortran/fortran03-parser.c : src/frontend/fortran/fortran03.y
 	$(BISON_verbose)$(BISON) -pmf03 --debug --defines=src/frontend/fortran/fortran03-parser-internal.h --report=all --output=src/frontend/fortran/fortran03-parser.c src/frontend/fortran/fortran03.y
-endif
-
-EXTRA_DIST += src/frontend/fortran/fortran03.l
-
-if FLEX_BUILDING
-CLEANFILES += src/frontend/fortran/fortran03-flex-scanner.c
-endif
-
-EXTRA_DIST += src/frontend/fortran/fortran03-flex-scanner.c
-
-if FLEX_BUILDING
-src/frontend/fortran/fortran03-flex-scanner.c : src/frontend/fortran/fortran03.l src/frontend/fortran/fortran03-parser-internal.h
-	$(FLEX_verbose)$(FLEX) -Pmf03 -d -i -o src/frontend/fortran/fortran03-flex-scanner.c -8 $(top_srcdir)/src/frontend/fortran/fortran03.l
 endif
 
 if FLEX_BUILDING
@@ -1775,6 +1756,7 @@ EXTRA_DIST += src/tl/omp/core/tl-omp-constructs.def \
 src_tl_omp_core_libtlomp_core_la_SOURCES = \
    src/tl/omp/core/tl-omp-core.hpp \
    src/tl/omp/core/tl-omp-core.cpp \
+   src/tl/omp/core/tl-omp-def-undef-macros.hpp \
    src/tl/omp/core/tl-omp.hpp \
    src/tl/omp/core/tl-omp.cpp \
    src/tl/omp/core/tl-omp-deps.hpp \
@@ -2338,44 +2320,57 @@ if BUILD_NANOS6
 
 phases_LTLIBRARIES += src/tl/ompss/nanos6/libtlnanos6-lowering.la
 
-src_tl_ompss_nanos6_libtlnanos6_lowering_la_CFLAGS = $(phases_cflags) \
-                                                        -I $(top_srcdir)/src/tl/omp/core \
-                                                        -I $(top_srcdir)/src/tl/omp/common \
-                                                        -I@NANOS6_INCLUDES@
-src_tl_ompss_nanos6_libtlnanos6_lowering_la_CXXFLAGS = $(phases_cxxflags) \
-                                                        -I $(top_srcdir)/src/tl/omp/core \
-                                                        -I $(top_srcdir)/src/tl/omp/common \
-                                                        -I@NANOS6_INCLUDES@
+src_tl_ompss_nanos6_libtlnanos6_lowering_la_CFLAGS = \
+    $(phases_cflags) \
+    -I$(top_srcdir)/src/tl/omp/core \
+    -I$(top_srcdir)/src/tl/omp/common \
+    -I$(top_srcdir)/src/tl/ompss/nanos6 \
+    -I$(top_srcdir)/src/tl/ompss/nanos6/devices \
+    $(END)
+
+src_tl_ompss_nanos6_libtlnanos6_lowering_la_CXXFLAGS = \
+    $(phases_cxxflags) \
+    -I$(top_srcdir)/src/tl/omp/core \
+    -I$(top_srcdir)/src/tl/omp/common \
+    -I$(top_srcdir)/src/tl/ompss/nanos6 \
+    -I$(top_srcdir)/src/tl/ompss/nanos6/devices \
+    $(END)
 
 src_tl_ompss_nanos6_libtlnanos6_lowering_la_LIBADD = $(phases_libadd)
 
 src_tl_ompss_nanos6_libtlnanos6_lowering_la_LDFLAGS = $(phases_ldflags)
 
 src_tl_ompss_nanos6_libtlnanos6_lowering_la_SOURCES = \
-								 src/tl/ompss/nanos6/tl-nanos6.cpp \
-								 src/tl/ompss/nanos6/tl-nanos6.hpp \
-								 src/tl/ompss/nanos6/tl-nanos6-lower.cpp \
-								 src/tl/ompss/nanos6/tl-nanos6-lower.hpp \
-								 src/tl/ompss/nanos6/tl-nanos6-task.cpp \
-								 src/tl/ompss/nanos6/tl-nanos6-taskcall.cpp \
-								 src/tl/ompss/nanos6/tl-nanos6-taskloop.cpp \
-								 src/tl/ompss/nanos6/tl-nanos6-directive-environment.cpp \
-								 src/tl/ompss/nanos6/tl-nanos6-directive-environment.hpp \
-								 src/tl/ompss/nanos6/tl-nanos6-task-properties.hpp \
-								 src/tl/ompss/nanos6/tl-nanos6-task-properties.cpp \
-								 src/tl/ompss/nanos6/tl-nanos6-support.hpp \
-								 src/tl/ompss/nanos6/tl-nanos6-support.cpp \
-								 src/tl/ompss/nanos6/tl-nanos6-fortran-load-api.cpp \
-								 src/tl/ompss/nanos6/tl-nanos6-fortran-support.hpp \
-								 src/tl/ompss/nanos6/tl-nanos6-fortran-support.cpp \
-								 src/tl/ompss/nanos6/tl-nanos6-taskwait.cpp \
-								 src/tl/ompss/nanos6/tl-nanos6-critical.cpp \
-								 src/tl/ompss/nanos6/tl-nanos6-atomic.cpp \
-								 src/tl/ompss/nanos6/tl-nanos6-unsupported.cpp \
-								 src/tl/ompss/nanos6/tl-nanos6-interface.hpp \
-								 src/tl/ompss/nanos6/tl-nanos6-interface.cpp \
-								 src/tl/ompss/nanos6/tl-nanos6-release.cpp
-								 $(END)
+    src/tl/ompss/nanos6/tl-nanos6.cpp \
+    src/tl/ompss/nanos6/tl-nanos6.hpp \
+    src/tl/ompss/nanos6/tl-nanos6-lower.cpp \
+    src/tl/ompss/nanos6/tl-nanos6-lower.hpp \
+    src/tl/ompss/nanos6/tl-nanos6-task.cpp \
+    src/tl/ompss/nanos6/tl-nanos6-taskcall.cpp \
+    src/tl/ompss/nanos6/tl-nanos6-loop.cpp \
+    src/tl/ompss/nanos6/tl-nanos6-directive-environment.cpp \
+    src/tl/ompss/nanos6/tl-nanos6-directive-environment.hpp \
+    src/tl/ompss/nanos6/tl-nanos6-task-properties.hpp \
+    src/tl/ompss/nanos6/tl-nanos6-task-properties.cpp \
+    src/tl/ompss/nanos6/tl-nanos6-support.hpp \
+    src/tl/ompss/nanos6/tl-nanos6-support.cpp \
+    src/tl/ompss/nanos6/tl-nanos6-fortran-load-api.cpp \
+    src/tl/ompss/nanos6/tl-nanos6-fortran-support.hpp \
+    src/tl/ompss/nanos6/tl-nanos6-fortran-support.cpp \
+    src/tl/ompss/nanos6/tl-nanos6-taskwait.cpp \
+    src/tl/ompss/nanos6/tl-nanos6-critical.cpp \
+    src/tl/ompss/nanos6/tl-nanos6-atomic.cpp \
+    src/tl/ompss/nanos6/tl-nanos6-interface.hpp \
+    src/tl/ompss/nanos6/tl-nanos6-interface.cpp \
+    src/tl/ompss/nanos6/tl-nanos6-release.cpp \
+    src/tl/ompss/nanos6/devices/tl-nanos6-device-factory.hpp \
+    src/tl/ompss/nanos6/devices/tl-nanos6-device.hpp \
+    src/tl/ompss/nanos6/devices/tl-nanos6-device.cpp \
+    src/tl/ompss/nanos6/devices/smp/tl-nanos6-smp-device.hpp \
+    src/tl/ompss/nanos6/devices/smp/tl-nanos6-smp-device.cpp \
+    src/tl/ompss/nanos6/devices/cuda/tl-nanos6-cuda-device.hpp \
+    src/tl/ompss/nanos6/devices/cuda/tl-nanos6-cuda-device.cpp \
+    $(END)
 
 endif
 
@@ -3193,6 +3188,7 @@ src_driver_fortran_libmf03_driver_la_CFLAGS = $(fortran_driver_common_cflags)
 CONFIG_FILES =  \
        config/00.config.plain \
        config/01.config.intel-plain \
+       config/02.config.utilities \
        config/10.config.hlt \
        config/10.config.omp-base \
        config/10.config.gomp-omp-base \
@@ -3255,9 +3251,6 @@ config_edit = \
      -e 's|@NANOX_MIC_INCLUDES[@]|$(NANOX_MIC_INCLUDES)|g' \
      -e 's|@NANOX_MIC_LIBS[@]|$(NANOX_MIC_LIBS)|g' \
      -e 's|@NANOX_MIC[@]|$(NANOX_MIC)|g' \
-     -e "s|@CUDA_INCLUDES[@]|$(CUDA_INCLUDES)|g" \
-     -e "s|@CUDA_LIBS[@]|$(CUDA_LIBS)|g" \
-     -e "s|@CUDA_RPATH[@]|$(CUDA_RPATH)|g" \
      -e 's|@ENABLE_CUDA[@]|$(ENABLE_CUDA)|g' \
      -e 's|@ENABLE_OPENCL[@]|$(ENABLE_OPENCL)|g' \
      -e 's|@MPIFORT[@]|$(MPIFORT)|g' \
@@ -3381,73 +3374,95 @@ DEBIAN_EXTRA=\
 # x86 builtins generator for GCC
 #####################################
 
-LATEST_GXX_X86=g++-5.1
+GXX_X86_BUILTINS = g++-7
+GXX_X86_DEPRECATED_BUILTINS = g++-5
 
-LATEST_GXX_X86_FLAGS =
-LATEST_GXX_X86_FLAGS += -fabi-version=6
-LATEST_GXX_X86_FLAGS += -m3dnow
-LATEST_GXX_X86_FLAGS += -mabm
-LATEST_GXX_X86_FLAGS += -maes
-LATEST_GXX_X86_FLAGS += -mavx
-LATEST_GXX_X86_FLAGS += -mavx2
-LATEST_GXX_X86_FLAGS += -mavx512bw
-LATEST_GXX_X86_FLAGS += -mavx512cd
-LATEST_GXX_X86_FLAGS += -mavx512dq
-LATEST_GXX_X86_FLAGS += -mavx512er
-LATEST_GXX_X86_FLAGS += -mavx512f
-LATEST_GXX_X86_FLAGS += -mavx512ifma
-LATEST_GXX_X86_FLAGS += -mavx512pf
-LATEST_GXX_X86_FLAGS += -mavx512vbmi
-LATEST_GXX_X86_FLAGS += -mavx512vl
-LATEST_GXX_X86_FLAGS += -mbmi
-LATEST_GXX_X86_FLAGS += -mbmi2
-LATEST_GXX_X86_FLAGS += -mclflushopt
-LATEST_GXX_X86_FLAGS += -mclwb
-LATEST_GXX_X86_FLAGS += -mf16c
-LATEST_GXX_X86_FLAGS += -mfma
-LATEST_GXX_X86_FLAGS += -mfma4
-LATEST_GXX_X86_FLAGS += -mfsgsbase
-LATEST_GXX_X86_FLAGS += -mfxsr
-LATEST_GXX_X86_FLAGS += -mlwp
-LATEST_GXX_X86_FLAGS += -mlzcnt
-LATEST_GXX_X86_FLAGS += -mmmx
-LATEST_GXX_X86_FLAGS += -mmpx
-LATEST_GXX_X86_FLAGS += -mmwaitx
-LATEST_GXX_X86_FLAGS += -mno-fma4
-LATEST_GXX_X86_FLAGS += -mpclmul
-LATEST_GXX_X86_FLAGS += -mpcommit
-LATEST_GXX_X86_FLAGS += -mpopcnt
-LATEST_GXX_X86_FLAGS += -mprefetchwt1
-LATEST_GXX_X86_FLAGS += -mrdrnd
-LATEST_GXX_X86_FLAGS += -mrdseed
-LATEST_GXX_X86_FLAGS += -mrtm
-LATEST_GXX_X86_FLAGS += -msha
-LATEST_GXX_X86_FLAGS += -msse
-LATEST_GXX_X86_FLAGS += -msse2
-LATEST_GXX_X86_FLAGS += -msse3
-LATEST_GXX_X86_FLAGS += -msse4
-LATEST_GXX_X86_FLAGS += -msse4.1
-LATEST_GXX_X86_FLAGS += -msse4.2
-LATEST_GXX_X86_FLAGS += -msse4a
-LATEST_GXX_X86_FLAGS += -mssse3
-LATEST_GXX_X86_FLAGS += -mtbm
-LATEST_GXX_X86_FLAGS += -mxop
-LATEST_GXX_X86_FLAGS += -mxsave
-LATEST_GXX_X86_FLAGS += -mxsavec
-LATEST_GXX_X86_FLAGS += -mxsaveopt
-LATEST_GXX_X86_FLAGS += -mxsaves
+# Common flags between GXX_X86_BUILTINS and GXX_X86_DEPRECATED_BUILTINS
+GXX_X86_COMMON_FLAGS =
+GXX_X86_COMMON_FLAGS += -fabi-version=6
+GXX_X86_COMMON_FLAGS += -m3dnow
+GXX_X86_COMMON_FLAGS += -mabm
+GXX_X86_COMMON_FLAGS += -maes
+GXX_X86_COMMON_FLAGS += -mavx
+GXX_X86_COMMON_FLAGS += -mavx2
+GXX_X86_COMMON_FLAGS += -mavx512bw
+GXX_X86_COMMON_FLAGS += -mavx512cd
+GXX_X86_COMMON_FLAGS += -mavx512dq
+GXX_X86_COMMON_FLAGS += -mavx512er
+GXX_X86_COMMON_FLAGS += -mavx512f
+GXX_X86_COMMON_FLAGS += -mavx512ifma
+GXX_X86_COMMON_FLAGS += -mavx512pf
+GXX_X86_COMMON_FLAGS += -mavx512vbmi
+GXX_X86_COMMON_FLAGS += -mavx512vl
+GXX_X86_COMMON_FLAGS += -mbmi
+GXX_X86_COMMON_FLAGS += -mbmi2
+GXX_X86_COMMON_FLAGS += -mclflushopt
+GXX_X86_COMMON_FLAGS += -mclwb
+GXX_X86_COMMON_FLAGS += -mf16c
+GXX_X86_COMMON_FLAGS += -mfma
+GXX_X86_COMMON_FLAGS += -mfma4
+GXX_X86_COMMON_FLAGS += -mfsgsbase
+GXX_X86_COMMON_FLAGS += -mfxsr
+GXX_X86_COMMON_FLAGS += -mlwp
+GXX_X86_COMMON_FLAGS += -mlzcnt
+GXX_X86_COMMON_FLAGS += -mmmx
+GXX_X86_COMMON_FLAGS += -mmpx
+GXX_X86_COMMON_FLAGS += -mmwaitx
+GXX_X86_COMMON_FLAGS += -mno-fma4
+GXX_X86_COMMON_FLAGS += -mpclmul
+GXX_X86_COMMON_FLAGS += -mpopcnt
+GXX_X86_COMMON_FLAGS += -mprefetchwt1
+GXX_X86_COMMON_FLAGS += -mrdrnd
+GXX_X86_COMMON_FLAGS += -mrdseed
+GXX_X86_COMMON_FLAGS += -mrtm
+GXX_X86_COMMON_FLAGS += -msha
+GXX_X86_COMMON_FLAGS += -msse
+GXX_X86_COMMON_FLAGS += -msse2
+GXX_X86_COMMON_FLAGS += -msse3
+GXX_X86_COMMON_FLAGS += -msse4
+GXX_X86_COMMON_FLAGS += -msse4.1
+GXX_X86_COMMON_FLAGS += -msse4.2
+GXX_X86_COMMON_FLAGS += -msse4a
+GXX_X86_COMMON_FLAGS += -mssse3
+GXX_X86_COMMON_FLAGS += -mtbm
+GXX_X86_COMMON_FLAGS += -mxop
+GXX_X86_COMMON_FLAGS += -mxsave
+GXX_X86_COMMON_FLAGS += -mxsavec
+GXX_X86_COMMON_FLAGS += -mxsaveopt
+GXX_X86_COMMON_FLAGS += -mxsaves
+
+GXX_X86_BUILTINS_FLAGS = $(GXX_X86_COMMON_FLAGS)
+GXX_X86_BUILTINS_FLAGS += -mavx5124fmaps     # introduced in GCC-7
+GXX_X86_BUILTINS_FLAGS += -mavx5124vnniw     # introduced in GCC-7
+GXX_X86_BUILTINS_FLAGS += -mavx512vpopcntdq  # introduced in GCC-7
+GXX_X86_BUILTINS_FLAGS += -mrdpid            # introduced in GCC-7
+
+GXX_X86_DEPRECATED_BUILTINS_FLAGS = $(GXX_X86_COMMON_FLAGS)
+GXX_X86_DEPRECATED_BUILTINS_FLAGS += -mpcommit # deprecated in GCC-6
 
 scripts/generate_builtins_ia32.bin : $(srcdir)/scripts/simd/x86/builtins_ia32.cpp Makefile
-	$(LATEST_GXX_X86) $(LATEST_GXX_X86_FLAGS) -I$(srcdir)/scripts/simd \
+	$(GXX_X86_BUILTINS) $(GXX_X86_BUILTINS_FLAGS) -I$(srcdir)/scripts/simd \
 		-o scripts/generate_builtins_ia32.bin \
 		$(srcdir)/scripts/simd/x86/builtins_ia32.cpp \
-		-Wl,-rpath,$$(dirname $$($(LATEST_GXX) -print-file-name=libstdc++.so))
+		-Wl,-rpath,$$(dirname $$($(GXX_X86_BUILTINS) -print-file-name=libstdc++.so))
 
 # These files are only regenerated manually
 .PHONY: generate_builtins_ia32
 CLEANFILES += scripts/generate_builtins_ia32.bin
 generate_builtins_ia32: scripts/generate_builtins_ia32.bin
 	./scripts/generate_builtins_ia32.bin > $(top_srcdir)/src/frontend/cxx-gccbuiltins-ia32.h
+
+scripts/generate_builtins_ia32_deprecated.bin : $(srcdir)/scripts/simd/x86/builtins_ia32_deprecated.cpp Makefile
+	$(GXX_X86_DEPRECATED_BUILTINS) $(GXX_X86_DEPRECATED_BUILTINS_FLAGS) -I$(srcdir)/scripts/simd \
+		-o scripts/generate_builtins_ia32_deprecated.bin \
+		$(srcdir)/scripts/simd/x86/builtins_ia32_deprecated.cpp \
+		-Wl,-rpath,$$(dirname $$($(GXX_X86_DEPRECATED_BUILTINS) -print-file-name=libstdc++.so))
+
+# These files are only regenerated manually
+.PHONY: generate_builtins_ia32_deprecated
+CLEANFILES += scripts/generate_builtins_ia32.bin
+generate_builtins_ia32_deprecated: scripts/generate_builtins_ia32_deprecated.bin
+	./scripts/generate_builtins_ia32_deprecated.bin > $(top_srcdir)/src/frontend/cxx-gccbuiltins-ia32-deprecated.h
 
 #####################################
 # x86 builtins generator for ICC

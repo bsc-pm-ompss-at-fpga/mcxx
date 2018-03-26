@@ -1025,14 +1025,13 @@ void DeviceOpenCL::create_outline(CreateOutlineInfo &info,
                     {
                         argument << "args % " << (*it)->get_field_name();
 
-                        bool is_allocatable = (*it)->get_allocation_policy() & OutlineDataItem::ALLOCATION_POLICY_TASK_MUST_DEALLOCATE_ALLOCATABLE;
-                        bool is_pointer = (*it)->get_allocation_policy() & OutlineDataItem::ALLOCATION_POLICY_TASK_MUST_DEALLOCATE_POINTER;
-
-                        if (is_allocatable
-                                || is_pointer)
+                        if ((*it)->get_allocation_policy()
+                                & OutlineDataItem::ALLOCATION_POLICY_TASK_MUST_DEALLOCATE_ALLOCATABLE)
                         {
                             cleanup_code
-                                << "DEALLOCATE(args % " << (*it)->get_field_name() << ")\n"
+                                << "IF (ALLOCATED(args % " << (*it)->get_field_name() << ")) THEN\n"
+                                <<      "DEALLOCATE(args % " << (*it)->get_field_name() << ")\n"
+                                << "ENDIF\n"
                                 ;
                         }
                     }

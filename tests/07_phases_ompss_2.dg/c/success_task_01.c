@@ -15,7 +15,7 @@ void g() {
         f();
     }
 
-    #pragma oss task loop chunksize(4)
+    #pragma oss loop chunksize(4)
     for (int i = 0; i < 100; ++i)
     {}
 

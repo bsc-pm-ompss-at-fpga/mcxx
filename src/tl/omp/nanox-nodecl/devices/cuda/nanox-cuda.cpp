@@ -104,8 +104,8 @@ void DeviceCUDA::generate_ndrange_additional_code(
                 << " < " << as_expression(new_ndrange_args[num_dim + i])
                 << ") ? 1 : (("
                 << as_expression(new_ndrange_args[i]) << "/" << as_expression(new_ndrange_args[num_dim + i])
-                << ") + ((" << as_expression(new_ndrange_args[i]) << " %  " << as_expression(new_ndrange_args[num_dim + i])
-                << " == 0) ? 0 : 1)));";
+                << ") + (" << as_expression(new_ndrange_args[i]) << " %  " << as_expression(new_ndrange_args[num_dim + i])
+                << " != 0)));";
         }
         else
         {
@@ -301,6 +301,22 @@ void DeviceCUDA::create_outline(CreateOutlineInfo &info,
 
     ERROR_CONDITION(is_function_task && !called_task.is_function(),
             "The '%s' symbol is not a function", called_task.get_name().c_str());
+
+    // For C/C++, if the 'ndrange' clause is defined, check whether the called task is __global__
+    if ((IS_CXX_LANGUAGE || IS_C_LANGUAGE) && is_function_task && (target_info.get_ndrange().size() > 0))
+    {
+        bool has_gcc_global_attribute = false;
+        ObjectList<GCCAttribute> gcc_attrs = called_task.get_gcc_attributes();
+        for(ObjectList<GCCAttribute>::const_iterator it = gcc_attrs.begin(); it != gcc_attrs.end(); ++it)
+        {
+            if (it->get_attribute_name() == "global")
+                has_gcc_global_attribute = true;
+        }
+
+        if (!has_gcc_global_attribute)
+            error_printf_at(original_statements.get_locus(), "Attribute '__global__' missing for symbol '%s'\n",
+                    called_task.get_name().c_str());
+    }
 
     TL::Symbol current_function = original_statements.retrieve_context().get_related_symbol();
     if (current_function.is_nested_function())
@@ -589,14 +605,13 @@ void DeviceCUDA::create_outline(CreateOutlineInfo &info,
                     {
                         argument << "args % " << (*it)->get_field_name();
 
-                        bool is_allocatable = (*it)->get_allocation_policy() & OutlineDataItem::ALLOCATION_POLICY_TASK_MUST_DEALLOCATE_ALLOCATABLE;
-                        bool is_pointer = (*it)->get_allocation_policy() & OutlineDataItem::ALLOCATION_POLICY_TASK_MUST_DEALLOCATE_POINTER;
-
-                        if (is_allocatable
-                                || is_pointer)
+                        if ((*it)->get_allocation_policy()
+                                & OutlineDataItem::ALLOCATION_POLICY_TASK_MUST_DEALLOCATE_ALLOCATABLE)
                         {
                             cleanup_code
-                                << "DEALLOCATE(args % " << (*it)->get_field_name() << ")\n"
+                                << "IF (ALLOCATED(args % " << (*it)->get_field_name() << ")) THEN\n"
+                                <<      "DEALLOCATE(args % " << (*it)->get_field_name() << ")\n"
+                                << "ENDIF\n"
                                 ;
                         }
                     }
@@ -763,7 +778,7 @@ bool DeviceCUDA::remove_function_task_from_original_source() const
 
 void DeviceCUDA::add_included_cuda_files(FILE* file)
 {
-    ObjectList<IncludeLine> lines = CurrentFile::get_top_level_included_files();
+    ObjectList<IncludeLine> lines = CurrentFile::get_included_files();
     std::string cuda_file_ext(".cu\"");
     std::string cuda_header_ext(".cuh\"");
 

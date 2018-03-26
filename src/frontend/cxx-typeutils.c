@@ -2366,7 +2366,7 @@ extern inline char has_dependent_template_parameters(template_parameter_list_t* 
                 }
             case TPK_NONTYPE:
                 {
-                    if (!nodecl_is_list(curr_argument->value))
+                    if (!nodecl_is_list_or_null(curr_argument->value))
                     {
                         if (nodecl_expr_is_value_dependent(curr_argument->value))
                             return 1;
@@ -2375,9 +2375,10 @@ extern inline char has_dependent_template_parameters(template_parameter_list_t* 
                     {
                         int n;
                         nodecl_t* list = nodecl_unpack_list(curr_argument->value, &n);
-                        for (i = 0; i < n; i++)
+                        int j;
+                        for (j = 0; j < n; j++)
                         {
-                            if (nodecl_expr_is_value_dependent(list[i]))
+                            if (nodecl_expr_is_value_dependent(list[j]))
                                 return 1;
                         }
                         DELETE(list);
@@ -5011,7 +5012,8 @@ static nodecl_t convert_node_to_ptrdiff_t(nodecl_t n)
                 get_ptrdiff_t_type(),
                 nodecl_get_locus(n));
 
-        if (cv != NULL)
+        if (cv != NULL
+                && const_value_is_integer(cv))
         {
             cv = const_value_cast_to_bytes(
                     cv,
@@ -11651,6 +11653,7 @@ static void get_type_name_string_internal_impl(const decl_context_t* decl_contex
         case TK_AUTO:
         case TK_DECLTYPE_AUTO:
         case TK_BRACED_LIST:
+        case TK_ELLIPSIS:
             {
                 break;
             }
@@ -12136,7 +12139,7 @@ extern inline type_t* get_unknown_dependent_type(void)
     return _dependent_type;
 }
 
-static char is_unknown_dependent_type(type_t* t)
+char is_unknown_dependent_type(type_t* t)
 {
     return (_dependent_type != NULL
             && t != NULL
@@ -16414,7 +16417,7 @@ extern inline type_t* get_sequence_of_types_append_type(type_t* seq_type, type_t
     if (is_sequence_of_types(type))
     {
         type = advance_over_typedefs(type);
-        memcpy(&types[n], type->sequence_type->types, m*sizeof(types));
+        memcpy(&types[n], type->sequence_type->types, m*sizeof(*types));
     }
     else
         types[n] = type;
