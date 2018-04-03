@@ -739,8 +739,14 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
 
         hls_file << it->get_source(true);
 
-       hls_file.close();
-      }
+        hls_file.close();
+
+        if(!CURRENT_CONFIGURATION->do_not_link)
+        {
+            //If linking is enabled, remove the intermediate HLS source file (like an object file)
+            ::mark_file_for_cleanup(new_filename.c_str());
+        }
+    }
 
         // Do not forget the clear the code for next files
         _fpga_file_code = Nodecl::List();
