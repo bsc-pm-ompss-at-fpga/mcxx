@@ -63,6 +63,7 @@ namespace TL { namespace Nanox {
 
         Source immediate_decl;
         allocate_immediate_structure(
+                structure_symbol.get_user_defined_type(),
                 outline_info,
                 struct_arg_type_name,
                 struct_size,
@@ -70,11 +71,6 @@ namespace TL { namespace Nanox {
                 immediate_decl,
                 dynamic_size);
 
-        Nodecl::NodeclBase fill_outline_arguments_tree;
-        Source fill_outline_arguments;
-
-        Nodecl::NodeclBase fill_immediate_arguments_tree;
-        Source fill_immediate_arguments;
 
         Source call_outline_function;
 
@@ -116,143 +112,145 @@ namespace TL { namespace Nanox {
 
 
         Source worksharing_creation;
-
         if (IS_CXX_LANGUAGE)
         {
             worksharing_creation
                 << as_statement(Nodecl::CxxDef::make(Nodecl::NodeclBase::null(), slicer_descriptor));
         }
         worksharing_creation
-            <<     "nanos_err = nanos_worksharing_create(&" << as_symbol(slicer_descriptor) << ", current_ws_policy, (void**)&nanos_setup_info_loop, &single_guard);"
+            <<     "nanos_err = nanos_worksharing_create("
+            <<                      "&" << as_symbol(slicer_descriptor) << ","
+            <<                      "current_ws_policy,"
+            <<                      "(void**)&nanos_setup_info_loop,"
+            <<                      "&single_guard);"
             <<     "if (nanos_err != NANOS_OK)"
             <<         "nanos_handle_error(nanos_err);"
             ;
 
-        std::string wd_description;
-        if (!task_label.is_null())
+        Nodecl::NodeclBase fill_outline_arguments_tree, fill_immediate_arguments_tree;
+
+        TL::Source barrier_or_tw_if_needed;
+        bool barrier_at_the_end = !distribute_environment.find_first<Nodecl::OpenMP::BarrierAtEnd>().is_null();
+
+        TL::Source pm_specific_code;
+        if (!_lowering->in_ompss_mode())
         {
-            wd_description = task_label.get_text();
+            // OpenMP
+            pm_specific_code
+                << immediate_decl
+                << statement_placeholder(fill_immediate_arguments_tree)
+                << "smp_" << outline_name << "(imm_args);"
+                ;
+
+            if (barrier_at_the_end)
+                barrier_or_tw_if_needed << full_barrier_source();
         }
         else
         {
-            wd_description = enclosing_function.get_name();
+            // OmpSs
+            std::string wd_description =
+                (!task_label.is_null()) ? task_label.get_text() : enclosing_function.get_name();
+
+            Source const_wd_info;
+            const_wd_info
+                << fill_const_wd_info(struct_arg_type_name,
+                        /* is_untied */ false,
+                        /* mandatory_creation */ true,
+                        /* is_function_task */ false,
+                        wd_description,
+                        outline_info,
+                        construct);
+
+            std::string dyn_props_var = "nanos_wd_dyn_props";
+
+            Source dynamic_wd_info;
+            dynamic_wd_info << "nanos_wd_dyn_props_t " << dyn_props_var << ";";
+
+            fill_dynamic_properties(dyn_props_var,
+                    /* priority_expr */ nodecl_null(), /* final_expr */ nodecl_null(), /* is_implicit */ 0, dynamic_wd_info);
+
+            pm_specific_code
+                <<  struct_arg_type_name << " *ol_args = (" << struct_arg_type_name <<"*) 0;"
+                <<  const_wd_info
+                <<  "nanos_wd_t nanos_wd_ = (nanos_wd_t) 0;"
+                <<  dynamic_wd_info
+                <<  "static nanos_slicer_t replicate = (nanos_slicer_t)0;"
+                <<  "if (replicate == (nanos_slicer_t)0)"
+                <<      "replicate = nanos_find_slicer(\"replicate\");"
+                <<  "if (replicate == (nanos_slicer_t)0)"
+                <<      "nanos_handle_error(NANOS_UNIMPLEMENTED);"
+                <<  "nanos_err = nanos_create_sliced_wd(&nanos_wd_, "
+                <<                                "nanos_wd_const_data.base.num_devices, nanos_wd_const_data.devices, "
+                <<                                "(size_t)" << struct_size << ",  nanos_wd_const_data.base.data_alignment, "
+                <<                                "(void**)&ol_args, nanos_current_wd(), replicate,"
+                <<                                "&nanos_wd_const_data.base.props, &" << dyn_props_var << ", 0, (nanos_copy_data_t**)0,"
+                <<                                "0, (nanos_region_dimension_internal_t**)0"
+                <<                                ");"
+                <<  "if (nanos_err != NANOS_OK)"
+                <<      "nanos_handle_error(nanos_err);"
+                <<  statement_placeholder(fill_outline_arguments_tree)
+                <<  "nanos_err = nanos_submit(nanos_wd_, 0, (nanos_data_access_t *) 0, (nanos_team_t) 0);"
+                <<  "if (nanos_err != NANOS_OK)"
+                <<      "nanos_handle_error(nanos_err);"
+                ;
+
+            if (barrier_at_the_end)
+                barrier_or_tw_if_needed << full_taskwait_source(/* is_noflush */false);
         }
-
-        Source const_wd_info;
-        const_wd_info
-            << fill_const_wd_info(struct_arg_type_name,
-                    /* is_untied */ false,
-                    /* mandatory_creation */ true,
-                    /* is_function_task */ false,
-                    wd_description,
-                    outline_info,
-                    construct);
-
-        Source dependence_type;
-        dependence_type
-            << "nanos_data_access_t*";
-
-        std::string dyn_props_var = "nanos_wd_dyn_props";
-        Source dynamic_wd_info;
-        dynamic_wd_info << "nanos_wd_dyn_props_t " << dyn_props_var << ";";
-
-        fill_dynamic_properties(dyn_props_var,
-                /* priority_expr */ nodecl_null(), /* final_expr */ nodecl_null(), /* is_implicit */ 0, dynamic_wd_info);
 
         Source spawn_code;
         spawn_code
-        << "{"
-        <<     as_type(get_bool_type()) << " single_guard;"
-        <<     "nanos_err_t nanos_err;"
-        <<     schedule_setup
-        <<     "nanos_ws_info_loop_t nanos_setup_info_loop;"
-        <<     "nanos_setup_info_loop.lower_bound = " << as_expression(lower) << ";"
-        <<     "nanos_setup_info_loop.upper_bound = " << as_expression(upper) << ";"
-        <<     "nanos_setup_info_loop.loop_step = "   << as_expression(step)  << ";"
-        <<     "nanos_setup_info_loop.chunk_size = nanos_chunk;"
-        <<     worksharing_creation
-        <<     "if (single_guard)"
-        <<     "{"
-        <<         "int sup_threads;"
-        <<         "nanos_err = nanos_team_get_num_supporting_threads(&sup_threads);"
-        <<         "if (nanos_err != NANOS_OK)"
-        <<             "nanos_handle_error(nanos_err);"
-        <<         "if (sup_threads > 0)"
-        <<         "{"
-        <<             "nanos_err = nanos_malloc((void**)&(" << as_symbol(slicer_descriptor) << "->threads), sizeof(nanos_thread_t) * sup_threads, \"\", 0);"
-        <<             "if (nanos_err != NANOS_OK)"
-        <<                 "nanos_handle_error(nanos_err);"
-        <<             "nanos_err = nanos_team_get_supporting_threads(&" << as_symbol(slicer_descriptor) << "->nths, " 
-        <<                        as_symbol(slicer_descriptor) << "->threads);"
-        <<             "if (nanos_err != NANOS_OK)"
-        <<                 "nanos_handle_error(nanos_err);"
-        <<             struct_arg_type_name << " *ol_args = (" << struct_arg_type_name <<"*) 0;"
-        <<             const_wd_info
-        <<             "nanos_wd_t nanos_wd_ = (nanos_wd_t) 0;"
-        <<             dynamic_wd_info
+            << "{"
+            <<      as_type(get_bool_type()) << " single_guard;"
+            <<      "nanos_err_t nanos_err;"
+            <<      schedule_setup
+            <<      "nanos_ws_info_loop_t nanos_setup_info_loop;"
+            <<      "nanos_setup_info_loop.lower_bound = " << as_expression(lower) << ";"
+            <<      "nanos_setup_info_loop.upper_bound = " << as_expression(upper) << ";"
+            <<      "nanos_setup_info_loop.loop_step = "   << as_expression(step)  << ";"
+            <<      "nanos_setup_info_loop.chunk_size = nanos_chunk;"
+            <<      worksharing_creation
+            <<      pm_specific_code
+            <<      barrier_or_tw_if_needed
+            << "}"
+            ;
 
-        <<             "static nanos_slicer_t replicate = (nanos_slicer_t)0;"
-        <<             "if (replicate == (nanos_slicer_t)0)"
-        <<                 "replicate = nanos_find_slicer(\"replicate\");"
-        <<             "if (replicate == (nanos_slicer_t)0)"
-        <<                 "nanos_handle_error(NANOS_UNIMPLEMENTED);"
-        <<             "nanos_err = nanos_create_sliced_wd(&nanos_wd_, "
-        <<                                           "nanos_wd_const_data.base.num_devices, nanos_wd_const_data.devices, "
-        <<                                           "(size_t)" << struct_size << ",  nanos_wd_const_data.base.data_alignment, "
-        <<                                           "(void**)&ol_args, (nanos_wd_t*)0, replicate,"
-        <<                                           "&nanos_wd_const_data.base.props, &" << dyn_props_var << ", 0, (nanos_copy_data_t**)0,"
-        <<                                           "0, (nanos_region_dimension_internal_t**)0"
-        <<                                           ");"
-        <<             "if (nanos_err != NANOS_OK)"
-        <<                 "nanos_handle_error(nanos_err);"
-        <<             statement_placeholder(fill_outline_arguments_tree)
-        <<             "nanos_err = nanos_submit(nanos_wd_, 0, ( " << dependence_type << ") 0, (nanos_team_t) 0);"
-        <<             "if (nanos_err != NANOS_OK)"
-        <<                 "nanos_handle_error(nanos_err);"
-        <<             "nanos_err = nanos_free(" << as_symbol(slicer_descriptor) << "->threads);"
-        <<             "if (nanos_err != NANOS_OK)"
-        <<                 "nanos_handle_error(nanos_err);"
-        <<         "}"
-        <<     "}"
-        <<     immediate_decl
-        <<     statement_placeholder(fill_immediate_arguments_tree)
-        /*      FIXME: This call always be always to smp outline function? */
-        <<     "smp_" << outline_name << "(imm_args);"
-        << "}"
-        ;
-
+        Source fill_outline_arguments, fill_immediate_arguments;
         fill_arguments(construct, outline_info, fill_outline_arguments, fill_immediate_arguments);
 
-        FORTRAN_LANGUAGE()
-        {
-            // Parse in C
+        if (IS_FORTRAN_LANGUAGE)
             Source::source_language = SourceLanguage::C;
-        }
+
         Nodecl::NodeclBase spawn_code_tree = spawn_code.parse_statement(construct);
-        FORTRAN_LANGUAGE()
-        {
+
+        if (IS_FORTRAN_LANGUAGE)
             Source::source_language = SourceLanguage::Current;
-        }
 
-        // Now attach the slicer symbol to its final scope
-        // See tl-lower-for.cpp
-        slicer_descriptor.get_internal_symbol()->decl_context =
-            fill_immediate_arguments_tree.retrieve_context().get_decl_context();
-        ::insert_entry(fill_immediate_arguments_tree.retrieve_context().get_decl_context()->current_scope,
-                slicer_descriptor.get_internal_symbol());
-
-        if (!fill_outline_arguments.empty())
+        Nodecl::NodeclBase arguments_tree;
+        TL::Source *fill_arguments;
+        if (!_lowering->in_ompss_mode())
         {
-            Nodecl::NodeclBase new_tree = fill_outline_arguments.parse_statement(fill_outline_arguments_tree);
-            fill_outline_arguments_tree.replace(new_tree);
+            // OpenMP
+            arguments_tree = fill_immediate_arguments_tree;
+            fill_arguments = &fill_immediate_arguments;
         }
-
-        if (!fill_immediate_arguments.empty())
+        else
         {
-            Nodecl::NodeclBase new_tree = fill_immediate_arguments.parse_statement(fill_immediate_arguments_tree);
-            fill_immediate_arguments_tree.replace(new_tree);
+            // OmpSs
+            arguments_tree = fill_outline_arguments_tree;
+            fill_arguments = &fill_outline_arguments;
         }
 
+        // Now attach the slicer symbol to its final scope (see tl-lower-for-worksharing.cpp)
+        const decl_context_t* spawn_inner_context = arguments_tree.retrieve_context().get_decl_context();
+        slicer_descriptor.get_internal_symbol()->decl_context = spawn_inner_context;
+        ::insert_entry(spawn_inner_context->current_scope, slicer_descriptor.get_internal_symbol());
+
+        // Parse the arguments
+        Nodecl::NodeclBase new_tree = fill_arguments->parse_statement(arguments_tree);
+        arguments_tree.replace(new_tree);
+
+        // Finally, replace the construct by the tree that represents the spawn code
         construct.replace(spawn_code_tree);
     }
 

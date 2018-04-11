@@ -57,7 +57,8 @@ namespace TL { namespace OpenMP {
         : PragmaCustomCompilerPhase(),
         _core(),
         _simd_enabled(false),
-        _omp_report(false)
+        _omp_report(false),
+        _taskloop_as_loop_of_tasks(false)
     {
         set_phase_name("OpenMP directive to parallel IR");
         set_phase_description("This phase lowers the semantics of OpenMP into the parallel IR of Mercurium");
@@ -83,6 +84,11 @@ namespace TL { namespace OpenMP {
                 "Disables some optimizations applied to task expressions",
                 _disable_task_expr_optim_str,
                 "0");
+
+        register_parameter("taskloop_as_loop_of_tasks",
+                "Transforms a taskloop as a loop of tasks with a taskwait at the end.",
+                _taskloop_as_loop_of_tasks_str,
+                "0").connect(std::bind(&Base::set_taskloop_as_loop_of_tasks, this, std::placeholders::_1));
 
 
         // TL::Core phase flags
@@ -274,112 +280,71 @@ namespace TL { namespace OpenMP {
         _core.phase_cleanup_end_of_pipeline(data_flow);
     }
 
-#define INVALID_STATEMENT_HANDLER(_name) \
-        void Base::_name##_handler_pre(TL::PragmaCustomStatement ctr) { \
-            error_printf_at(ctr.get_locus(), "invalid '#pragma %s %s'\n",  \
-                    ctr.get_text().c_str(), \
-                    ctr.get_pragma_line().get_text().c_str()); \
-        } \
-        void Base::_name##_handler_post(TL::PragmaCustomStatement) { }
+#define CLASSNAME Base
+#include "tl-omp-def-undef-macros.hpp"
 
-#define INVALID_DECLARATION_HANDLER(_name) \
-        void Base::_name##_handler_pre(TL::PragmaCustomDeclaration ctr) { \
-            error_printf_at(ctr.get_locus(), "invalid '#pragma %s %s'\n",  \
-                    ctr.get_text().c_str(), \
-                    ctr.get_pragma_line().get_text().c_str()); \
-        } \
-        void Base::_name##_handler_post(TL::PragmaCustomDeclaration) { }
+    OMP_INVALID_DECLARATION_HANDLER(atomic)
+    OMP_INVALID_DECLARATION_HANDLER(critical)
+    OMP_INVALID_DECLARATION_HANDLER(distribute)
+    OMP_INVALID_DECLARATION_HANDLER(distribute_parallel_do)
+    OMP_INVALID_DECLARATION_HANDLER(distribute_parallel_for)
+    OMP_INVALID_DECLARATION_HANDLER(do)
+    OMP_INVALID_DECLARATION_HANDLER(for)
+    OMP_INVALID_DECLARATION_HANDLER(master)
+    OMP_INVALID_DECLARATION_HANDLER(parallel)
+    OMP_INVALID_DECLARATION_HANDLER(parallel_do)
+    OMP_INVALID_DECLARATION_HANDLER(parallel_for)
+    OMP_INVALID_DECLARATION_HANDLER(parallel_sections)
+    OMP_INVALID_DECLARATION_HANDLER(parallel_simd_for)
+    OMP_INVALID_DECLARATION_HANDLER(sections)
+    OMP_INVALID_DECLARATION_HANDLER(simd_for)
+    OMP_INVALID_DECLARATION_HANDLER(single)
+    OMP_INVALID_DECLARATION_HANDLER(target_data)
+    OMP_INVALID_DECLARATION_HANDLER(target_teams)
+    OMP_INVALID_DECLARATION_HANDLER(target_teams_distribute)
+    OMP_INVALID_DECLARATION_HANDLER(target_teams_distribute_parallel_do)
+    OMP_INVALID_DECLARATION_HANDLER(target_teams_distribute_parallel_for)
+    OMP_INVALID_DECLARATION_HANDLER(taskgroup)
+    OMP_INVALID_DECLARATION_HANDLER(taskloop)
+    OMP_INVALID_DECLARATION_HANDLER(teams)
+    OMP_INVALID_DECLARATION_HANDLER(teams_distribute)
+    OMP_INVALID_DECLARATION_HANDLER(teams_distribute_parallel_do)
+    OMP_INVALID_DECLARATION_HANDLER(teams_distribute_parallel_for)
+    OMP_INVALID_DECLARATION_HANDLER(workshare)
 
-        INVALID_DECLARATION_HANDLER(parallel)
-        INVALID_DECLARATION_HANDLER(parallel_for)
-        INVALID_DECLARATION_HANDLER(parallel_simd_for)
-        INVALID_DECLARATION_HANDLER(parallel_do)
-        INVALID_DECLARATION_HANDLER(for)
-        INVALID_DECLARATION_HANDLER(simd_for)
-        INVALID_DECLARATION_HANDLER(do)
-        INVALID_DECLARATION_HANDLER(parallel_sections)
-        INVALID_DECLARATION_HANDLER(sections)
-        INVALID_DECLARATION_HANDLER(single)
-        INVALID_DECLARATION_HANDLER(workshare)
-        INVALID_DECLARATION_HANDLER(critical)
-        INVALID_DECLARATION_HANDLER(atomic)
-        INVALID_DECLARATION_HANDLER(master)
-        INVALID_DECLARATION_HANDLER(teams)
-        INVALID_DECLARATION_HANDLER(distribute)
-        INVALID_DECLARATION_HANDLER(distribute_parallel_for)
-        INVALID_DECLARATION_HANDLER(distribute_parallel_do)
-        INVALID_DECLARATION_HANDLER(target_teams)
-        INVALID_DECLARATION_HANDLER(target_data)
-        INVALID_DECLARATION_HANDLER(teams_distribute)
-        INVALID_DECLARATION_HANDLER(target_teams_distribute)
-        INVALID_DECLARATION_HANDLER(teams_distribute_parallel_for)
-        INVALID_DECLARATION_HANDLER(teams_distribute_parallel_do)
-        INVALID_DECLARATION_HANDLER(target_teams_distribute_parallel_for)
-        INVALID_DECLARATION_HANDLER(target_teams_distribute_parallel_do)
-        INVALID_DECLARATION_HANDLER(taskloop)
+    OMP_INVALID_STATEMENT_HANDLER(declare_simd)
 
-        INVALID_STATEMENT_HANDLER(declare_simd)
+    OMP_EMPTY_DECLARATION_HANDLER(ordered)
 
-#define EMPTY_HANDLERS_CONSTRUCT(_name) \
-        void Base::_name##_handler_pre(TL::PragmaCustomStatement) { } \
-        void Base::_name##_handler_post(TL::PragmaCustomStatement) { } \
-        void Base::_name##_handler_pre(TL::PragmaCustomDeclaration) { } \
-        void Base::_name##_handler_post(TL::PragmaCustomDeclaration) { }
+    OMP_EMPTY_DIRECTIVE_HANDLER(section)
 
-#define EMPTY_HANDLERS_STATEMENT(_name) \
-        void Base::_name##_handler_pre(TL::PragmaCustomStatement) { } \
-        void Base::_name##_handler_post(TL::PragmaCustomStatement) { }
+    OMP_EMPTY_STATEMENT_HANDLER(distribute_parallel_do)
+    OMP_EMPTY_STATEMENT_HANDLER(distribute_parallel_for)
+    OMP_EMPTY_STATEMENT_HANDLER(ordered)
+    OMP_EMPTY_STATEMENT_HANDLER(target_teams)
+    OMP_EMPTY_STATEMENT_HANDLER(target_teams_distribute)
+    OMP_EMPTY_STATEMENT_HANDLER(target_teams_distribute_parallel_do)
+    OMP_EMPTY_STATEMENT_HANDLER(target_teams_distribute_parallel_for)
+    OMP_EMPTY_STATEMENT_HANDLER(teams_distribute)
+    OMP_EMPTY_STATEMENT_HANDLER(teams_distribute_parallel_do)
+    OMP_EMPTY_STATEMENT_HANDLER(teams_distribute_parallel_for)
 
-#define EMPTY_HANDLERS_DIRECTIVE(_name) \
-        void Base::_name##_handler_pre(TL::PragmaCustomDirective) { } \
-        void Base::_name##_handler_post(TL::PragmaCustomDirective) { }
+    /* --------------- OmpSs-2 ---------------- */
 
-        EMPTY_HANDLERS_CONSTRUCT(ordered)
+    OSS_TO_OMP_STATEMENT_HANDLER(atomic)
+    OSS_TO_OMP_STATEMENT_HANDLER(critical)
+    OSS_TO_OMP_STATEMENT_HANDLER(task)
 
-        EMPTY_HANDLERS_DIRECTIVE(section)
+    OSS_TO_OMP_DECLARATION_HANDLER(atomic)
+    OSS_TO_OMP_DECLARATION_HANDLER(critical)
+    OSS_TO_OMP_DECLARATION_HANDLER(task)
 
-        EMPTY_HANDLERS_STATEMENT(distribute_parallel_for)
-        EMPTY_HANDLERS_STATEMENT(distribute_parallel_do)
-        EMPTY_HANDLERS_STATEMENT(target_teams)
-        EMPTY_HANDLERS_STATEMENT(teams_distribute)
-        EMPTY_HANDLERS_STATEMENT(target_teams_distribute)
-        EMPTY_HANDLERS_STATEMENT(teams_distribute_parallel_for)
-        EMPTY_HANDLERS_STATEMENT(teams_distribute_parallel_do)
-        EMPTY_HANDLERS_STATEMENT(target_teams_distribute_parallel_for)
-        EMPTY_HANDLERS_STATEMENT(target_teams_distribute_parallel_do)
+    OSS_TO_OMP_DIRECTIVE_HANDLER(taskwait)
 
-#define OSS_WRAPPER_TO_OMP_DECLARATION(_name) \
-        void Base::oss_##_name##_handler_pre(TL::PragmaCustomDeclaration construct) {\
-            _name##_handler_pre(construct); \
-        } \
-        void Base::oss_##_name##_handler_post(TL::PragmaCustomDeclaration construct) {\
-            _name##_handler_post(construct); \
-        }
-#define OSS_WRAPPER_TO_OMP_DIRECTIVE(_name) \
-        void Base::oss_##_name##_handler_pre(TL::PragmaCustomDirective construct) {\
-            _name##_handler_pre(construct); \
-        } \
-        void Base::oss_##_name##_handler_post(TL::PragmaCustomDirective construct) {\
-            _name##_handler_post(construct); \
-        }
-#define OSS_WRAPPER_TO_OMP_STATEMENT(_name) \
-        void Base::oss_##_name##_handler_pre(TL::PragmaCustomStatement construct) {\
-            _name##_handler_pre(construct); \
-        } \
-        void Base::oss_##_name##_handler_post(TL::PragmaCustomStatement construct) {\
-            _name##_handler_post(construct); \
-        }
-        OSS_WRAPPER_TO_OMP_DIRECTIVE(taskwait)
-        OSS_WRAPPER_TO_OMP_DECLARATION(task)
-        OSS_WRAPPER_TO_OMP_STATEMENT(task)
-        OSS_WRAPPER_TO_OMP_STATEMENT(critical)
-        OSS_WRAPPER_TO_OMP_DECLARATION(critical)
-        OSS_WRAPPER_TO_OMP_STATEMENT(atomic)
-        OSS_WRAPPER_TO_OMP_DECLARATION(atomic)
+    OSS_INVALID_DECLARATION_HANDLER(loop)
 
-#undef OSS_WRAPPER_TO_OMP_DECLARATION
-#undef OSS_WRAPPER_TO_OMP_DIRECTIVE
-#undef OSS_WRAPPER_TO_OMP_STATEMENT
+#include "tl-omp-def-undef-macros.hpp"
+
 
     void Base::set_simd(const std::string &simd_enabled_str)
     {
@@ -392,6 +357,11 @@ namespace TL { namespace OpenMP {
     void Base::set_omp_report_parameter(const std::string& str)
     {
         parse_boolean_option("omp_report", str, _omp_report, "Assuming false.");
+    }
+
+    void Base::set_taskloop_as_loop_of_tasks(const std::string &str)
+    {
+        parse_boolean_option("taskloop_as_loop_of_tasks", str, _taskloop_as_loop_of_tasks, "Assuming false.");
     }
 
     bool Base::emit_omp_report() const
@@ -606,8 +576,7 @@ namespace TL { namespace OpenMP {
         Nodecl::List environment = this->make_execution_environment(
                 data_environment,
                 pragma_line,
-                /* ignore_target_info */ true,
-                /* is_inline_task */ false);
+                /* ignore_target_info */ true);
 
         PragmaCustomClause noflush_clause = pragma_line.get_clause("noflush");
         if (noflush_clause.is_defined())
@@ -655,6 +624,31 @@ namespace TL { namespace OpenMP {
                     directive.get_locus()));
     }
 
+    void Base::taskgroup_handler_pre(TL::PragmaCustomStatement) { }
+    void Base::taskgroup_handler_post(TL::PragmaCustomStatement construct)
+    {
+        OpenMP::DataEnvironment &ds = _core.get_openmp_info()->get_data_environment(construct);
+        if (emit_omp_report())
+        {
+            *_omp_report_file
+                << "\n"
+                << construct.get_locus_str() << ": " << "TASKGROUP construct\n"
+                << construct.get_locus_str() << ": " << "------------------\n"
+                ;
+        }
+
+        PragmaCustomLine pragma_line = construct.get_pragma_line();
+        Nodecl::List execution_environment = this->make_execution_environment(ds,
+                pragma_line, /* ignore_target_info */ false);
+
+        pragma_line.diagnostic_unused_clauses();
+
+        construct.replace(
+                Nodecl::OpenMP::Taskgroup::make(
+                    execution_environment,
+                    construct.get_statements().shallow_copy(),
+                    construct.get_locus()));
+    }
 
     void Base::taskyield_handler_pre(TL::PragmaCustomDirective) { }
     void Base::taskyield_handler_post(TL::PragmaCustomDirective directive)
@@ -679,30 +673,12 @@ namespace TL { namespace OpenMP {
     // Inline tasks
     void Base::task_handler_pre(TL::PragmaCustomStatement construct)
     {
-        // In OmpSs-2 the taskloop construct is supported as '#pragma oss task loop'
-        if(PragmaUtils::is_pragma_construct("oss", construct)
-                && construct.get_pragma_line().get_clause("loop").is_defined())
-        {
-            taskloop_runtime_based_handler_pre(construct);
-        }
-        else
-        {
-            // Do nothing
-        }
+        // Do nothing
     }
 
     void Base::task_handler_post(TL::PragmaCustomStatement directive)
     {
-        // In OmpSs-2 the taskloop construct is supported as '#pragma oss task loop'
-        PragmaCustomLine pragma_line = directive.get_pragma_line();
-        if(PragmaUtils::is_pragma_construct("oss", directive)
-                && pragma_line.get_clause("loop").is_defined())
-        {
-            taskloop_runtime_based_handler_post(directive);
-            return;
-        }
-
-
+        TL::PragmaCustomLine pragma_line = directive.get_pragma_line();
         OpenMP::DataEnvironment &ds = _core.get_openmp_info()->get_data_environment(directive);
 
         if (emit_omp_report())
@@ -715,7 +691,7 @@ namespace TL { namespace OpenMP {
         }
 
         Nodecl::List execution_environment = this->make_execution_environment(ds,
-                pragma_line, /* ignore_target_info */ false, /* is_inline_task */ true);
+                pragma_line, /* ignore_target_info */ false);
 
         PragmaCustomClause tied = pragma_line.get_clause("tied");
         PragmaCustomClause untied = pragma_line.get_clause("untied");
@@ -880,7 +856,7 @@ namespace TL { namespace OpenMP {
         PragmaCustomLine pragma_line = directive.get_pragma_line();
 
         Nodecl::List execution_environment = this->make_execution_environment(ds,
-                pragma_line, /* ignore_target_info */ false, /* is_inline_task */ false);
+                pragma_line, /* ignore_target_info */ false);
 
         handle_label_clause(directive, execution_environment);
 
@@ -991,7 +967,7 @@ namespace TL { namespace OpenMP {
         }
 
         Nodecl::List execution_environment = this->make_execution_environment(
-                ds, pragma_line, /* ignore_target_info */ true, /* is_inline_task */ false);
+                ds, pragma_line, /* ignore_target_info */ true);
 
         if (!pragma_line.get_clause("nowait").is_defined())
         {
@@ -1051,7 +1027,7 @@ namespace TL { namespace OpenMP {
         }
 
         Nodecl::List execution_environment = this->make_execution_environment(
-                ds, pragma_line, /* ignore_target_info */ true, /* is_inline_task */ false);
+                ds, pragma_line, /* ignore_target_info */ true);
 
         if (!pragma_line.get_clause("nowait").is_defined())
         {
@@ -1131,7 +1107,7 @@ namespace TL { namespace OpenMP {
         PragmaCustomLine pragma_line = directive.get_pragma_line();
 
         Nodecl::List execution_environment = this->make_execution_environment(ds,
-                pragma_line, /* ignore_target_info */ false, /* is_inline_task */ false );
+                pragma_line, /* ignore_target_info */ false);
 
         // Set the implicit OpenMP flush / barrier nodes to the environment
         if (barrier_at_end)
@@ -1213,7 +1189,7 @@ namespace TL { namespace OpenMP {
         PragmaCustomLine pragma_line = directive.get_pragma_line();
 
         Nodecl::List execution_environment = this->make_execution_environment(
-                ds, pragma_line, /* ignore_target_info */ false, /* is_inline_task */ false);
+                ds, pragma_line, /* ignore_target_info */ false);
 
         handle_label_clause(directive, execution_environment);
 
@@ -1490,16 +1466,8 @@ namespace TL { namespace OpenMP {
             (num_tasks_expr.is_null() || num_tasks_expr.is<Nodecl::ErrExpr>()))
             return;
 
-        bool taskwait_at_the_end = true;
-        if (nogroup.is_defined())
-            taskwait_at_the_end = false;
-
-        // Since we are going to transform the taskloop construct into a loop
-        // that creates several tasks, we should set the 'is_inline_task' to true.
-        // This flag is only used to generate task reductions instead of
-        // worksharing reductions
         Nodecl::List execution_environment = this->make_execution_environment(
-                ds, pragma_line, /* ignore_target_info */ false, /* is_inline_task */ true);
+                ds, pragma_line, /* ignore_target_info */ false);
 
         handle_label_clause(directive, execution_environment);
 
@@ -1509,23 +1477,66 @@ namespace TL { namespace OpenMP {
 
         pragma_line.diagnostic_unused_clauses();
 
-        taskloop_block_loop(directive, statement, execution_environment, grainsize_expr, num_tasks_expr);
-
-        Nodecl::List list;
-        list.append(statement);
-        if (taskwait_at_the_end)
+        if (_taskloop_as_loop_of_tasks)
         {
-            list.append(
-                    Nodecl::OpenMP::Taskwait::make(
-                        /*environment*/ nodecl_null(),
-                        directive.get_locus()));
-        }
+            taskloop_block_loop(directive, statement, execution_environment, grainsize_expr, num_tasks_expr);
 
-        directive.replace(list);
+            Nodecl::List stmts;
+            stmts.append(statement);
+
+            // We transform the taskgroup into a taskwait, despite the fact they are not exaclty the same...
+            if (!nogroup.is_defined())
+                stmts.append(Nodecl::OpenMP::Taskwait::make(
+                            /* environment */ Nodecl::NodeclBase::null(), directive.get_locus()));
+
+            directive.replace(stmts);
+        }
+        else
+        {
+            TL::ForStatement for_statement(
+                    statement.as<Nodecl::Context>()
+                    .get_in_context()
+                    .as<Nodecl::List>().front()
+                    .as<Nodecl::ForStatement>());
+
+            TL::HLT::LoopNormalize loop_normalize;
+            loop_normalize.set_loop(for_statement);
+
+            loop_normalize.normalize();
+
+            Nodecl::NodeclBase normalized_loop = loop_normalize.get_whole_transformation();
+            ERROR_CONDITION(!normalized_loop.is<Nodecl::ForStatement>(), "Unexpected node\n", 0);
+
+            TL::ForStatement new_for_statement(normalized_loop.as<Nodecl::ForStatement>());
+            TL::Symbol induction_variable = new_for_statement.get_induction_variable();
+
+            execution_environment.append(
+                    Nodecl::OpenMP::Private::make(
+                        Nodecl::List::make(induction_variable.make_nodecl(/* set_ref_type */ true))));
+
+            if (!grainsize_expr.is_null())
+                execution_environment.append(Nodecl::OpenMP::Grainsize::make(grainsize_expr));
+
+            if (!num_tasks_expr.is_null())
+                execution_environment.append(Nodecl::OpenMP::NumTasks::make(num_tasks_expr));
+
+            Nodecl::NodeclBase stmt = Nodecl::OpenMP::Taskloop::make(
+                    execution_environment,
+                    Nodecl::Context::make(
+                        Nodecl::List::make(normalized_loop),
+                        statement.as<Nodecl::Context>().retrieve_context()));
+
+            if (!nogroup.is_defined())
+            {
+                stmt = Nodecl::OpenMP::Taskgroup::make(
+                        /* environment */ nodecl_null(), Nodecl::List::make(stmt));
+            }
+            directive.replace(stmt);
+        }
     }
 
-    void Base::taskloop_runtime_based_handler_pre(TL::PragmaCustomStatement directive) { }
-    void Base::taskloop_runtime_based_handler_post(TL::PragmaCustomStatement directive)
+    void Base::oss_loop_handler_pre(TL::PragmaCustomStatement directive) { }
+    void Base::oss_loop_handler_post(TL::PragmaCustomStatement directive)
     {
         Nodecl::NodeclBase statement = directive.get_statements();
         ERROR_CONDITION(!statement.is<Nodecl::List>(), "Invalid tree", 0);
@@ -1536,7 +1547,7 @@ namespace TL { namespace OpenMP {
         {
             *_omp_report_file
                 << "\n"
-                << directive.get_locus_str() << ": " << "TASK LOOP construct\n"
+                << directive.get_locus_str() << ": " << "LOOP construct\n"
                 << directive.get_locus_str() << ": " << "------------------\n"
                 ;
         }
@@ -1567,12 +1578,8 @@ namespace TL { namespace OpenMP {
             chunksize = const_value_to_nodecl(const_value_get_signed_int(0));
         }
 
-        // Since we are going to transform the taskloop construct into a loop
-        // that creates several tasks, we should set the 'is_inline_task' to true.
-        // This flag is only used to generate task reductions instead of
-        // worksharing reductions
         Nodecl::List execution_environment = this->make_execution_environment(
-                ds, pragma_line, /* ignore_target_info */ false, /* is_inline_task */ true);
+                ds, pragma_line, /* ignore_target_info */ false);
 
         if (pragma_line.get_clause("wait").is_defined())
         {
@@ -1612,13 +1619,13 @@ namespace TL { namespace OpenMP {
 
         execution_environment.append(Nodecl::OmpSs::Chunksize::make(chunksize));
 
-        Nodecl::List list;
-        list.append(
-                Nodecl::OpenMP::TaskLoop::make(
-                    execution_environment,
-                    normalized_loop));
+        Nodecl::NodeclBase stmt = Nodecl::OmpSs::Loop::make(
+                execution_environment,
+                Nodecl::Context::make(
+                    Nodecl::List::make(normalized_loop),
+                    statement.as<Nodecl::Context>().retrieve_context()));
 
-        directive.replace(list);
+        directive.replace(Nodecl::List::make(stmt));
     }
 
     // Since parallel {for,do,sections} are split into two nodes: parallel and
@@ -2237,7 +2244,7 @@ namespace TL { namespace OpenMP {
             OpenMP::DataEnvironment &ds = _core.get_openmp_info()->get_data_environment(stmt);
 
             Nodecl::List environment = this->make_execution_environment(ds,
-                    pragma_line, /* ignore_target_info */ false, /* is_inline_task */ false);
+                    pragma_line, /* ignore_target_info */ false);
 
             process_common_simd_clauses(pragma_line, stmt, environment);
 
@@ -2330,7 +2337,7 @@ namespace TL { namespace OpenMP {
         ERROR_CONDITION(!function_code.is<Nodecl::FunctionCode>(), "Expecting a symbol with code", 0);
 
         Nodecl::List environment = this->make_execution_environment(ds,
-                pragma_line, /* ignore_target_info */ false, /* is_inline_task */ false);
+                pragma_line, /* ignore_target_info */ false);
 
         process_common_simd_clauses(pragma_line,
                 context_of_parameters, environment);
@@ -2995,8 +3002,7 @@ namespace TL { namespace OpenMP {
         Nodecl::List environment = this->make_execution_environment(
                 data_environment,
                 pragma_line,
-                /* ignore_target_info */ true,
-                /* is_inline_task */ false);
+                /* ignore_target_info */ true);
 
         pragma_line.diagnostic_unused_clauses();
 
@@ -3036,32 +3042,6 @@ namespace TL { namespace OpenMP {
             DataSharingAttribute _data_sharing;
             std::ofstream *_omp_report_file;
 
-            std::string string_of_data_sharing(DataSharingAttribute data_attr) const
-            {
-                std::string result;
-
-                switch (data_attr)
-                {
-#define CASE(x, str) case x : result += str; break;
-                    CASE(DS_UNDEFINED, "<<undefined>>")
-                    CASE(DS_SHARED, "shared")
-                    CASE(DS_PRIVATE, "private")
-                    CASE(DS_FIRSTPRIVATE, "firstprivate")
-                    CASE(DS_LASTPRIVATE, "lastprivate")
-                    CASE(DS_FIRSTLASTPRIVATE, "firstprivate and lastprivate")
-                    CASE(DS_REDUCTION, "reduction")
-                    CASE(DS_THREADPRIVATE, "threadprivate")
-                    CASE(DS_COPYIN, "copyin")
-                    CASE(DS_COPYPRIVATE, "copyprivate")
-                    CASE(DS_NONE, "<<none>>")
-                    CASE(DS_AUTO, "auto")
-#undef CASE
-                    default: result += "<<???unknown>>";
-                }
-
-                return result;
-            }
-
         public:
             ReportSymbols(const locus_t*,
                     DataSharingAttribute data_sharing,
@@ -3090,7 +3070,7 @@ namespace TL { namespace OpenMP {
                 if (diff > 0)
                     std::fill_n( std::ostream_iterator<const char*>(ss), diff, " ");
 
-                ss << " " << string_of_data_sharing(_data_sharing);
+                ss << " " << data_sharing_to_string(_data_sharing);
 
                 length = ss.str().size();
                 diff = 20 - length;
@@ -3430,29 +3410,6 @@ namespace TL { namespace OpenMP {
                 locus,
                 result_list);
 
-
-        // FIXME - Dependences for combined worksharings???
-        //
-        // TL::ObjectList<OpenMP::DependencyItem> dependences;
-        // data_sharing_env.get_all_dependences(dependences);
-
-        // make_dependency_list<Nodecl::OpenMP::DepIn>(
-        //         dependences,
-        //         OpenMP::DEP_DIR_IN,
-        //         pragma_line.get_locus(),
-        //         result_list);
-
-        // make_dependency_list<Nodecl::OpenMP::DepOut>(
-        //         dependences,
-        //         OpenMP::DEP_DIR_OUT,
-        //         pragma_line.get_locus(),
-        //         result_list);
-
-        // make_dependency_list<Nodecl::OpenMP::DepInout>(
-        //         dependences, OpenMP::DEP_DIR_INOUT,
-        //         pragma_line.get_locus(),
-        //         result_list);
-
         this->_omp_report = old_emit_omp_report;
 
         return Nodecl::List::make(result_list);
@@ -3461,8 +3418,7 @@ namespace TL { namespace OpenMP {
     Nodecl::List Base::make_execution_environment(
             OpenMP::DataEnvironment &data_sharing_env,
             PragmaCustomLine pragma_line,
-            bool ignore_target_info,
-            bool is_inline_task)
+            bool ignore_target_info)
     {
         const locus_t* locus = pragma_line.get_locus();
 
@@ -3506,54 +3462,39 @@ namespace TL { namespace OpenMP {
                 locus,
                 result_list);
 
-        TL::ObjectList<ReductionSymbol> reductions;
-        data_sharing_env.get_all_reduction_symbols(reductions);
-        if (!reductions.empty())
+        struct ReductionClausesInfo {
+            const char * clause_name;
+            void (DataEnvironment::* get_red_symbols)(TL::ObjectList<ReductionSymbol>&);
+            Nodecl::NodeclBase (*make_red_nodecl)(Nodecl::List, const locus_t*);
+        } reduction_clauses[] = {
+            { "reduction", &DataEnvironment::get_all_reduction_symbols,
+                (Nodecl::NodeclBase(*)(Nodecl::List, const locus_t*)) &Nodecl::OpenMP::Reduction::make},
+            { "task_reduction", &DataEnvironment::get_all_task_reduction_symbols,
+                (Nodecl::NodeclBase(*)(Nodecl::List, const locus_t*)) &Nodecl::OpenMP::TaskReduction::make},
+            { "in_reduction",  &DataEnvironment::get_all_in_reduction_symbols,
+                (Nodecl::NodeclBase(*)(Nodecl::List, const locus_t*)) &Nodecl::OpenMP::InReduction::make},
+            { "weakreduction", &DataEnvironment::get_all_weakreduction_symbols,
+                (Nodecl::NodeclBase(*)(Nodecl::List, const locus_t*)) &Nodecl::OmpSs::WeakReduction::make},
+            { "simd_reduction", &DataEnvironment::get_all_simd_reduction_symbols,
+                (Nodecl::NodeclBase(*)(Nodecl::List, const locus_t*)) &Nodecl::OpenMP::SimdReduction::make},
+        };
+
+        for (ReductionClausesInfo* it = reduction_clauses;
+                it != (ReductionClausesInfo*) (&reduction_clauses + 1);
+                ++it)
         {
-            TL::ObjectList<Nodecl::NodeclBase> reduction_nodes =
-                reductions.map<Nodecl::NodeclBase>(ReductionSymbolBuilder(locus));
-
-            if (emit_omp_report())
+            TL::ObjectList<ReductionSymbol> reductions;
+            (data_sharing_env.*(it->get_red_symbols))(reductions);
+            if (!reductions.empty())
             {
-                reductions.map(ReportReductions(locus, this->_omp_report_file, "reduction"));
-            }
+                if (emit_omp_report())
+                    reductions.map(ReportReductions(locus, this->_omp_report_file, it->clause_name));
 
-            if (is_inline_task)
-            {
+                TL::ObjectList<Nodecl::NodeclBase> reduction_nodes =
+                    reductions.map<Nodecl::NodeclBase>(ReductionSymbolBuilder(locus));
                 result_list.append(
-                        Nodecl::OpenMP::TaskReduction::make(Nodecl::List::make(reduction_nodes), locus));
+                        it->make_red_nodecl(Nodecl::List::make(reduction_nodes), locus));
             }
-            else
-            {
-                result_list.append(
-                        Nodecl::OpenMP::Reduction::make(Nodecl::List::make(reduction_nodes), locus));
-            }
-        }
-
-        TL::ObjectList<ReductionSymbol> simd_reductions;
-        data_sharing_env.get_all_simd_reduction_symbols(simd_reductions);
-        if (!simd_reductions.empty())
-        {
-            TL::ObjectList<Nodecl::NodeclBase> simd_reduction_nodes =
-                simd_reductions.map<Nodecl::NodeclBase>(ReductionSymbolBuilder(locus));
-
-            result_list.append(
-                    Nodecl::OpenMP::SimdReduction::make(Nodecl::List::make(simd_reduction_nodes),
-                        locus)
-                    );
-        }
-
-        TL::ObjectList<ReductionSymbol> weakreductions;
-        data_sharing_env.get_all_weakreduction_symbols(weakreductions);
-        if (!weakreductions.empty())
-        {
-            if (emit_omp_report())
-                weakreductions.map(ReportReductions(locus, this->_omp_report_file, "weakreduction"));
-
-            TL::ObjectList<Nodecl::NodeclBase> weakreduction_nodes =
-                weakreductions.map<Nodecl::NodeclBase>(ReductionSymbolBuilder(locus));
-
-            result_list.append(Nodecl::OmpSs::TaskWeakReduction::make(Nodecl::List::make(weakreduction_nodes), locus));
         }
 
         if (emit_omp_report())
@@ -3662,44 +3603,16 @@ namespace TL { namespace OpenMP {
         return Nodecl::List::make(result_list);
     }
 
-
-
-    // Note that num_tasks_sym and grainsize_adjustment_sym symbols are only created if
-    // require_conversion_num_tasks_to_grainsize is true. Thus, they are only used to
-    // transform the 'num_task' clause to the 'grainsize' clause.
-    void create_auxiliar_symbols(
-            int counter,
-            TL::Type type,
-            TL::Scope scope_of_directive,
-            bool require_conversion_num_tasks_to_grainsize,
-            // Out
-            TL::Symbol& grainsize_sym,
-            TL::Symbol &num_tasks_sym,
-            TL::Symbol& grainsize_adjustment_sym)
-
-    {
-        std::stringstream ss;
-        ss << "omp_grainsize_" << counter;
-        grainsize_sym = scope_of_directive.new_symbol(ss.str());
-        grainsize_sym.get_internal_symbol()->kind = SK_VARIABLE;
-        grainsize_sym.set_type(type);
-        symbol_entity_specs_set_is_user_declared(grainsize_sym.get_internal_symbol(), 1);
-
-        if (require_conversion_num_tasks_to_grainsize)
+    namespace TaskloopUtils {
+        TL::Symbol new_variable(TL::Scope sc, const std::string& name, int counter, TL::Type type)
         {
-            ss.str("");
-            ss << "omp_num_tasks_" << counter;
-            num_tasks_sym = scope_of_directive.new_symbol(ss.str());
-            num_tasks_sym.get_internal_symbol()->kind = SK_VARIABLE;
-            num_tasks_sym.set_type(type);
-            symbol_entity_specs_set_is_user_declared(num_tasks_sym.get_internal_symbol(), 1);
-
-            ss.str("");
-            ss << "omp_it_adjustment_" << counter;
-            grainsize_adjustment_sym = scope_of_directive.new_symbol(ss.str());
-            grainsize_adjustment_sym.get_internal_symbol()->kind = SK_VARIABLE;
-            grainsize_adjustment_sym.set_type(type);
-            symbol_entity_specs_set_is_user_declared(grainsize_adjustment_sym.get_internal_symbol(), 1);
+            std::stringstream ss;
+            ss << name << counter;
+            TL::Symbol new_symbol = sc.new_symbol(ss.str());
+            new_symbol.get_internal_symbol()->kind = SK_VARIABLE;
+            new_symbol.set_type(type);
+            symbol_entity_specs_set_is_user_declared(new_symbol.get_internal_symbol(), 1);
+            return new_symbol;
         }
     }
 
@@ -3712,17 +3625,7 @@ namespace TL { namespace OpenMP {
             // Out
             Nodecl::List& new_body)
     {
-        // First: introduce the definitions of these extra symbols used to simplify the code generation
-        if (IS_CXX_LANGUAGE)
-        {
-            new_body.append(Nodecl::CxxDef::make(/* context */ nodecl_null(),
-                        num_tasks_sym, num_tasks_sym.get_locus()));
-
-            new_body.append(Nodecl::CxxDef::make( /* context */ nodecl_null(),
-                        grainsize_adjustment_sym, grainsize_adjustment_sym.get_locus()));
-        }
-
-        // Second: storing the value of the 'num_tasks_expr' in a new variable
+        // Storing the value of the 'num_tasks_expr' in a new variable
         Nodecl::NodeclBase assign_num_tasks = Nodecl::ExpressionStatement::make(
                 Nodecl::Assignment::make(
                     num_tasks_sym.make_nodecl(),
@@ -3730,7 +3633,7 @@ namespace TL { namespace OpenMP {
                     num_tasks_sym.get_type().get_lvalue_reference_to()));
         new_body.append(assign_num_tasks);
 
-        // Third: computing the real number of iterations and storing it in the 'grainsize_sym' symbol
+        // Computing the real number of iterations and storing it in the 'grainsize_sym' symbol
         //                grainsize = ((upper - lower) + step) / step
         Nodecl::NodeclBase real_num_iterations_assignment
             = Nodecl::ExpressionStatement::make(
@@ -3751,7 +3654,7 @@ namespace TL { namespace OpenMP {
                         grainsize_sym.get_type().get_lvalue_reference_to()));
         new_body.append(real_num_iterations_assignment);
 
-        // Fourth: If (real_num_iterations % num_tasks != 0) then some tasks will have an additional iteration.
+        // If (real_num_iterations % num_tasks != 0) then some tasks will have an additional iteration.
         // The 'grainsize_adjustment_sym' symbol holds the first index that must have this extra iteration.
         //
         //  grainsize_adjustment  = lower_bound +
@@ -3789,7 +3692,7 @@ namespace TL { namespace OpenMP {
                         grainsize_adjustment_sym.get_type().get_lvalue_reference_to()));
         new_body.append(grainsize_adjustment);
 
-        // Fifth: Finally, we compute the 'grainsize_expr' expression
+        // Finally, we compute the 'grainsize_expr' expression
         // grainsize = (((upper - lower) + step) / step) / num_tasks
         Nodecl::NodeclBase grainsize_expr = Nodecl::Div::make(
                 grainsize_sym.make_nodecl(),
@@ -3809,22 +3712,12 @@ namespace TL { namespace OpenMP {
             Nodecl::NodeclBase new_task,
             TL::Scope new_outer_loop_context,
             TL::Scope new_outer_loop_body_context,
-            TL::Scope scope_of_directive,
             const locus_t* locus)
     {
         bool require_conversion_num_tasks_to_grainsize = !num_tasks_expr.is_null();
 
-        TL::Symbol grainsize_sym, num_tasks_sym, grainsize_adjustment_sym;
-        create_auxiliar_symbols(
-                counter,
-                taskloop_ivar.get_type(),
-                scope_of_directive,
-                require_conversion_num_tasks_to_grainsize,
-                /* out */
-                grainsize_sym,
-                num_tasks_sym,
-                grainsize_adjustment_sym);
-
+        TL::Symbol grainsize_sym = TaskloopUtils::new_variable(
+                new_outer_loop_context, "omp_grainsize_", counter, taskloop_ivar.get_type());
 
         Nodecl::List new_body;
         if (IS_CXX_LANGUAGE)
@@ -3834,6 +3727,25 @@ namespace TL { namespace OpenMP {
 
             new_body.append(Nodecl::CxxDef::make(/* context */ nodecl_null(),
                         grainsize_sym, grainsize_sym.get_locus()));
+        }
+
+        TL::Symbol num_tasks_sym, grainsize_adjustment_sym;
+        if (require_conversion_num_tasks_to_grainsize)
+        {
+            num_tasks_sym = TaskloopUtils::new_variable(
+                    new_outer_loop_context, "omp_num_tasks_", counter, taskloop_ivar.get_type());
+
+            grainsize_adjustment_sym = TaskloopUtils::new_variable(
+                    new_outer_loop_context, "omp_it_adjustment_", counter, taskloop_ivar.get_type());
+
+            if (IS_CXX_LANGUAGE)
+            {
+                new_body.append(Nodecl::CxxDef::make(/* context */ nodecl_null(),
+                            num_tasks_sym, num_tasks_sym.get_locus()));
+
+                new_body.append(Nodecl::CxxDef::make( /* context */ nodecl_null(),
+                            grainsize_adjustment_sym, grainsize_adjustment_sym.get_locus()));
+            }
         }
 
         if (require_conversion_num_tasks_to_grainsize)
@@ -3864,21 +3776,6 @@ namespace TL { namespace OpenMP {
 
             if (IS_C_LANGUAGE || IS_CXX_LANGUAGE)
             {
-                if (for_statement.is_strictly_increasing_loop())
-                {
-                    expr = Nodecl::Minus::make(
-                            expr,
-                            const_value_to_nodecl(const_value_get_one(4, 1)),
-                            expr.get_type());
-                }
-                else
-                {
-                    expr = Nodecl::Add::make(
-                            expr,
-                            const_value_to_nodecl(const_value_get_one(4, 1)),
-                            expr.get_type());
-                }
-
                 init_block_extent = Nodecl::ExpressionStatement::make(
                         Nodecl::Assignment::make(
                             block_extent.make_nodecl(),
@@ -4004,9 +3901,9 @@ namespace TL { namespace OpenMP {
             typedef Nodecl::NodeclBase (*ptr_to_func_t)(Nodecl::NodeclBase, Nodecl::NodeclBase, TL::Type, const locus_t*);
             ptr_to_func_t make_relative_operator;
             if (for_statement.is_strictly_increasing_loop())
-                make_relative_operator = (ptr_to_func_t) &Nodecl::LowerOrEqualThan::make;
+                make_relative_operator = (ptr_to_func_t) &Nodecl::LowerThan::make;
             else
-                make_relative_operator = (ptr_to_func_t) &Nodecl::GreaterOrEqualThan::make;
+                make_relative_operator = (ptr_to_func_t) &Nodecl::GreaterThan::make;
 
             Nodecl::NodeclBase cond =
                 (*make_relative_operator)(
@@ -4151,7 +4048,10 @@ namespace TL { namespace OpenMP {
             new_body.append(new_outer_loop);
 
             Nodecl::NodeclBase new_statement =
-                Nodecl::Context::make(new_body, new_outer_loop_context, locus);
+                Nodecl::Context::make(
+                        Nodecl::List::make(
+                            Nodecl::CompoundStatement::make(new_body, /* finally */ Nodecl::NodeclBase::null())),
+                        new_outer_loop_context, locus);
 
             return new_statement;
         }
@@ -4206,9 +4106,9 @@ namespace TL { namespace OpenMP {
             typedef Nodecl::NodeclBase (*ptr_to_func_t)(Nodecl::NodeclBase, Nodecl::NodeclBase, TL::Type, const locus_t*);
             ptr_to_func_t make_relative_operator;
             if (for_statement.is_strictly_increasing_loop())
-                make_relative_operator = (ptr_to_func_t) &Nodecl::LowerOrEqualThan::make;
+                make_relative_operator = (ptr_to_func_t) &Nodecl::LowerThan::make;
             else
-                make_relative_operator = (ptr_to_func_t) &Nodecl::GreaterOrEqualThan::make;
+                make_relative_operator = (ptr_to_func_t) &Nodecl::GreaterThan::make;
 
             Nodecl::NodeclBase cond =
                 (*make_relative_operator)(
@@ -4254,13 +4154,14 @@ namespace TL { namespace OpenMP {
                 statement.as<Nodecl::Context>()
                 .get_in_context()
                 .as<Nodecl::List>().front()
-                .as<Nodecl::ForStatement>());
+                .as<Nodecl::ForStatement>(), /* old_mechanism */ false);
 
         ERROR_CONDITION(!for_statement.is_omp_valid_loop(), "Invalid loop at this point", 0);
 
         TL::Scope scope_of_directive = directive.retrieve_context();
         TL::Scope scope_created_by_statement = statement.retrieve_context();
 
+        TL::Scope new_outer_loop_context = new_block_context(scope_of_directive.get_decl_context());
 
         // Creating a new symbol: induction variable
         Counter &c = TL::CounterManager::get_counter("taskloop");
@@ -4268,12 +4169,11 @@ namespace TL { namespace OpenMP {
         c++;
         std::stringstream ss;
         ss << "omp_taskloop_" << counter;
-        TL::Symbol taskloop_ivar = scope_of_directive.new_symbol(ss.str());
+        TL::Symbol taskloop_ivar = new_outer_loop_context.new_symbol(ss.str());
         taskloop_ivar.get_internal_symbol()->kind = SK_VARIABLE;
         taskloop_ivar.set_type(for_statement.get_induction_variable().get_type());
         symbol_entity_specs_set_is_user_declared(taskloop_ivar.get_internal_symbol(), 1);
 
-        TL::Scope new_outer_loop_context = new_block_context(scope_of_directive.get_decl_context());
         // Properly nest the existing context to be contained in new_outer_loop_body_context
         // because we will put it inside a new compound statement
         TL::Scope new_outer_loop_body_context = new_block_context(new_outer_loop_context.get_decl_context());
@@ -4325,7 +4225,8 @@ namespace TL { namespace OpenMP {
                    taskloop_ivar,
                    block_extent,
                    new_task,
-                   new_outer_loop_context, new_outer_loop_body_context, scope_of_directive,
+                   new_outer_loop_context,
+                   new_outer_loop_body_context,
                    statement.get_locus());
 
         statement.replace(new_outer_loop);

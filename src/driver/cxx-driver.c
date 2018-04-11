@@ -191,7 +191,7 @@
 "  --upc[=THREADS]          Enables UPC 1.2 syntactic support.\n" \
 "                           Optionally you can define a static \n" \
 "                           number of THREADS.\n" \
-"  --cuda                   Enables experimental support for CUDA\n" \
+"  --cuda                   Enables CUDA support in OmpSs/OmpSs-2\n" \
 "  --opencl                 Enables experimental support for OpenCL\n" \
 "  --opencl-build-opts=<options>\n" \
 "                           Options passed to OpenCL compiler\n" \
@@ -374,6 +374,7 @@ typedef enum
     // Keep the following options sorted (but leave OPTION_UNDEFINED as is)
     OPTION_ALWAYS_PREPROCESS,
     OPTION_CONFIG_DIR,
+    OPTION_CUDA,
     OPTION_DEBUG_FLAG,
     OPTION_DISABLE_FILE_LOCKING,
     OPTION_DISABLE_GXX_TRAITS,
@@ -384,12 +385,10 @@ typedef enum
     OPTION_DO_NOT_WARN_BAD_CONFIG_FILENAMES,
     OPTION_DO_NOT_WRAP_FORTRAN_MODULES,
     OPTION_EMPTY_SENTINELS,
-    OPTION_ENABLE_CUDA,
     OPTION_ENABLE_INTEL_BUILTINS_SYNTAX,
     OPTION_ENABLE_INTEL_INTRINSICS,
     OPTION_ENABLE_INTEL_VECTOR_TYPES,
     OPTION_ENABLE_MS_BUILTIN,
-    OPTION_ENABLE_OPENCL,
     OPTION_ENABLE_UPC,
     OPTION_EXTERNAL_VAR,
     OPTION_FORTRAN_ARRAY_DESCRIPTOR,
@@ -417,10 +416,11 @@ typedef enum
     OPTION_LIST_VECTOR_FLAVORS,
     OPTION_MODULE_OUT_PATTERN,
     OPTION_NATIVE_COMPILER_NAME,
-    OPTION_NO_OPENMP,
+    OPTION_NO_CUDA,
+    OPTION_NO_OPENCL,
     OPTION_NO_WHOLE_FILE,
+    OPTION_OPENCL,
     OPTION_OPENCL_OPTIONS,
-    OPTION_OPENMP,
     OPTION_OUTPUT_DIRECTORY,
     OPTION_PARALLEL,
     OPTION_PASS_THROUGH,
@@ -468,8 +468,6 @@ struct command_line_long_options command_line_long_options[] =
     {"debug-flags",  CLP_REQUIRED_ARGUMENT, OPTION_DEBUG_FLAG},
     {"help-debug-flags", CLP_NO_ARGUMENT, OPTION_HELP_DEBUG_FLAGS},
     {"help-target-options", CLP_NO_ARGUMENT, OPTION_HELP_TARGET_OPTIONS},
-    {"openmp", CLP_NO_ARGUMENT, OPTION_OPENMP},
-    {"no-openmp", CLP_NO_ARGUMENT, OPTION_NO_OPENMP},
     {"variable", CLP_REQUIRED_ARGUMENT, OPTION_EXTERNAL_VAR},
     {"typecheck", CLP_NO_ARGUMENT, OPTION_TYPECHECK},
     {"pp-stdout", CLP_NO_ARGUMENT, OPTION_PREPROCESSOR_USES_STDOUT},
@@ -481,8 +479,10 @@ struct command_line_long_options command_line_long_options[] =
     {"list-environments", CLP_NO_ARGUMENT, OPTION_LIST_ENVIRONMENTS},
     {"print-config-dir", CLP_NO_ARGUMENT, OPTION_PRINT_CONFIG_DIR},
     {"upc", CLP_OPTIONAL_ARGUMENT, OPTION_ENABLE_UPC},
-    {"cuda", CLP_NO_ARGUMENT, OPTION_ENABLE_CUDA},
-    {"opencl", CLP_NO_ARGUMENT, OPTION_ENABLE_OPENCL},
+    {"cuda", CLP_NO_ARGUMENT, OPTION_CUDA},
+    {"no-cuda", CLP_NO_ARGUMENT, OPTION_NO_CUDA},
+    {"opencl", CLP_NO_ARGUMENT, OPTION_OPENCL},
+    {"no-opencl", CLP_NO_ARGUMENT, OPTION_NO_OPENCL},
     {"opencl-build-opts",  CLP_REQUIRED_ARGUMENT, OPTION_OPENCL_OPTIONS},
     {"do-not-unload-phases", CLP_NO_ARGUMENT, OPTION_DO_NOT_UNLOAD_PHASES},
     {"instantiate", CLP_NO_ARGUMENT, OPTION_INSTANTIATE_TEMPLATES},
@@ -570,10 +570,6 @@ static const char* codegen_translation_unit(translation_unit_t* translation_unit
 static void native_compilation(translation_unit_t* translation_unit,
         const char* prettyprinted_filename, char remove_input);
 
-#ifndef FORTRAN_NEW_SCANNER
-static const char* fortran_prescan_file(translation_unit_t* translation_unit, const char *parsed_filename, char preprocessed);
-#endif
-
 #if !defined(WIN32_BUILD) || defined(__CYGWIN__)
 static void terminating_signal_handler(int sig);
 #endif
@@ -630,7 +626,7 @@ int main(int argc, char* argv[])
     // Default values
     initialize_default_values();
 
-    // Load configuration files and the profiles defined there Here we get all
+    // Load configuration files and the profiles defined there. Here we get all
     // the implicit parameters defined in configuration files and we switch to
     // the main profile of the compiler. Profiles are not yet fully populated.
     load_configuration();
@@ -850,6 +846,29 @@ static void options_error(char* message)
     exit(EXIT_FAILURE);
 }
 
+//! This function is used for long options that are user flags and also implicit flags (i.e. profile flags)
+static void handle_special_long_options(const char *flag_name, char from_command_line, char is_enabled)
+{
+    int i;
+    char found = 0;
+    for (i = 0; !found && (i < compilation_process.num_parameter_flags); i++)
+    {
+        if (strcmp(compilation_process.parameter_flags[i]->name, flag_name) == 0)
+        {
+            found = 1;
+            if (from_command_line
+                    // Still undefined
+                    || (compilation_process.parameter_flags[i]->value == PFV_UNDEFINED))
+            {
+                compilation_process.parameter_flags[i]->value = (is_enabled) ? PFV_TRUE : PFV_FALSE;
+            }
+        }
+    }
+    if (!found)
+    {
+        internal_error("'%s' implicit flag was not properly registered", flag_name);
+    }
+}
 
 
 // Returns nonzero if an error happened. In that case we would show the help
@@ -1010,34 +1029,24 @@ int parse_arguments(int argc, const char* argv[],
         {
             // Put here those flags that for some reason have special meanings
             // and at the same time they modify an implicit flag.
-            // Currently only --no-openmp behaves this way
+            // Currently only device specific flags such as --cuda or --opencl behaves this way
             char already_handled = 1;
             switch (parameter_info.value)
             {
-                case OPTION_OPENMP :
-                case OPTION_NO_OPENMP :
+                case OPTION_CUDA:
+                case OPTION_NO_CUDA:
                     {
-                        // If 'openmp' is in the parameter flags, set it to true
-                        int i;
-                        char found = 0;
-                        for (i = 0; !found && (i < compilation_process.num_parameter_flags); i++)
-                        {
-                            if (strcmp(compilation_process.parameter_flags[i]->name, "openmp") == 0)
-                            {
-                                found = 1;
-                                if (from_command_line
-                                        // Still undefined
-                                        || (compilation_process.parameter_flags[i]->value == PFV_UNDEFINED))
-                                {
-                                    compilation_process.parameter_flags[i]->value =
-                                        (parameter_info.value == OPTION_OPENMP) ? PFV_TRUE : PFV_FALSE;
-                                }
-                            }
-                        }
-                        if (!found)
-                        {
-                            internal_error("'openmp' implicit flag was not properly registered", 0);
-                        }
+                        char is_enabled = (parameter_info.value == OPTION_CUDA);
+                        handle_special_long_options("cuda", from_command_line, is_enabled);
+                        CURRENT_CONFIGURATION->enable_cuda = is_enabled;
+                        break;
+                    }
+                case OPTION_OPENCL:
+                case OPTION_NO_OPENCL:
+                    {
+                        char is_enabled = (parameter_info.value == OPTION_OPENCL);
+                        handle_special_long_options("opencl", from_command_line, is_enabled);
+                        CURRENT_CONFIGURATION->enable_opencl = is_enabled;
                         break;
                     }
                 default:
@@ -1471,20 +1480,13 @@ int parse_arguments(int argc, const char* argv[],
                         }
                         break;
                     }
-                case OPTION_ENABLE_CUDA:
-                    {
-                        CURRENT_CONFIGURATION->enable_cuda = 1;
-                        break;
-                    }
-                case OPTION_ENABLE_OPENCL:
-                    {
-                        CURRENT_CONFIGURATION->enable_opencl = 1;
-                        break;
-                    }
                 case OPTION_OPENCL_OPTIONS:
                     {
-                        //If we have build options, we also enable opencl
-                        CURRENT_CONFIGURATION->enable_opencl = 1;
+                        if (!CURRENT_CONFIGURATION->enable_opencl)
+                        {
+                            fprintf(stderr, "warning: '--opencl-build-opts' flag was detected but OpenCL support was not enabled. "
+                                "Did you forget to use the '--opencl' flag?\n");
+                        }
                         if (parameter_info.argument != NULL)
                         {
                             CURRENT_CONFIGURATION->opencl_build_options = parameter_info.argument;
@@ -2165,6 +2167,18 @@ static int parse_special_parameters(int *should_advance, int parameter_index,
                             || strcmp(&argument[5], "gnu11") == 0)
                     {
                         CURRENT_CONFIGURATION->enable_c11 = 1;
+                    }
+                    else if (strcmp(&argument[5], "f95") == 0)
+                    {
+                        // Do nothing
+                    }
+                    else if (strcmp(&argument[5], "f2003") == 0)
+                    {
+                        CURRENT_CONFIGURATION->enable_f03 = 1;
+                    }
+                    else if (strcmp(&argument[5], "f2008") == 0)
+                    {
+                        CURRENT_CONFIGURATION->enable_f08 = 1;
                     }
                 }
                 else if (strcmp(argument, "-static") == 0) { }
@@ -3125,18 +3139,12 @@ static void compile_every_translation_unit_aux_(int num_translation_units,
         }
 
         const char* parsed_filename = translation_unit->input_filename;
-#ifndef FORTRAN_NEW_SCANNER
-        char preprocessed = 0;
-#endif
         // If the file is not preprocessed or we've ben told to preprocess it
         if (((BITMAP_TEST(current_extension->source_kind, SOURCE_KIND_NOT_PREPROCESSED)
                     || BITMAP_TEST(CURRENT_CONFIGURATION->force_source_kind, SOURCE_KIND_NOT_PREPROCESSED))
                     && !BITMAP_TEST(CURRENT_CONFIGURATION->force_source_kind, SOURCE_KIND_PREPROCESSED))
                 && !CURRENT_CONFIGURATION->pass_through)
         {
-#ifndef FORTRAN_NEW_SCANNER
-            preprocessed = 1;
-#endif
             timing_t timing_preprocessing;
 
             const char* old_preprocessor_name = CURRENT_CONFIGURATION->preprocessor_name;
@@ -3180,33 +3188,6 @@ static void compile_every_translation_unit_aux_(int num_translation_units,
                     || BITMAP_TEST(CURRENT_CONFIGURATION->force_source_kind, SOURCE_KIND_FIXED_FORM))
                 && !BITMAP_TEST(CURRENT_CONFIGURATION->force_source_kind, SOURCE_KIND_FREE_FORM)
                 && !CURRENT_CONFIGURATION->pass_through);
-
-#ifndef FORTRAN_NEW_SCANNER
-        if (is_fixed_form)
-        {
-            timing_t timing_prescanning;
-
-            timing_start(&timing_prescanning);
-            parsed_filename = fortran_prescan_file(translation_unit, parsed_filename, preprocessed);
-            timing_end(&timing_prescanning);
-
-            if (parsed_filename != NULL
-                    && CURRENT_CONFIGURATION->verbose)
-            {
-                fprintf(stderr, "File '%s' converted from fixed to free form in %.2f seconds\n",
-                        parsed_filename,
-                        timing_elapsed(&timing_prescanning));
-            }
-
-            if (parsed_filename == NULL)
-            {
-                fatal_error("Conversion from fixed Fortran form to free Fortran form failed for file '%s'\n",
-                        translation_unit->input_filename);
-            }
-
-            is_fixed_form = 0;
-        }
-#endif
 
         if (!CURRENT_CONFIGURATION->do_not_parse)
         {
@@ -4114,106 +4095,8 @@ const char* preprocess_file(const char* input_filename)
     return preprocess_single_file(input_filename, NULL);
 }
 
-#ifndef FORTRAN_NEW_SCANNER
-static const char* fortran_prescan_file(translation_unit_t* translation_unit, const char *parsed_filename, char preprocessed)
-{
-    temporal_file_t prescanned_file = new_temporal_file();
-    const char* prescanned_filename = prescanned_file->name;
-
-    int prescanner_args = count_null_ended_array((void**)CURRENT_CONFIGURATION->prescanner_options);
-
-    int num_arguments = prescanner_args;
-    // -l [optional]
-    num_arguments += 1;
-    // -r dir -q -w width input -o output
-    num_arguments += 8;
-    // NULL
-    num_arguments += 1;
-
-    const char* mf03_prescanner = TARGET_MF03_PRESCANNER;
-    int full_path_length = 0;
-    if (CURRENT_CONFIGURATION->prescanner_name == NULL)
-    {
-        full_path_length = strlen(compilation_process.home_directory) + 1 + strlen(mf03_prescanner) + 1;
-    }
-    else
-    {
-        full_path_length = strlen(CURRENT_CONFIGURATION->prescanner_name) + 1;
-    }
-    char full_path[full_path_length];
-    if (CURRENT_CONFIGURATION->prescanner_name == NULL)
-    {
-        memset(full_path, 0, sizeof(full_path));
-
-        snprintf(full_path, sizeof(full_path), "%s/%s",
-                compilation_process.home_directory,
-                mf03_prescanner);
-    }
-    else
-    {
-        strncpy(full_path, CURRENT_CONFIGURATION->prescanner_name, strlen(CURRENT_CONFIGURATION->prescanner_name));
-    }
-    full_path[full_path_length-1] = '\0';
-
-    const char* prescanner_options[num_arguments];
-    memset(prescanner_options, 0, sizeof(prescanner_options));
-
-    int i;
-    for (i = 0; i < prescanner_args; i++)
-    {
-        prescanner_options[i] = CURRENT_CONFIGURATION->prescanner_options[i];
-    }
-
-    // Temporal directory for regenerated includes
-    temporal_file_t prescanner_include_output = new_temporal_dir();
-    P_LIST_ADD(CURRENT_CONFIGURATION->include_dirs,
-            CURRENT_CONFIGURATION->num_include_dirs,
-            uniquestr(prescanner_include_output->name));
-
-    if (!preprocessed)
-    {
-        // We want the prescanner to emit line markers only if the file was not
-        // preprocessed
-        prescanner_options[i] = uniquestr("-l");
-        i++;
-    }
-
-    prescanner_options[i] = uniquestr("-r");
-    i++;
-    prescanner_options[i] = uniquestr(prescanner_include_output->name);
-    i++;
-
-    prescanner_options[i] = uniquestr("-q");
-    i++;
-
-    prescanner_options[i] = uniquestr("-w");
-    i++;
-    uniquestr_sprintf(&prescanner_options[i], "%d", CURRENT_CONFIGURATION->input_column_width);
-    i++;
-
-    prescanner_options[i] = uniquestr("-o");
-    i++;
-    prescanner_options[i] = prescanned_filename;
-    i++;
-
-    prescanner_options[i] = parsed_filename;
-
-    int result_prescan = execute_program(full_path, prescanner_options);
-    if (result_prescan == 0)
-    {
-        return prescanned_filename;
-    }
-    else
-    {
-        fprintf(stderr, "Conversion from fixed to free form failed. Returned code %d\n",
-                result_prescan);
-        return NULL;
-    }
-}
-#endif
-
-static void native_compilation(translation_unit_t* translation_unit,
-        const char* prettyprinted_filename,
+static void native_compilation(translation_unit_t* translation_unit, 
+        const char* prettyprinted_filename, 
         char remove_input)
 {
     if (CURRENT_CONFIGURATION->do_not_compile

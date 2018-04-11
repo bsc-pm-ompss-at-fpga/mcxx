@@ -63,7 +63,7 @@ class LoweringVisitor : public Nodecl::ExhaustiveVisitor<void>
         virtual void visit(const Nodecl::OmpSs::TargetDeclaration& construct);
         virtual void visit(const Nodecl::OpenMP::Task& construct);
         virtual void visit(const Nodecl::OmpSs::TaskCall& construct);
-        virtual void visit(const Nodecl::OpenMP::TaskLoop& construct);
+        virtual void visit(const Nodecl::OpenMP::Taskloop& construct);
         virtual void visit(const Nodecl::OmpSs::TaskExpression& task_expr);
         virtual void visit(const Nodecl::OpenMP::Taskwait& construct);
         virtual void visit(const Nodecl::OpenMP::Taskyield& construct);
@@ -71,6 +71,15 @@ class LoweringVisitor : public Nodecl::ExhaustiveVisitor<void>
         virtual void visit(const Nodecl::OmpSs::Unregister& construct);
 
         virtual void visit(const Nodecl::OpenMP::ForAppendix& construct);
+
+#define UNIMPLEMENTED_VISITOR(TYPE) \
+        virtual void visit(const TYPE &construct) { \
+                error_printf_at(construct.get_locus(), \
+                "this construct is not supported by Nanos++\n"); \
+        }\
+
+        UNIMPLEMENTED_VISITOR(Nodecl::OpenMP::Taskgroup)
+#undef UNIMPLEMENTED_VISITOR
 
         // This typedef should be public because It's used by some local functions
         typedef std::map<OpenMP::Reduction*, TL::Symbol> reduction_map_t;
@@ -224,7 +233,6 @@ class LoweringVisitor : public Nodecl::ExhaustiveVisitor<void>
         void fill_dependences_internal(
                 Nodecl::NodeclBase ctr,
                 OutlineInfo& outline_info,
-                bool on_wait,
                 int num_static_dependences,
                 int num_dynamic_dependences,
                 Source& num_dependences,
@@ -279,6 +287,7 @@ class LoweringVisitor : public Nodecl::ExhaustiveVisitor<void>
                 Nodecl::NodeclBase construct);
 
         void allocate_immediate_structure(
+                TL::Type structure_type,
                 OutlineInfo& outline_info,
                 Source &struct_arg_type_name,
                 Source &struct_size,
@@ -403,6 +412,8 @@ class LoweringVisitor : public Nodecl::ExhaustiveVisitor<void>
         static bool there_are_reductions(OutlineInfo& outline_info);
 
         Source full_barrier_source();
+
+        Source full_taskwait_source(bool is_noflush);
 
         void reduction_initialization_code(
                 OutlineInfo& outline_info,

@@ -450,31 +450,35 @@ namespace Analysis {
         void expand_loop(
                 FTDGNode* n,
                 std::map<NBase, const_value_t*, Nodecl::Utils::Nodecl_structural_less> current_relevant_vars,
-                std::deque<unsigned>& loops_ids);
+                std::deque<unsigned>& loops_ids,
+                std::string indent);
         void expand_condition(
                 FTDGNode* n,
                 std::map<NBase, const_value_t*, Nodecl::Utils::Nodecl_structural_less> current_relevant_vars,
-                std::deque<unsigned>& loops_ids);
+                std::deque<unsigned>& loops_ids,
+                std::string indent);
 
         unsigned get_etdg_node_id(unsigned task_id, std::deque<unsigned> loops_ids);
 
-        ETDGNode* create_task_node(FTDGNode* n, std::deque<unsigned> loops_ids);
-        void connect_task_node(ETDGNode* etdg_n, FTDGNode* pcfg_n);
+        ETDGNode* create_task_node(FTDGNode* n, std::deque<unsigned> loops_ids, std::string indent);
+        void connect_task_node(ETDGNode* etdg_n, FTDGNode* pcfg_n, std::string indent);
         bool compute_task_connections(
                 ETDGNode* possible_source,
                 ETDGNode* target,
                 std::map<NBase, const_value_t*, Nodecl::Utils::Nodecl_structural_less> target_vars_map,
-                std::set<ETDGNode*>& all_possible_ancestors);
+                std::set<ETDGNode*>& all_possible_ancestors,
+                std::string indent);
         void task_create_and_connect(
                 FTDGNode* ftdg_n,
                 std::map<NBase, const_value_t*, Nodecl::Utils::Nodecl_structural_less> current_relevant_vars,
-                std::deque<unsigned> loops_ids);
-        ETDGNode* create_sync_node(FTDGNode* n);
-        void connect_sync_node(ETDGNode* etdg_n);
-        void sync_create_and_connect(FTDGNode* n);
+                std::deque<unsigned> loops_ids,
+                std::string indent);
+        ETDGNode* create_sync_node(FTDGNode* n, std::string indent);
+        void connect_sync_node(ETDGNode* etdg_n, std::string indent);
+        void sync_create_and_connect(FTDGNode* n, std::string indent);
 
-        void connect_nodes(ETDGNode* source, ETDGNode* target);
-        void disconnect_nodes(ETDGNode* source, ETDGNode* target);
+        void connect_nodes(ETDGNode* source, ETDGNode* target, std::string indent);
+        void disconnect_nodes(ETDGNode* source, ETDGNode* target, std::string indent);
 
         bool is_ancestor(ETDGNode* source, ETDGNode* target);
 
@@ -508,6 +512,18 @@ namespace Analysis {
         const std::map<Nodecl::NodeclBase, ObjectList<ETDGNode*> >& get_source_to_etdg_nodes() const;
 
         void clear_visits();
+    };
+
+    struct LoopInfo {
+        Utils::InductionVar* _iv;
+        NBase _lb;
+        NBase _ub;
+        NBase _incr;
+        unsigned _niter;
+
+        LoopInfo(Utils::InductionVar* iv, NBase lb, NBase ub, NBase incr, unsigned niter)
+            : _iv(iv), _lb(lb), _ub(ub), _incr(incr), _niter(niter)
+        {}
     };
 
     class LIBTL_CLASS ExpandedTaskDependencyGraph

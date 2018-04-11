@@ -95,11 +95,11 @@ struct extensions_table_t
     source_kind_t source_kind;
 };
 
-typedef struct top_level_include_tag
+typedef struct include_tag
 {
     const char *included_file;
     char system_include;
-} top_level_include_t;
+} include_t;
 
 typedef struct module_to_wrap_info_tag
 {
@@ -118,8 +118,8 @@ typedef struct translation_unit_tag
     nodecl_t nodecl;
     const decl_context_t* global_decl_context;
 
-    int num_top_level_includes;
-    top_level_include_t **top_level_include_list;
+    int num_includes;
+    include_t **include_list;
 
     // This is a cache of module files actually opened and loaded
     rb_red_blk_tree *module_file_cache;
@@ -549,6 +549,12 @@ typedef struct compilation_configuration_tag
 
     // Enable C++14
     char enable_cxx14;
+
+    // Enable full Fortran 2003
+    char enable_f03;
+
+    // Enable full Fortran 2008
+    char enable_f08;
 
     // Enable CUDA
     char enable_cuda;

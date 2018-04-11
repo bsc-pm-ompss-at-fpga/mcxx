@@ -739,8 +739,14 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
 
         hls_file << it->get_source(true);
 
-       hls_file.close();
-      }
+        hls_file.close();
+
+        if(!CURRENT_CONFIGURATION->do_not_link)
+        {
+            //If linking is enabled, remove the intermediate HLS source file (like an object file)
+            ::mark_file_for_cleanup(new_filename.c_str());
+        }
+    }
 
         // Do not forget the clear the code for next files
         _fpga_file_code = Nodecl::List();
@@ -751,7 +757,7 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
 
 void DeviceFPGA::add_included_fpga_files(std::ostream &hls_file)
 {
-    ObjectList<IncludeLine> lines = CurrentFile::get_top_level_included_files();
+    ObjectList<IncludeLine> lines = CurrentFile::get_included_files();
     std::string fpga_header_exts[] = {".fpga\"", ".fpga.h\"", ".fpga.hpp\""};
 
     for (ObjectList<IncludeLine>::iterator it = lines.begin(); it != lines.end(); it++)

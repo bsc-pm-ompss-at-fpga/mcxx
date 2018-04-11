@@ -24,41 +24,38 @@
   Cambridge, MA 02139, USA.
 --------------------------------------------------------------------*/
 
+#ifndef TL_NANOS6_DEVICE_FACTORY_HPP
+#define TL_NANOS6_DEVICE_FACTORY_HPP
 
-#ifndef TL_NANOS6_TASKLOOP_HPP
-#define TL_NANOS6_TASKLOOP_HPP
+#include "tl-object.hpp"
 
-#include "tl-nanos6-lower.hpp"
-#include "tl-nanos6-interface.hpp"
+#include "tl-nanos6-device.hpp"
+#include "smp/tl-nanos6-smp-device.hpp"
+#include "cuda/tl-nanos6-cuda-device.hpp"
 
-#include "tl-nodecl-utils.hpp"
+#include "cxx-diagnostic.h"
 
 namespace TL { namespace Nanos6 {
 
-    void Lower::visit(const Nodecl::OpenMP::TaskLoop& construct)
+    class DeviceFactory
     {
-        Nodecl::NodeclBase loop = construct.get_loop();
-        ERROR_CONDITION(!loop.is<Nodecl::ForStatement>(), "Unreachable code\n", 0);
-
-        walk(loop);
-
-        Nodecl::List exec_env = construct.get_environment().as<Nodecl::List>();
-        exec_env.append(Nodecl::OpenMP::TaskIsTaskloop::make());
-
-        construct.replace(
-                Nodecl::OpenMP::Task::make(exec_env, Nodecl::List::make(loop)));
-
-        Nodecl::NodeclBase serial_stmts;
-        // If disabled, act normally
-        if (!_phase->_final_clause_transformation_disabled)
-        {
-            std::map<Nodecl::NodeclBase, Nodecl::NodeclBase>::iterator it = _final_stmts_map.find(construct);
-            ERROR_CONDITION(it == _final_stmts_map.end(), "Invalid serial statemtents", 0);
-            serial_stmts = Nodecl::List::make(it->second);
-        }
-
-        lower_task(construct.as<Nodecl::OpenMP::Task>(), serial_stmts);
-    }
+        public:
+            static std::shared_ptr<Device> get_device(const std::string &device_name) {
+                if (device_name == "smp")
+                {
+                    return std::shared_ptr<SMPDevice>(new SMPDevice());
+                }
+                else if (device_name == "cuda")
+                {
+                    //FIXME: CHECK AT THIS POINT WHETHER CUDA WAS ENABLED!
+                    return std::shared_ptr<CUDADevice>(new CUDADevice());
+                }
+                else
+                {
+                    fatal_error("unrecognized '%s' device name\n", device_name.c_str());
+                }
+            }
+    };
 }}
 
-#endif // TL_NANOS6_TASKLOOP_HPP
+#endif // TL_NANOS6_DEVICE_FACTORY_HPP

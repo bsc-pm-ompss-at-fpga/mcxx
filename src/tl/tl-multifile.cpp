@@ -32,14 +32,14 @@
 
 namespace TL
 {
-    ObjectList<IncludeLine> CurrentFile::get_top_level_included_files()
+    ObjectList<IncludeLine> CurrentFile::get_included_files()
     {
         ObjectList<IncludeLine> result;
-        for (int i = 0; i < CURRENT_COMPILED_FILE->num_top_level_includes; i++)
+        for (int i = 0; i < CURRENT_COMPILED_FILE->num_includes; i++)
         {
-            top_level_include_t *top_level_include = CURRENT_COMPILED_FILE->top_level_include_list[i];
-            
-            IncludeLine include_line(top_level_include->included_file, top_level_include->system_include);
+            include_t *include = CURRENT_COMPILED_FILE->include_list[i];
+
+            IncludeLine include_line(include->included_file, include->system_include);
             result.push_back(include_line);
         }
 
@@ -56,21 +56,5 @@ namespace TL
         {
             return std::string("#include \"") + _file + std::string("\"");
         }
-    }
-
-    std::string CurrentFile::get_top_level_included_files_str()
-    {
-        ObjectList<IncludeLine> lines = CurrentFile::get_top_level_included_files();
-
-        std::string result;
-
-        for (ObjectList<IncludeLine>::iterator it = lines.begin(); 
-                it != lines.end();
-                it++)
-        {
-            result += it->get_preprocessor_line();
-        }
-
-        return result;
     }
 }

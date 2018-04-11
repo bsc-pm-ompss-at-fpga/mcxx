@@ -138,13 +138,21 @@ namespace TL { namespace Nanos6 {
                 args_size,
                 requires_initialization);
 
-        TL::Symbol task_info, task_invocation_info;
-        Nodecl::NodeclBase local_init_task_info;
-        task_properties.create_task_info(
+        TL::Symbol task_invocation_info;
+        task_properties.create_task_invocation_info(
                 /* out */
-                task_info,
-                task_invocation_info,
-                local_init_task_info);
+                task_invocation_info);
+
+        TL::Symbol implementations;
+        task_properties.create_task_implementations_info(
+                /* out */
+                implementations);
+
+        TL::Symbol task_info;
+        task_properties.create_task_info(
+                implementations,
+                /* out */
+                task_info);
 
         TL::Scope sc = node.retrieve_context();
 
@@ -178,34 +186,6 @@ namespace TL { namespace Nanos6 {
 
         Nodecl::List new_stmts;
 
-        TL::Symbol taskloop_bounds_ptr;
-        {
-            TL::Counter &counter = TL::CounterManager::get_counter("nanos6-taskloop-bounds");
-            std::stringstream ss;
-            ss << "nanos_taskloop_bounds_" << (int)counter;
-            counter++;
-
-            taskloop_bounds_ptr = sc.new_symbol(ss.str());
-            taskloop_bounds_ptr.get_internal_symbol()->kind = SK_VARIABLE;
-
-            TL::Symbol taskloop_bounds_struct
-                = TL::Scope::get_global_scope().get_symbol_from_name("nanos6_taskloop_bounds_t");
-
-            ERROR_CONDITION(!taskloop_bounds_struct.is_valid(), "Invalid symbol", 0);
-
-            taskloop_bounds_ptr.set_type(taskloop_bounds_struct.get_user_defined_type().get_pointer_to());
-            symbol_entity_specs_set_is_user_declared(taskloop_bounds_ptr.get_internal_symbol(), 1);
-
-            if (IS_CXX_LANGUAGE)
-                new_stmts.append(Nodecl::CxxDef::make(Nodecl::NodeclBase::null(), taskloop_bounds_ptr));
-        }
-
-        if (!local_init_task_info.is_null())
-        {
-            // Init task info if it happens to be local
-            new_stmts.append(local_init_task_info);
-        }
-
         // Create task
         {
             if (IS_CXX_LANGUAGE)
@@ -225,7 +205,6 @@ namespace TL { namespace Nanos6 {
             //         nanos_task_invocation_info *task_invocation_info,
             //         size_t args_block_size,
             //         /* OUT */ void **args_block_pointer,
-            //         /* OUT */ void **taskloop_bounds_pointer,
             //         /* OUT */ void **task_pointer,
             //         size_t flags);
 
@@ -274,24 +253,6 @@ namespace TL { namespace Nanos6 {
 
             cast.set_text("C");
             create_task_args.append(args_ptr_out);
-
-
-            // (void**) &taskloop_bounds_ptr
-            {
-                Nodecl::NodeclBase taskloop_bounds_out =
-                    cast = Nodecl::Conversion::make(
-                            Nodecl::Reference::make(
-                                taskloop_bounds_ptr.make_nodecl(
-                                    /* set_ref_type */ true,
-                                    node.get_locus()),
-                                taskloop_bounds_ptr.get_type().get_pointer_to(),
-                                node.get_locus()),
-                            TL::Type::get_void_type().get_pointer_to().get_pointer_to(),
-                            node.get_locus());
-
-                cast.set_text("C");
-                create_task_args.append(taskloop_bounds_out);
-            }
 
 
             // &task_ptr
@@ -387,20 +348,62 @@ namespace TL { namespace Nanos6 {
             Nodecl::NodeclBase capture_env;
             task_properties.capture_environment(
                     args,
+                    sc,
                     /* out */ capture_env);
 
             new_stmts.append(capture_env);
         }
 
-        // Compute taskloop information initialization
-        if (task_properties.is_taskloop())
+        if (task_properties.task_is_loop())
         {
-            Nodecl::NodeclBase taskloop_info_stmts;
-            task_properties.capture_taskloop_information(
-                    taskloop_bounds_ptr,
-                    /* out */ taskloop_info_stmts);
+            Interface::family_must_be_at_least("nanos6_taskloop_api", 1, "the 'loop' construct");
 
-            new_stmts.append(taskloop_info_stmts);
+            TL::Symbol nanos_register_loop_sym =
+                TL::Scope::get_global_scope().get_symbol_from_name("nanos_register_taskloop_bounds");
+            ERROR_CONDITION(!nanos_register_loop_sym.is_valid()
+                    || !nanos_register_loop_sym.is_function(), "Invalid symbol", 0);
+
+            ERROR_CONDITION(!node.get_statements().is<Nodecl::List>(), "Unexpected node\n", 0);
+            Nodecl::NodeclBase stmt = node.get_statements().as<Nodecl::List>().front();
+            ERROR_CONDITION(!stmt.is<Nodecl::Context>(), "Unexpected node\n", 0);
+            stmt = stmt.as<Nodecl::Context>().get_in_context().as<Nodecl::List>().front();
+            ERROR_CONDITION(!stmt.is<Nodecl::ForStatement>(), "Unexpected node\n", 0);
+
+            TL::ObjectList<TL::Symbol> params = nanos_register_loop_sym.get_related_symbols();
+            Nodecl::List reg_loop_args;
+
+            reg_loop_args.append(task_ptr.make_nodecl(/*ref_type*/true));
+
+            Nodecl::NodeclBase lower_bound = task_properties.get_lower_bound().shallow_copy();
+            if (IS_FORTRAN_LANGUAGE)
+                lower_bound = Nodecl::Conversion::make(lower_bound, params[1].get_type());
+            reg_loop_args.append(lower_bound);
+
+            Nodecl::NodeclBase upper_bound = task_properties.get_upper_bound().shallow_copy();
+            if (IS_FORTRAN_LANGUAGE)
+                upper_bound = Nodecl::Conversion::make(upper_bound, params[2].get_type());
+            reg_loop_args.append(upper_bound);
+
+            Nodecl::NodeclBase step = task_properties.get_step().shallow_copy();
+            if (IS_FORTRAN_LANGUAGE)
+                step = Nodecl::Conversion::make(step, params[3].get_type());
+            reg_loop_args.append(step);
+
+            Nodecl::NodeclBase chunksize = task_properties.get_chunksize().shallow_copy();
+            if (IS_FORTRAN_LANGUAGE)
+                chunksize = Nodecl::Conversion::make(chunksize, params[4].get_type());
+            reg_loop_args.append(chunksize);
+
+            new_stmts.append(
+                Nodecl::ExpressionStatement::make(
+                    Nodecl::FunctionCall::make(
+                        nanos_register_loop_sym.make_nodecl(/*ref_type*/true),
+                        reg_loop_args,
+                        /* alternate symbol */ Nodecl::NodeclBase::null(),
+                        /* function form */ Nodecl::NodeclBase::null(),
+                        TL::Type::get_void_type(),
+                        node.get_locus()),
+                    node.get_locus()));
         }
 
         // Submit the created task

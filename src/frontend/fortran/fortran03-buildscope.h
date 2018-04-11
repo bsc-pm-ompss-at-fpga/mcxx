@@ -41,7 +41,9 @@ LIBMF03_EXTERN void fortran_initialize_translation_unit_scope(translation_unit_t
 
 LIBMF03_EXTERN nodecl_t build_scope_fortran_translation_unit(translation_unit_t* translation_unit);
 
-LIBMF03_EXTERN void fortran_build_scope_statement(AST statement, const decl_context_t* decl_context, nodecl_t* nodecl_output);
+//! This function is only used by TL::Source
+LIBMF03_EXTERN void fortran_build_scope_statement_from_source(
+        AST statement, const decl_context_t* decl_context, nodecl_t* nodecl_output);
 
 LIBMF03_EXTERN type_t* choose_int_type_from_kind(nodecl_t expr, int kind_size);
 LIBMF03_EXTERN type_t* choose_float_type_from_kind(nodecl_t expr, int kind_size);
@@ -67,11 +69,9 @@ LIBMF03_EXTERN scope_entry_t* fortran_query_label(AST label,
         const decl_context_t* decl_context, 
         char is_definition);
 
-LIBMF03_EXTERN void add_untyped_symbol(const decl_context_t* decl_context, scope_entry_t* entry);
-LIBMF03_EXTERN void remove_untyped_symbol(const decl_context_t* decl_context, scope_entry_t* entry);
-
-LIBMF03_EXTERN void add_unknown_kind_symbol(const decl_context_t* decl_context, scope_entry_t* entry);
-LIBMF03_EXTERN void remove_unknown_kind_symbol(const decl_context_t* decl_context, scope_entry_t* entry);
+LIBMF03_EXTERN void add_delay_check_kind_of_symbol(const decl_context_t* decl_context, scope_entry_t* entry);
+LIBMF03_EXTERN void add_delay_check_symbol_needs_type_specifier_at_end(
+    const decl_context_t *decl_context, scope_entry_t *entry);
 
 LIBMF03_EXTERN scope_entry_t* query_common_name(const decl_context_t* decl_context, const char* common_name,
         const locus_t* locus);

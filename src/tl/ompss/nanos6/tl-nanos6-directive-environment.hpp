@@ -65,7 +65,6 @@ namespace TL { namespace Nanos6 {
         /* -------- Data-Sharing information ------ */
         TL::ObjectList<TL::Symbol> shared;
         TL::ObjectList<TL::Symbol> private_;
-        TL::ObjectList<TL::Symbol> firstprivate;
         TL::ObjectList<TL::Symbol> captured_value; // Superset of firstprivate
         TL::ObjectList<ReductionItem> reduction;
 
@@ -89,8 +88,9 @@ namespace TL { namespace Nanos6 {
 
         /* --------  Task flags & other stuff  ------ */
         bool is_tied;
-        bool is_taskwait_dep;
-        bool is_taskloop;
+        bool task_is_loop;
+        bool task_is_taskwait_with_deps;
+        bool task_is_taskcall;
         bool wait_clause;
         bool any_task_dependence;
 
@@ -98,9 +98,15 @@ namespace TL { namespace Nanos6 {
         std::string task_label;
         const locus_t* locus_of_task_declaration;
 
+        /* --------  Device Information  ------ */
+        TL::ObjectList<std::string> device_names;
+        TL::ObjectList<Nodecl::NodeclBase> ndrange;
+
         DirectiveEnvironment(Nodecl::NodeclBase environment);
 
         private:
+
+        TL::ObjectList<TL::Symbol> _firstprivate;
 
         //! If a symbol has a SHARED and a REDUCTION data-sharing, this
         //! function removes the SHARED part from the directive-environment
@@ -122,6 +128,8 @@ namespace TL { namespace Nanos6 {
         void walk_type_for_saved_expressions(TL::Type t);
 
         bool symbol_has_data_sharing_attribute(TL::Symbol sym) const;
+
+        friend class FirstprivateSymbolsWithoutDataSharing;
     };
 
 } }

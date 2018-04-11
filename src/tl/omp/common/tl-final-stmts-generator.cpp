@@ -73,7 +73,7 @@ namespace TL {
                 walk(task_call.get_call());
              }
 
-             void visit(const Nodecl::OpenMP::TaskLoop& taskloop)
+             void visit(const Nodecl::OpenMP::Taskloop& taskloop)
              {
                 ++_num_task_related_pragmas;
                 walk(taskloop.get_loop());
@@ -91,6 +91,12 @@ namespace TL {
                    ++_num_task_related_pragmas;
 
                 walk(for_construct.get_loop());
+             }
+
+             void visit(const Nodecl::OmpSs::Loop &loop)
+             {
+                ++_num_task_related_pragmas;
+                walk(loop.get_loop());
              }
 
              void visit(const Nodecl::ObjectInit& object_init)
@@ -187,10 +193,16 @@ namespace TL {
                 walk(task_call);
              }
 
-             void visit(const Nodecl::OpenMP::TaskLoop& taskloop)
+             void visit(const Nodecl::OpenMP::Taskloop& taskloop)
              {
                 taskloop.replace(taskloop.get_loop());
                 walk(taskloop);
+             }
+
+             void visit(const Nodecl::OmpSs::Loop &loop)
+             {
+                loop.replace(loop.get_loop());
+                walk(loop);
              }
 
              void visit(const Nodecl::OmpSs::TaskExpression& task_expr)
@@ -365,11 +377,20 @@ namespace TL {
         _final_stmts_map.insert(std::make_pair(task_call, final_stmts));
     }
 
-    void FinalStmtsGenerator::visit(const Nodecl::OpenMP::TaskLoop& node)
+    void FinalStmtsGenerator::visit(const Nodecl::OpenMP::Taskloop& node)
     {
         walk(node.get_loop());
 
         //std::cerr << "taskloop: " << node.get_locus_str() << std::endl;
+        Nodecl::NodeclBase final_stmts = generate_final_stmts(node.get_loop());
+        _final_stmts_map.insert(std::make_pair(node, final_stmts));
+    }
+
+    void FinalStmtsGenerator::visit(const Nodecl::OmpSs::Loop &node)
+    {
+        walk(node.get_loop());
+
+        //std::cerr << "loop: " << node.get_locus_str() << std::endl;
         Nodecl::NodeclBase final_stmts = generate_final_stmts(node.get_loop());
         _final_stmts_map.insert(std::make_pair(node, final_stmts));
     }
