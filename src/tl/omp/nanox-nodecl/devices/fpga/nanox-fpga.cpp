@@ -520,8 +520,7 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
     // Generate a unique identifier for the accelerator type
     // NOTE: Not using the line number to allow future modifications of source code without afecting the accelerator hash
     std::stringstream type_str;
-    type_str << current_function.get_filename() << /*" " << current_function.get_line() <<*/ " " << current_function.get_name();
-    std::cout << type_str.str() << std::endl;
+    type_str << current_function.get_filename() << /*" " << current_function.get_line() <<*/ " " << qualified_name;
     _acc_type = std::to_string(simple_hash_str(type_str.str().c_str()));
 
     //get onto information
