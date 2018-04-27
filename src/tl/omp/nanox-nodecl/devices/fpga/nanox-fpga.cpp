@@ -77,9 +77,9 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
     // Unpack DTO
     Lowering* lowering = info._lowering;
     const std::string& device_outline_name = fpga_outline_name(info._outline_name);
-    const Nodecl::NodeclBase& task_statements = info._task_statements;
+    // const Nodecl::NodeclBase& task_statements = info._task_statements;
     const Nodecl::NodeclBase& original_statements = info._original_statements;
-    bool is_function_task = info._called_task.is_valid();
+    // bool is_function_task = info._called_task.is_valid();
 
     const TL::Symbol& arguments_struct = info._arguments_struct;
     const TL::Symbol& called_task = info._called_task;
@@ -119,7 +119,7 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
 
                 func_syn_output_code
                     <<  "axiData end_acc_task(uint32_t accID, uint32_t __destID) {"
-                    <<  "\taxiData __output = \{0, 0, 0, 0, 0, 0, 0\};"
+                    <<  "\taxiData __output = {0, 0, 0, 0, 0, 0, 0};"
                     <<  "\t//memcpy(&__output.data, (void *)(" << STR_DATA << " + __addrWr/sizeof(counter_t)), sizeof(unsigned int));"
                     <<  "\t__output.keep = 0xFF;"
                     <<  "\t__output.data = accID;"
@@ -879,33 +879,19 @@ static std::string get_element_type_pointer_to(TL::Type type, std::string field_
     return reference_type;
 }
 
-
-//REMOVED 29/03/2017 static Source get_type_pointer_to_arrays_src(Nodecl::NodeclBase expr)
 static Source get_type_pointer_to_arrays_src(TL::Type copy_type, TL::Type type, bool is_only_pointer)
 {
-    int elems;
     Source ArrayExpression;
     std::string  dimension_str;
-//REMOVED 29/03/2017    DataReference datareference(expr);
-//REMOVED 29/03/2017    TL::Type type=expr.get_type();
 
-//REMOVED 29/03/2017    if (!datareference.is_valid())
-//REMOVED 29/03/2017    {
-//REMOVED 29/03/2017        internal_error("invalid data reference (%s)", datareference.get_locus_str().c_str());
-//REMOVED 29/03/2017    }
-
-    //if (type.is_pointer()) //it's a shape
     if (is_only_pointer) //it's a shape
     {
         dimension_str = "[1]";
         ArrayExpression << dimension_str;
         return ArrayExpression;
-    } else if (copy_type.is_array()) //it's a shape
-    //if (type.is_array()) //it's a shape
+    }
+    else if (copy_type.is_array()) //it's a shape
     {
-#if _DEBUG_AUTOMATIC_COMPILER_
-//REMOVED 29/03/2017       fprintf(stderr, "%s array no region \n",datareference.get_locus_str().c_str());
-#endif
         int total_dimensions = copy_type.get_num_dimensions();
         int n_dimensions=0;
         Nodecl::NodeclBase array_get_expr;
@@ -950,21 +936,11 @@ static Source get_type_pointer_to_arrays_src(TL::Type copy_type, TL::Type type, 
 
 }
 
-//REMOVED 29/03/2017 static Source get_type_arrays_src(Nodecl::NodeclBase expr)
 static Source get_type_arrays_src(TL::Type copy_type, TL::Type type, bool is_only_pointer)
 {
-    int elems;
     Source ArrayExpression;
     std::string  dimension_str;
-//REMOVED 29/03/2017    DataReference datareference(expr);
-//REMOVED 29/03/2017    TL::Type type=expr.get_type();
 
-//REMOVED 29/03/2017    if (!datareference.is_valid())
-//REMOVED 29/03/2017    {
-//REMOVED 29/03/2017        internal_error("invalid data reference (%s)", datareference.get_locus_str().c_str());
-//REMOVED 29/03/2017    }
-
-    //if (type.is_pointer()) //it's a shape
     if (is_only_pointer) //it's a shape
     {
         dimension_str = "[1]";
@@ -973,9 +949,6 @@ static Source get_type_arrays_src(TL::Type copy_type, TL::Type type, bool is_onl
     }
     else if (copy_type.is_array()) //it's a shape
     {
-#if _DEBUG_AUTOMATIC_COMPILER_
-//REMOVED 29/03/2017       fprintf(stderr, "%s array no region \n",datareference.get_locus_str().c_str());
-#endif
         int total_dimensions = copy_type.get_num_dimensions();
         int n_dimensions=0;
         Nodecl::NodeclBase array_get_expr;
@@ -1020,113 +993,11 @@ static Source get_type_arrays_src(TL::Type copy_type, TL::Type type, bool is_onl
 
 }
 
-//static int get_copy_elements_all_dimensions(Nodecl::NodeclBase expr)
-static int get_copy_elements_all_dimensions(TL::Type type)
-{
-    int elems;
-//REMOVED 29/03/2017    DataReference datareference(expr);
-//REMOVED 29/03/2017    if (!datareference.is_valid())
-//REMOVED 29/03/2017    {
-//REMOVED 29/03/2017        internal_error("invalid data reference (%s)", datareference.get_locus_str().c_str());
-//REMOVED 29/03/2017    }
-//REMOVED 29/03/2017    Type type = datareference.get_data_type();
-//    fprintf(stderr,"num_dimensions:%d\n",type.get_num_dimensions());
-
-    if (type.is_pointer())
-    {
-#if _DEBUG_AUTOMATIC_COMPILER_
-        fprintf(stderr, "Pointer declaration  is array, num dimensions:\n");
-#endif
-        return 1;
-    } else if (type.array_is_region()) //it's a region
-    {
-#if _DEBUG_AUTOMATIC_COMPILER_
-//REMOVED 29/03/2017        fprintf(stderr, "%s array is region \n",datareference.get_locus_str().c_str());
-#endif
-        Nodecl::NodeclBase cp_size = type.array_get_region_size();
-//        if (!cp_size.is_constant())
-//        {
-//            internal_error("Copy expressions must be known at compile time when working in 'block mode' (%s; %s)",
-//                    datareference.get_locus_str().c_str(), cp_size.prettyprint().c_str());
-//        }
-        elems = const_value_cast_to_4(cp_size.get_constant());
-    }
-    else if (type.is_array()) //it's a shape
-    {
-#if _DEBUG_AUTOMATIC_COMPILER_
-//REMOVED 29/03/2017        fprintf(stderr, "%s array no region \n",datareference.get_locus_str().c_str());
-#endif
-//        Nodecl::NodeclBase lower, upper;
-//        type.array_get_bounds(lower, upper);
-//        if (!lower.is_constant() || !upper.is_constant())
-//        {
-//            internal_error("Copy expressions must be known at compile time when working in 'block mode' (%s)",
-//                    datareference.get_locus_str().c_str());
-//        }
-//        elems = const_value_cast_to_4(upper.get_constant()) - const_value_cast_to_4(lower.get_constant()) + 1;
-//        fprintf(stderr, "%s array no region u:%d l:%d %d \n",datareference.get_locus_str().c_str(), const_value_cast_to_4(upper.get_constant()), const_value_cast_to_4(lower.get_constant()), elems);
-        Nodecl::NodeclBase lower, upper;
-        int n_dimensions = 0;
-        int total_dimensions = type.get_num_dimensions();
-        int n_elems = 1;
-#if _DEBUG_AUTOMATIC_COMPILER_MAX_J
-        fprintf(stderr, "number_of_dimensions %d\n", total_dimensions);
-#endif
-        int size_elem = type.get_size();
-#if _DEBUG_AUTOMATIC_COMPILER_
-        fprintf(stderr, "size %d\n", size_elem);
-#endif
-
-// int TL::Type::vector_num_elements     (         )     const
-
-        while (n_dimensions<total_dimensions)
-        {
-            type.array_get_bounds(lower, upper);
-            int lower_number = const_value_cast_to_4(lower.get_constant());
-#if _DEBUG_AUTOMATIC_COMPILER_
-            fprintf(stderr, "lower_number %d\n", lower_number);
-#endif
-            int upper_number = const_value_cast_to_4(upper.get_constant());
-#if _DEBUG_AUTOMATIC_COMPILER_
-            fprintf(stderr, "upper_number %d\n", upper_number);
-#endif
-            elems = const_value_cast_to_4(upper.get_constant()) - const_value_cast_to_4(lower.get_constant()) + 1;
-            n_elems = n_elems * elems;
-            type = type.array_element();
-            n_dimensions++;
-        }
-        elems = n_elems;
-
-    }
-    else //it's a trap!
-    {
-        //internal_error("Data copies must be an array region expression (%d)", datareference.get_locus_str().c_str());
-        internal_error("Data copies must be an array region expression ",0);
-    }
-    return elems;
-}
-
-
-//static Source get_copy_elements_all_dimensions_src(Nodecl::NodeclBase expr)
 static Source get_copy_elements_all_dimensions_src(TL::Type copy_type, TL::Type type, bool is_only_pointer)
 {
-    int elems;
-//    TL::Type array_get_expr_type = expr.get_type();
-//   Nodecl::NodeclBase array_get_expr = array_get_expr_type.array_get_size();
-
     Source ArrayExpression;
     std::string  dimension_str;
-//REMOVED 29/03/2017    DataReference datareference(expr);
-//REMOVED 29/03/2017    TL::Type array_get_expr_type = expr.get_type();
-//REMOVED 29/03/2017    TL::Type type=expr.get_type();
-    //   type  = datareference.get_data_type();
 
-//REMOVED 29/03/2017    if (!datareference.is_valid())
-//REMOVED 29/03/2017    {
-//REMOVED 29/03/2017        internal_error("invalid data reference (%s)", datareference.get_locus_str().c_str());
-//REMOVED 29/03/2017    }
-
-    //if (type.is_pointer())
     if (is_only_pointer)
     {
 #if _DEBUG_AUTOMATIC_COMPILER_
@@ -1136,10 +1007,10 @@ static Source get_copy_elements_all_dimensions_src(TL::Type copy_type, TL::Type 
         dimension_str = "( 1 )";
         ArrayExpression << dimension_str;
         return ArrayExpression;
-    } else if (copy_type.is_array()) //it's a shape
+    }
+    else if (copy_type.is_array()) //it's a shape
     {
 #if _DEBUG_AUTOMATIC_COMPILER_
-//REMOVED 29/03/2017       fprintf(stderr, "%s array no region \n",datareference.get_locus_str().c_str());
         fprintf(stderr, "Type declaration  is array, num dimensions\n");
         fprintf(stderr, "Type declaration  is array, num dimensions %d\n" , copy_type.get_num_dimensions());
 #endif
@@ -1147,8 +1018,6 @@ static Source get_copy_elements_all_dimensions_src(TL::Type copy_type, TL::Type 
         int n_dimensions=0;
         Nodecl::NodeclBase array_get_expr;
 #if _DEBUG_AUTOMATIC_COMPILER_
-//REMOVED 29/03/2017       fprintf(stderr, "%s array no region \n",datareference.get_locus_str().c_str());
-//         fprintf(stderr, "Type declaration  is array, num dimensions %s\n" , type.array_get_size().prettyprint());
         std::cerr << "Type declaration  is array, num dimensions " << copy_type.array_get_size().prettyprint() << std::endl;
         std::cerr << "Type declaration  is array, num dimensions " << copy_type.array_get_size().prettyprint() << std::endl;
 #endif
@@ -1176,7 +1045,6 @@ static Source get_copy_elements_all_dimensions_src(TL::Type copy_type, TL::Type 
         Nodecl::NodeclBase cp_size = copy_type.array_get_region_size();
         dimension_str = "(" + cp_size.prettyprint() + ")";
         ArrayExpression <<  dimension_str;
-        //elems = const_value_cast_to_4(cp_size.get_constant());
 #if _DEBUG_AUTOMATIC_COMPILER_
         std::cerr << std::endl << std::endl;
         std::cerr << "Region Expression:" << ArrayExpression.get_source() << std::endl;
@@ -1190,159 +1058,10 @@ static Source get_copy_elements_all_dimensions_src(TL::Type copy_type, TL::Type 
 #endif
 
     return ArrayExpression;
-
-
-    if (type.array_is_region()) //it's a region
-    {
-#if _DEBUG_AUTOMATIC_COMPILER_
-//REMOVED 29/03/2017         fprintf(stderr, "%s array is region \n",datareference.get_locus_str().c_str());
-#endif
-        Nodecl::NodeclBase cp_size = type.array_get_region_size();
-//        if (!cp_size.is_constant())
-//        {
-//            internal_error("Copy expressions must be known at compile time when working in 'block mode' (%s; %s)",
-//                    datareference.get_locus_str().c_str(), cp_size.prettyprint().c_str());
-//        }
-        elems = const_value_cast_to_4(cp_size.get_constant());
-    }
-    else if (type.is_array()) //it's a shape
-    {
-#if _DEBUG_AUTOMATIC_COMPILER_
-//REMOVED 29/03/2017         fprintf(stderr, "%s array no region \n",datareference.get_locus_str().c_str());
-#endif
-//        Nodecl::NodeclBase lower, upper;
-//        type.array_get_bounds(lower, upper);
-//        if (!lower.is_constant() || !upper.is_constant())
-//        {
-//            internal_error("Copy expressions must be known at compile time when working in 'block mode' (%s)",
-//                    datareference.get_locus_str().c_str());
-//        }
-//        elems = const_value_cast_to_4(upper.get_constant()) - const_value_cast_to_4(lower.get_constant()) + 1;
-//        fprintf(stderr, "%s array no region u:%d l:%d %d \n",datareference.get_locus_str().c_str(), const_value_cast_to_4(upper.get_constant()), const_value_cast_to_4(lower.get_constant()), elems);
-        Nodecl::NodeclBase lower, upper;
-        int n_dimensions = 0;
-        int total_dimensions = type.get_num_dimensions();
-        int n_elems = 1;
-#if _DEBUG_AUTOMATIC_COMPILER_
-        fprintf(stderr, "number_of_dimensions %d\n", total_dimensions);
-#endif
-        int size_elem = type.get_size();
-#if _DEBUG_AUTOMATIC_COMPILER_
-        fprintf(stderr, "size %d\n", size_elem);
-#endif
-
-// int TL::Type::vector_num_elements     (         )     const
-
-        while (n_dimensions<total_dimensions)
-        {
-            type.array_get_bounds(lower, upper);
-            int lower_number = const_value_cast_to_4(lower.get_constant());
-#if _DEBUG_AUTOMATIC_COMPILER_
-            fprintf(stderr, "lower_number %d\n", lower_number);
-#endif
-            int upper_number = const_value_cast_to_4(upper.get_constant());
-#if _DEBUG_AUTOMATIC_COMPILER_
-            fprintf(stderr, "upper_number %d\n", upper_number);
-#endif
-            elems = const_value_cast_to_4(upper.get_constant()) - const_value_cast_to_4(lower.get_constant()) + 1;
-            n_elems = n_elems * elems;
-            type = type.array_element();
-            n_dimensions++;
-        }
-        elems = n_elems;
-
-    }
-    else //it's a trap!
-    {
-        //internal_error("Data copies must be an array region expression (%d)", datareference.get_locus_str().c_str());
-        internal_error("Data copies must be an array region expression",0);
-    }
-//    return elems;
-}
-
-static int get_copy_elements(Nodecl::NodeclBase expr)
-{
-    int elems;
-    DataReference datareference(expr);
-    if (!datareference.is_valid())
-    {
-        internal_error("invalid data reference (%s)", datareference.get_locus_str().c_str());
-    }
-    Type type = datareference.get_data_type();
-
-    if (type.array_is_region()) //it's a region
-    {
-//        fprintf(stderr, "%s array is region \n",datareference.get_locus_str().c_str());
-        Nodecl::NodeclBase cp_size = type.array_get_region_size();
-//        if (!cp_size.is_constant())
-//        {
-//            internal_error("Copy expressions must be known at compile time when working in 'block mode' (%s; %s)",
-//                    datareference.get_locus_str().c_str(), cp_size.prettyprint().c_str());
-//        }
-        elems = const_value_cast_to_4(cp_size.get_constant());
-    }
-    else if (type.is_array()) //it's a shape
-    {
-//        fprintf(stderr, "%s array no region \n",datareference.get_locus_str().c_str());
-        Nodecl::NodeclBase lower, upper;
-        type.array_get_bounds(lower, upper);
-//        if (!lower.is_constant() || !upper.is_constant())
-//        {
-//            internal_error("Copy expressions must be known at compile time when working in 'block mode' (%s)",
-//                    datareference.get_locus_str().c_str());
-//        }
-        elems = const_value_cast_to_4(upper.get_constant()) - const_value_cast_to_4(lower.get_constant()) + 1;
-//        fprintf(stderr, "%s array no region u:%d l:%d %d \n",datareference.get_locus_str().c_str(), const_value_cast_to_4(upper.get_constant()), const_value_cast_to_4(lower.get_constant()), elems);
-
-    }
-    else //it's a trap!
-    {
-        internal_error("Data copies must be an array region expression (%d)", datareference.get_locus_str().c_str());
-    }
-    return elems;
-}
-
-static int get_copy_elements_type(Nodecl::NodeclBase expr)
-{
-    int elems;
-    DataReference datareference(expr);
-    if (!datareference.is_valid())
-    {
-        internal_error("invalid data reference (%s)", datareference.get_locus_str().c_str());
-    }
-    Type type = datareference.get_data_type();
-
-    if (type.array_is_region()) //it's a region
-    {
-        Nodecl::NodeclBase cp_size = type.array_get_region_size();
-//        if (!cp_size.is_constant())
-//        {
-//            internal_error("Copy expressions must be known at compile time when working in 'block mode' (%s; %s)",
-//                    datareference.get_locus_str().c_str(), cp_size.prettyprint().c_str());
-//        }
-        elems = const_value_cast_to_1(cp_size.get_constant());
-    }
-    else if (type.is_array()) //it's a shape
-    {
-        Nodecl::NodeclBase lower, upper;
-        type.array_get_bounds(lower, upper);
-//        if (!lower.is_constant() || !upper.is_constant())
-//        {
-//            internal_error("Copy expressions must be known at compile time when working in 'block mode' (%s)",
-//                    datareference.get_locus_str().c_str());
-//        }
-        elems = const_value_cast_to_1(upper.get_constant()) - const_value_cast_to_1(lower.get_constant()) + 1;
-    }
-    else //it's a trap!
-    {
-        internal_error("Data copies must be an array region expression (%d)", datareference.get_locus_str().c_str());
-    }
-    return elems;
 }
 
 static int find_parameter_position(const ObjectList<Symbol> param_list, const Symbol &param_symbol)
 {
-
     const std::string field_name_ref = param_symbol.get_name();
     int position = 0;
     for (ObjectList<Symbol>::const_iterator it = param_list.begin(); it != param_list.end();
@@ -1456,15 +1175,11 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         << "\tswitch (__param_id) {"
     ;
 
-    int in_offset = 0;
-    int out_offset = 0;
     int n_params_id = 0;
     int n_params_in = 0;
     int n_params_out = 0;
-    int n_params_out_addr = 0;
 
-// Go through all the parameters. The iteration below goes through the copies.
-
+    // Go through all the parameters. The iteration below goes through the copies.
     for (ObjectList<OutlineDataItem*>::iterator it = data_items.begin(); it != data_items.end(); it++)
     {
 
@@ -1516,7 +1231,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
             std::cerr << std::endl << std::endl;
 #endif
 
-            int n_elements;
             Source dimensions_array;
             Source dimensions_pointer_array;
             Source n_elements_src;
@@ -1577,7 +1291,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
             std::string pointed_to_string_simple = field_type_points_to.get_simple_declaration(scope, field_name);
             position=par_simple_decl.rfind(field_name);
             std::string type_par_decl = par_simple_decl.substr(0, position);
-            size_t position_pointer = par_decl.find(" ");
             std::string type_basic_par_decl = get_element_type_pointer_to(field_type, field_name, scope);
 
             if (copies.front().directionality == OutlineDataItem::COPY_INOUT)
@@ -1694,7 +1407,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         }
         else
         {
-            int n_elements; //= get_copy_elements_all_dimensions(expr);
             Source dimensions_array; // = get_type_arrays(expr);
             Source dimensions_pointer_array; // = get_type_arrays(expr);
             Source n_elements_src;
@@ -1702,8 +1414,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
             const Type &field_type = (*it)->get_field_type();
             std::string field_simple_decl = field_type.get_simple_declaration(scope, field_name);
             std::string type_simple_decl = field_type.get_simple_declaration(scope, field_name);
-            size_t position=type_simple_decl.find("[");
-            bool   is_only_pointer = (position == std::string::npos);
+            size_t position = type_simple_decl.find("[");
 
             Type elem_type;
             Type basic_elem_type;
@@ -1748,8 +1459,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                 std::string pointed_to_string_simple = field_type_points_to.get_simple_declaration(scope, field_name);
                 position = par_decl.rfind(field_name);
                 std::string type_par_decl = par_decl.substr(0, position);
-                size_t position_pointer=par_decl.find(" ");
-                //    std::string type_basic_par_decl = par_decl.substr(0,position_pointer);
                 std::string type_basic_par_decl = get_element_type_pointer_to(field_type, field_name, scope);
                 std::string type_mcxx_par_decl = get_type_pointer_to(field_type, field_name, scope);
 
@@ -1805,7 +1514,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         }
 
         const Scope &scope = it->get_scope();
-        int n_elements; //= get_copy_elements_all_dimensions(expr);
         Source dimensions_array; // = get_type_arrays(expr);
         Source dimensions_pointer_array; // = get_type_arrays(expr);
         Source n_elements_src;
@@ -1865,10 +1573,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
             std::string pointed_to_string = field_type_points_to.print_declarator();
             std::string pointed_to_string_simple = field_type_points_to.get_simple_declaration(scope, field_name);
-            size_t position = par_decl.rfind(field_name);
+            position = par_decl.rfind(field_name);
             std::string type_par_decl = par_decl.substr(0, position);
-            size_t position_pointer = par_decl.find(" ");
-            //    std::string type_basic_par_decl = par_decl.substr(0,position_pointer);
             std::string type_basic_par_decl = get_element_type_pointer_to(field_type, field_name, scope);
 
             const std::string field_port_name = STR_PREFIX + field_name;
@@ -1979,7 +1685,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
 
     sync_output_code
-        << "\taxiData __output = \{0, 0, 0, 0, 0, 0, 0\};"
+        << "\taxiData __output = {0, 0, 0, 0, 0, 0, 0};"
         << "\t__output = end_acc_task(accID, __destID );"
         << "\t" << STR_OUTPUTSTREAM << ".write(__output);"
         << " "
