@@ -33,11 +33,8 @@
 #include "tl-devices.hpp"
 #include "tl-source.hpp"
 
-#define STR_OUTPUTSTREAM "__outStream"
 #define STR_OUTPUTSTREAM "outStream"
-#define STR_INPUTSTREAM "__inStream"
 #define STR_INPUTSTREAM "inStream"
-#define STR_DATA "data"
 #define STR_DATA "mcxx_data"
 #define STR_PREFIX "mcxx_"
 #define STR_BUS "__mcxx_bus"
