@@ -1816,10 +1816,10 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         std::string basic_elem_type_name; //= basic_elem_type.print_declarator();
         const std::string &field_name = it->get_name();
         std::string type_simple_decl = field_type.get_simple_declaration(scope, field_name);
-        size_t position=type_simple_decl.find("[");
+        size_t position = type_simple_decl.find("[");
         bool is_only_pointer = (position == std::string::npos);
 
-        if (field_type.is_pointer() || field_type.is_array() || field_type.array_is_region())
+        if (field_type.is_pointer() || field_type.is_array())
         {
             n_elements_src = get_copy_elements_all_dimensions_src(field_type, field_type, is_only_pointer);
             dimensions_array = get_type_arrays_src(field_type, field_type, is_only_pointer);
@@ -1827,7 +1827,10 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         }
         else
         {
-            internal_error("ERROR!\n",0);
+            error_printf_at(it->get_locus(),
+                "Unsupported data type '%s' in fpga task parameter '%s' (only pointer parameters are supported)\n",
+                print_declarator(field_type.get_internal_type()), field_name.c_str()
+            );
         }
 
         if (field_type.is_pointer() || field_type.is_array())
