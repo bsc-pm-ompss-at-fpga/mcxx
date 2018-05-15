@@ -132,7 +132,7 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
                 ;
 
                 func_read_profiling_code
-                    << "counter_t get_time(const counter_t * counter){"
+                    << "counter_t get_time(const volatile counter_t * counter){"
                     << "\treturn *counter;"
                     << "}"
                 ;
