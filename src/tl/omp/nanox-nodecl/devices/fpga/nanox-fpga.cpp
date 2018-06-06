@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------
-  (C) Copyright 2006-2014 Barcelona Supercomputing Center
+  (C) Copyright 2006-2018 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
 
   This file is part of Mercurium C/C++ source-to-source compiler.
@@ -131,20 +131,22 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
                     <<  ""
                 ;
 
-                func_read_profiling_code
-                    << "counter_t get_time(const volatile counter_t * counter){"
-                    << "\treturn *counter;"
-                    << "}"
-                ;
+                if (instrumentation_enabled())
+                {
+                    func_read_profiling_code
+                        << "counter_t get_time(const volatile counter_t * counter){"
+                        << "\treturn *counter;"
+                        << "}"
+                    ;
 
-                func_write_profiling_code
-                    <<  "void write_profiling_registers(counter_t * counter_dest, counter_t * counters_src) {"
-                    <<  "\tmemcpy(counter_dest, counters_src, 4*sizeof(counter_t));"
-                    <<  "}"
-                    <<  ""
-                    <<  ""
-                ;
-
+                    func_write_profiling_code
+                        <<  "void write_profiling_registers(counter_t * counter_dest, counter_t * counters_src) {"
+                        <<  "\tmemcpy(counter_dest, counters_src, 4*sizeof(counter_t));"
+                        <<  "}"
+                        <<  ""
+                        <<  ""
+                    ;
+                }
 
                 Nodecl::NodeclBase fun_code = info._called_task.get_function_code();
                 outline_src
@@ -1126,15 +1128,25 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
     Source args;
     args
-        << "hls::stream<axiData> &" << STR_INPUTSTREAM << ", hls::stream<axiData> &" << STR_OUTPUTSTREAM << ", counter_t *" << STR_DATA << ", uint32_t accID"
+        << "hls::stream<axiData> &" << STR_INPUTSTREAM << ", hls::stream<axiData> &" << STR_OUTPUTSTREAM << ", uint32_t accID"
     ;
 
     pragmas_src
         << "#pragma HLS INTERFACE ap_ctrl_none port=return\n"
         << "#pragma HLS INTERFACE axis port=" << STR_INPUTSTREAM << "\n"
         << "#pragma HLS INTERFACE axis port=" << STR_OUTPUTSTREAM << "\n"
-        << "#pragma HLS INTERFACE m_axi port=" << STR_DATA << "\n"
     ;
+
+    if (instrumentation_enabled())
+    {
+        args
+            << ", counter_t *" << STR_DATA
+        ;
+
+        pragmas_src
+            << "#pragma HLS INTERFACE m_axi port=" << STR_DATA << "\n"
+        ;
+    }
 
     /*
      * Generate wrapper code
@@ -1633,8 +1645,14 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         << "void " << func_symbol.get_name() << "(" << args << ", " << fun_params_wrapper << ") {"
     ;
 
+    if (instrumentation_enabled())
+    {
+        local_decls
+            << "\tcounter_t  __counter_reg[4] = {0xA, 0xBAD, 0xC0FFE, 0xDEAD};"
+        ;
+    }
+
     local_decls
-        << "\tcounter_t  __counter_reg[4] = {0xA, 0xBAD, 0xC0FFE, 0xDEAD};"
         << "\tunsigned int __i;"
         << "\tuint64_t __addrRd, __addrWr, __accHeader;"
         << "\tuint32_t __cached, __destID, __comp_needed;"
@@ -1650,30 +1668,25 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         ;
     }
 
-    profiling_0
-        //<< "\tmemcpy(&__counter_reg[0], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)), sizeof(counter_t)); "
-        << "\t__counter_reg[0] =get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
-    ;
+    if (instrumentation_enabled())
+    {
+        profiling_0
+            << "\t__counter_reg[0] = get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
+        ;
 
-    profiling_1
-        //<< "\tmemcpy(&__counter_reg[1], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)), sizeof(counter_t)); "
-        // << "\tread_profiling_reg(&__counter_reg[1], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
-        << "\t__counter_reg[1] =get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
-    ;
+        profiling_1
+            << "\t__counter_reg[1] = get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
+        ;
 
-    profiling_2
-        //<< "\tmemcpy(&__counter_reg[2], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)), sizeof(counter_t)); "
-        //<< "\tread_profiling_reg(&__counter_reg[2], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
-        << "\t__counter_reg[2] =get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
-    ;
+        profiling_2
+            << "\t__counter_reg[2] = get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
+        ;
 
-    profiling_3
-        //<< "\tmemcpy(&__counter_reg[3], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)), sizeof(counter_t)); "
-        //<< "\tmemcpy((void *)(" << STR_DATA << " + __addrWr/sizeof(counter_t)), __counter_reg, 4*sizeof(counter_t));"
-        //<< "\tread_profiling_reg(&__counter_reg[3], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
-        << "\t__counter_reg[3] =get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
-        << "\twrite_profiling_registers((counter_t *)(" << STR_DATA << " + __addrWr/sizeof(counter_t)), __counter_reg);"
-    ;
+        profiling_3
+            << "\t__counter_reg[3] = get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
+            << "\twrite_profiling_registers((counter_t *)(" << STR_DATA << " + __addrWr/sizeof(counter_t)), __counter_reg);"
+        ;
+    }
 
     generic_initial_code
         << "\t__addrRd = " << STR_INPUTSTREAM << ".read().data;"
