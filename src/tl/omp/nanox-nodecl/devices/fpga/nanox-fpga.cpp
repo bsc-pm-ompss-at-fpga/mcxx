@@ -118,17 +118,16 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
                 Source func_write_profiling_code;
 
                 func_syn_output_code
-                    <<  "axiData end_acc_task(uint32_t accID, uint32_t __destID) {"
-                    <<  "\taxiData __output = {0, 0, 0, 0, 0, 0, 0};"
-                    <<  "\t//memcpy(&__output.data, (void *)(" << STR_DATA << " + __addrWr/sizeof(counter_t)), sizeof(unsigned int));"
-                    <<  "\t__output.keep = 0xFF;"
+                    <<  "void end_acc_task(hls::stream<axiData> &" << STR_OUTPUTSTREAM << ", uint32_t accID, uint32_t __destID) {"
+                    <<  "\taxiData __output = {0, 0xFF, 0, 0, 0, 0, 0};"
                     <<  "\t__output.data = accID;"
                     <<  "\t__output.dest = __destID;"
                     <<  "\t__output.last = 1;"
-                                <<  "\treturn __output;"
+                    <<  ""
+                    <<  "\toutStream.write(__output);"
                     <<  "}"
-                    <<  ""
-                    <<  ""
+                    <<  "\n"
+                    <<  "\n"
                 ;
 
                 func_read_profiling_code
@@ -1685,9 +1684,10 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
 
     sync_output_code
-        << "\taxiData __output = {0, 0, 0, 0, 0, 0, 0};"
-        << "\t__output = end_acc_task(accID, __destID );"
-        << "\t" << STR_OUTPUTSTREAM << ".write(__output);"
+        << "\tend_task: {"
+        << "\t#pragma HLS PROTOCOL fixed\n"
+        << "\t\tend_acc_task(outStream, accID, __destID);"
+        << "\t}"
         << " "
     ;
 
