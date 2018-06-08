@@ -118,30 +118,32 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
                 Source func_write_profiling_code;
 
                 func_syn_output_code
-                    <<  "void end_acc_task(hls::stream<axiData> &" << STR_OUTPUTSTREAM << ", uint32_t accID, uint32_t __destID) {"
-                    <<  "\taxiData __output = {0, 0xFF, 0, 0, 0, 0, 0};"
-                    <<  "\t__output.data = accID;"
-                    <<  "\t__output.dest = __destID;"
-                    <<  "\t__output.last = 1;"
-                    <<  ""
-                    <<  "\toutStream.write(__output);"
-                    <<  "}"
-                    <<  "\n"
-                    <<  "\n"
+                    << "void end_acc_task(hls::stream<axiData> &" << STR_OUTPUTSTREAM << ", uint32_t accID, uint32_t __destID) {"
+                    << "\taxiData __output = {0, 0xFF, 0, 0, 0, 0, 0};"
+                    << "\t__output.data = accID;"
+                    << "\t__output.dest = __destID;"
+                    << "\t__output.last = 1;"
+                    << ""
+                    << "\toutStream.write(__output);"
+                    << "}"
+                    << "\n"
+                    << "\n"
                 ;
 
                 func_read_profiling_code
-                    << "counter_t get_time(const volatile counter_t * counter){"
+                    << "counter_t get_time(const volatile counter_t * counter) {"
                     << "\treturn *counter;"
                     << "}"
+                    << "\n"
+                    << "\n"
                 ;
 
                 func_write_profiling_code
-                    <<  "void write_profiling_registers(counter_t * counter_dest, counter_t * counters_src) {"
-                    <<  "\tmemcpy(counter_dest, counters_src, 4*sizeof(counter_t));"
-                    <<  "}"
-                    <<  ""
-                    <<  ""
+                    << "void write_profiling_registers(counter_t * counter_dest, counter_t * counters_src) {"
+                    << "\tmemcpy(counter_dest, counters_src, 4*sizeof(counter_t));"
+                    << "}"
+                    << "\n"
+                    << "\n"
                 ;
 
 
@@ -873,7 +875,7 @@ static std::string get_element_type_pointer_to(TL::Type type, std::string field_
 
     position=pointed_to_string_simple.rfind(field_name);
 
-    std::string reference_type = pointed_to_string_simple.substr(0,position);
+    std::string reference_type = pointed_to_string_simple.substr(0,position-1);
 
     return reference_type;
 }
@@ -1167,11 +1169,11 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     ;
 
     out_copies_aux
-        << "\t__cached_id = __cached_id_out[__i];"
-        << "\t__cached = __cached_id; "
-        << "\t__param_id = __cached_id >> 32;"
-        << "\t__addr = __addr_out[__i];"
-        << "\tswitch (__param_id) {"
+        << "\t\t__cached_id = __cached_id_out[__i];"
+        << "\t\t__cached = __cached_id; "
+        << "\t\t__param_id = __cached_id >> 32;"
+        << "\t\t__addr = __addr_out[__i];"
+        << "\t\tswitch (__param_id) {"
     ;
 
     int n_params_id = 0;
@@ -1302,8 +1304,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                     << "\t" << type_basic_par_decl << " " << field_name << dimensions_array << ";"
                 ;
 
-                const std::string field_name_param_i = type_basic_par_decl + "*" + field_port_name_i;
-                const std::string field_name_param_o = type_basic_par_decl + "*" + field_port_name_o;
+                const std::string field_name_param_i = type_basic_par_decl + " *" + field_port_name_i;
+                const std::string field_name_param_o = type_basic_par_decl + " *" + field_port_name_o;
 
                 fun_params_wrapper.append_with_separator(field_name_param_i, ", ");
                 fun_params_wrapper.append_with_separator(field_name_param_o, ", ");
@@ -1344,7 +1346,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
             if (copies.front().directionality == OutlineDataItem::COPY_IN)
             {
                 const std::string field_port_name = STR_PREFIX + field_name;
-                const std::string field_name_param = type_basic_par_decl + "*" + field_port_name;
+                const std::string field_name_param = type_basic_par_decl + " *" + field_port_name;
 
                 local_decls
                     << "\t" << type_basic_par_decl << " " << field_name << dimensions_array << ";"
@@ -1374,7 +1376,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
             if (copies.front().directionality == OutlineDataItem::COPY_OUT)
             {
                 const std::string field_port_name = STR_PREFIX + field_name;
-                const std::string field_name_param = type_basic_par_decl + "*" + field_port_name;
+                const std::string field_name_param = type_basic_par_decl + " *" + field_port_name;
 
                 local_decls
                     << "\t" << type_basic_par_decl << " " << field_name << dimensions_array << ";"
@@ -1582,7 +1584,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
             const std::string field_port_name = STR_PREFIX + field_name;
             //const std::string field_name_param = type_basic_par_decl+ "*" +field_port_name;
-            const std::string field_name_param = type_basic_par_decl + "*" + field_port_name;
+            const std::string field_name_param = type_basic_par_decl + " *" + field_port_name;
             // DJG ONE ONLY PORT - REMOVING PORTS PER ARGUMENT
             fun_params_wrapper.append_with_separator(field_name_param, ", ");
 
@@ -1591,7 +1593,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
             ;
 
             local_decls
-                << "\t" << type_basic_par_decl << "*" << field_name << dimensions_pointer_array << ";"
+                << "\t" << type_basic_par_decl << " *" << field_name << dimensions_pointer_array << ";"
             ;
 
             function_parameters_passed[param_pos] = 1;
@@ -1621,7 +1623,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         out_copies
             << "\tfor (__i = 0; __i < (" << n_params_out << "); __i++) {"
             << out_copies_aux
-            << "\t\tdefault:;"
+            << "\t\t\tdefault:;"
             << "\t\t}"
             << "\t}"
             << "\n"
@@ -1656,26 +1658,26 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
     profiling_0
         //<< "\tmemcpy(&__counter_reg[0], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)), sizeof(counter_t)); "
-        << "\t__counter_reg[0] =get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
+        << "\t__counter_reg[0] = get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)));"
     ;
 
     profiling_1
         //<< "\tmemcpy(&__counter_reg[1], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)), sizeof(counter_t)); "
         // << "\tread_profiling_reg(&__counter_reg[1], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
-        << "\t__counter_reg[1] =get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
+        << "\t__counter_reg[1] = get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)));"
     ;
 
     profiling_2
         //<< "\tmemcpy(&__counter_reg[2], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)), sizeof(counter_t)); "
         //<< "\tread_profiling_reg(&__counter_reg[2], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
-        << "\t__counter_reg[2] =get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
+        << "\t__counter_reg[2] = get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)));"
     ;
 
     profiling_3
         //<< "\tmemcpy(&__counter_reg[3], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)), sizeof(counter_t)); "
         //<< "\tmemcpy((void *)(" << STR_DATA << " + __addrWr/sizeof(counter_t)), __counter_reg, 4*sizeof(counter_t));"
         //<< "\tread_profiling_reg(&__counter_reg[3], (const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
-        << "\t__counter_reg[3] =get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
+        << "\t__counter_reg[3] = get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t)));"
         << "\twrite_profiling_registers((counter_t *)(" << STR_DATA << " + __addrWr/sizeof(counter_t)), __counter_reg);"
     ;
 
