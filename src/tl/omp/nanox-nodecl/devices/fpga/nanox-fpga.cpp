@@ -1318,8 +1318,9 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                 function_parameters_passed[param_id] = 1;
 
                 in_copies_aux
-                    << "\t\t\tcase " << param_id << ":\t"
-                    << "\t\t\t\tmemcpy(" << field_name << ", (const " << type_basic_par_decl << "*)(" << field_port_name_i << " + __addr/sizeof(" << type_basic_par_decl << ")), " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
+                    << "\t\t\tcase " << param_id << ":\n"
+                    << "\t\t\t\tif(!__cached[4])\n"
+                    << "\t\t\t\t\tmemcpy(" << field_name << ", (const " << type_basic_par_decl << " *)(" << field_port_name_i << " + __addr/sizeof(" << type_basic_par_decl << ")), " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
                     << "\t\t\t\t__cached_id_out[" << n_params_out << "] = __cached_id;"
                     << "\t\t\t\t__addr_out[" << n_params_out << "] = __addr;"
                     << "\t\t\t\tbreak;"
@@ -1328,9 +1329,10 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                 n_params_in++;
 
                 out_copies_aux
-                    << "\tcase " << param_id << ":\n"
-                    << "\t\tmemcpy( " << field_port_name_o <<  " + __addr/sizeof(" << type_basic_par_decl << "), (const " << type_basic_par_decl << " *)" << field_name << ", " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
-                    << "\tbreak;"
+                    << "\t\t\tcase " << param_id << ":\n"
+                    << "\t\t\t\tif(!__cached[5])\n"
+                    << "\t\t\t\t\tmemcpy(" << field_port_name_o <<  " + __addr/sizeof(" << type_basic_par_decl << "), (const " << type_basic_par_decl << " *)" << field_name << ", " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
+                    << "\t\t\t\tbreak;"
                 ;
 
                 n_params_out++;
@@ -1360,7 +1362,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 in_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
-                    << "\t\t\t\tmemcpy(" << field_name << ", (const " << type_basic_par_decl << "*)(" << field_port_name << " + __addr/sizeof(" << type_basic_par_decl << ")), " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
+                    << "\t\t\t\tif(!__cached[4])\n"
+                    << "\t\t\t\t\tmemcpy(" << field_name << ", (const " << type_basic_par_decl << " *)(" << field_port_name << " + __addr/sizeof(" << type_basic_par_decl << ")), " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
                     << "\t\t\t\tbreak;"
                 ;
 
@@ -1395,9 +1398,10 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                 ;
 
                 out_copies_aux
-                    << "\tcase " << param_id << ":\n"
-                    << "\t\tmemcpy( " << field_port_name <<  " + __addr/sizeof(" << type_basic_par_decl << "), (const " << type_basic_par_decl << " *)" << field_name << ", " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
-                    << "\tbreak;"
+                    << "\t\t\tcase " << param_id << ":\n"
+                    << "\t\t\t\tif(!__cached[5])\n"
+                    << "\t\t\t\t\tmemcpy( " << field_port_name <<  " + __addr/sizeof(" << type_basic_par_decl << "), (const " << type_basic_par_decl << " *)" << field_name << ", " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
+                    << "\t\t\t\tbreak;"
                 ;
 
                 n_params_out++;
@@ -1633,10 +1637,11 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     ;
 
     local_decls
-        << "\tcounter_t  __counter_reg[4] = {0xA, 0xBAD, 0xC0FFE, 0xDEAD};"
+        << "\tcounter_t __counter_reg[4] = {0xA, 0xBAD, 0xC0FFE, 0xDEAD};"
         << "\tunsigned int __i;"
         << "\tuint64_t __addrRd, __addrWr, __accHeader;"
-        << "\tuint32_t __cached, __destID, __comp_needed;"
+        << "\tap_uint<8> __cached, __destID;"
+        << "\tuint32_t __comp_needed;"
         << "\tunsigned long long __addr, __cached_id;"
         << "\tunsigned int __param_id, __n_params_in, __n_params_out;"
     ;
