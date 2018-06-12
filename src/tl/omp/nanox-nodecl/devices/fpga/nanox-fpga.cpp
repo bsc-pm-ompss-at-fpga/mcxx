@@ -1161,17 +1161,17 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     Source generic_initial_code;
 
     in_copies_aux
-        << "\t\t__cached_id = " << STR_INPUTSTREAM << ".read().data;"
-        << "\t\t__cached = __cached_id;"
-        << "\t\t__param_id = __cached_id >> 32;"
+        << "\t\t__copyFlags_id = " << STR_INPUTSTREAM << ".read().data;"
+        << "\t\t__copyFlags = __copyFlags_id;"
+        << "\t\t__param_id = __copyFlags_id >> 32;"
         << "\t\t__addr = " << STR_INPUTSTREAM << ".read().data;"
         << "\t\tswitch (__param_id) {"
     ;
 
     out_copies_aux
-        << "\t\t__cached_id = __cached_id_out[__i];"
-        << "\t\t__cached = __cached_id; "
-        << "\t\t__param_id = __cached_id >> 32;"
+        << "\t\t__copyFlags_id = copyFlags_id_out[__i];"
+        << "\t\t__copyFlags = __copyFlags_id; "
+        << "\t\t__param_id = __copyFlags_id >> 32;"
         << "\t\t__addr = __addr_out[__i];"
         << "\t\tswitch (__param_id) {"
     ;
@@ -1321,9 +1321,9 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 in_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
-                    << "\t\t\t\tif(!__cached[4])\n"
+                    << "\t\t\t\tif(__copyFlags[4])\n"
                     << "\t\t\t\t\tmemcpy(" << field_name << ", (const " << type_basic_par_decl << " *)(" << field_port_name_i << " + __addr/sizeof(" << type_basic_par_decl << ")), " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
-                    << "\t\t\t\t__cached_id_out[" << n_params_out << "] = __cached_id;"
+                    << "\t\t\t\t__copyFlags_id_out[" << n_params_out << "] = __copyFlags_id;"
                     << "\t\t\t\t__addr_out[" << n_params_out << "] = __addr;"
                     << "\t\t\t\tbreak;"
                 ;
@@ -1332,7 +1332,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 out_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
-                    << "\t\t\t\tif(!__cached[5])\n"
+                    << "\t\t\t\tif(__copyFlags[5])\n"
                     << "\t\t\t\t\tmemcpy(" << field_port_name_o <<  " + __addr/sizeof(" << type_basic_par_decl << "), (const " << type_basic_par_decl << " *)" << field_name << ", " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
                     << "\t\t\t\tbreak;"
                 ;
@@ -1364,7 +1364,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 in_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
-                    << "\t\t\t\tif(!__cached[4])\n"
+                    << "\t\t\t\tif(__copyFlags[4])\n"
                     << "\t\t\t\t\tmemcpy(" << field_name << ", (const " << type_basic_par_decl << " *)(" << field_port_name << " + __addr/sizeof(" << type_basic_par_decl << ")), " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
                     << "\t\t\t\tbreak;"
                 ;
@@ -1394,14 +1394,14 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 in_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
-                    << "\t\t\t\t__cached_id_out[" << n_params_out << "] = __cached_id;"
+                    << "\t\t\t\t__copyFlags_id_out[" << n_params_out << "] = __copyFlags_id;"
                     << "\t\t\t\t__addr_out[" << n_params_out << "] = __addr;"
                     << "\t\t\t\tbreak;"
                 ;
 
                 out_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
-                    << "\t\t\t\tif(!__cached[5])\n"
+                    << "\t\t\t\tif(__copyFlags[5])\n"
                     << "\t\t\t\t\tmemcpy( " << field_port_name <<  " + __addr/sizeof(" << type_basic_par_decl << "), (const " << type_basic_par_decl << " *)" << field_name << ", " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
                     << "\t\t\t\tbreak;"
                 ;
@@ -1642,16 +1642,16 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         << "\tcounter_t __counter_reg[4] = {0xA, 0xBAD, 0xC0FFE, 0xDEAD};"
         << "\tunsigned int __i;"
         << "\tuint64_t __addrRd, __addrWr, __accHeader;"
-        << "\tap_uint<8> __cached, __destID;"
+        << "\tap_uint<8> __copyFlags, __destID;"
         << "\tuint32_t __comp_needed;"
-        << "\tunsigned long long __addr, __cached_id;"
+        << "\tunsigned long long __addr, __copyFlags_id;"
         << "\tunsigned int __param_id, __n_params_in, __n_params_out;"
     ;
 
     if (n_params_out)
     {
         local_decls
-            << "\tunsigned long long __cached_id_out[" << n_params_out << "];"
+            << "\tunsigned long long __copyFlags_id_out[" << n_params_out << "];"
             << "\tunsigned long long __addr_out[" << n_params_out << "];"
         ;
     }
