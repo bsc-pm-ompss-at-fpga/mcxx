@@ -1169,7 +1169,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     ;
 
     out_copies_aux
-        << "\t\t__copyFlags_id = copyFlags_id_out[__i];"
+        << "\t\t__copyFlags_id = __copyFlags_id_out[__i];"
         << "\t\t__copyFlags = __copyFlags_id; "
         << "\t\t__param_id = __copyFlags_id >> 32;"
         << "\t\t__addr = __addr_out[__i];"
