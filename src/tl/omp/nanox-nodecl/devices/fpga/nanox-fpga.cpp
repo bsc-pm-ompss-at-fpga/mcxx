@@ -1301,7 +1301,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                 const std::string field_port_name_o = STR_PREFIX + field_name + "_o";
 
                 local_decls
-                    << "\t" << type_basic_par_decl << " " << field_name << dimensions_array << ";"
+                    << "\tstatic " << type_basic_par_decl << " " << field_name << dimensions_array << ";"
                 ;
 
                 const std::string field_name_param_i = type_basic_par_decl + " *" + field_port_name_i;
@@ -1349,7 +1349,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                 const std::string field_name_param = type_basic_par_decl + " *" + field_port_name;
 
                 local_decls
-                    << "\t" << type_basic_par_decl << " " << field_name << dimensions_array << ";"
+                    << "\tstatic " << type_basic_par_decl << " " << field_name << dimensions_array << ";"
                 ;
 
                 fun_params_wrapper.append_with_separator(field_name_param, ", ");
@@ -1379,7 +1379,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                 const std::string field_name_param = type_basic_par_decl + " *" + field_port_name;
 
                 local_decls
-                    << "\t" << type_basic_par_decl << " " << field_name << dimensions_array << ";"
+                    << "\tstatic " << type_basic_par_decl << " " << field_name << dimensions_array << ";"
                 ;
 
                 fun_params_wrapper.append_with_separator(field_name_param, ", ");
@@ -1593,7 +1593,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
             ;
 
             local_decls
-                << "\t" << type_basic_par_decl << " *" << field_name << dimensions_pointer_array << ";"
+                << "\tstatic " << type_basic_par_decl << " *" << field_name << dimensions_pointer_array << ";"
             ;
 
             function_parameters_passed[param_pos] = 1;
