@@ -124,7 +124,7 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
                     << "\t__output.dest = __destID;"
                     << "\t__output.last = 1;"
                     << ""
-                    << "\toutStream.write(__output);"
+                    << "\t" << STR_OUTPUTSTREAM << ".write(__output);"
                     << "}"
                     << "\n"
                     << "\n"
@@ -1693,7 +1693,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     sync_output_code
         << "\tend_task: {"
         << "\t#pragma HLS PROTOCOL fixed\n"
-        << "\t\tend_acc_task(outStream, accID, __destID);"
+        << "\t\tend_acc_task(" << STR_OUTPUTSTREAM << ", accID, __destID);"
         << "\t}"
         << " "
     ;
