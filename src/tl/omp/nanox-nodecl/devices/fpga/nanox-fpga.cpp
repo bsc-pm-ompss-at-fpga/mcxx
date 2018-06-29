@@ -53,10 +53,6 @@
 using namespace TL;
 using namespace TL::Nanox;
 
-const std::string DeviceFPGA::HLS_VPREF = "_hls_var_";
-const std::string DeviceFPGA::HLS_I = HLS_VPREF + "i";
-const std::string DeviceFPGA::hls_in = HLS_VPREF + "in";
-const std::string DeviceFPGA::hls_out = HLS_VPREF + "out";
 static int _base_acc_num = 0;
 
 static std::string fpga_outline_name(const std::string &name) {

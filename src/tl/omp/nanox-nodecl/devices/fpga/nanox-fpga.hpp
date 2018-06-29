@@ -124,12 +124,6 @@ namespace TL
                 void preappend_list_sources_and_reset(Source outline_src, Source& full_src, TL::Scope scope);
 
                 void add_included_fpga_files(std::ostream &hls_file);
-
-            protected:
-                static const std::string hls_in;
-                static const std::string hls_out;
-                static const std::string HLS_VPREF;
-                static const std::string HLS_I;
         };
     }
 }
