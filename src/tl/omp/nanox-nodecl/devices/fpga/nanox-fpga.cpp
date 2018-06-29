@@ -118,7 +118,7 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
                 Source func_write_profiling_code;
 
                 func_syn_output_code
-                    << "void end_acc_task(hls::stream<axiData> &" << STR_OUTPUTSTREAM << ", uint32_t accID, uint32_t __destID) {"
+                    << "void end_acc_task(hls::stream<axiData> &" << STR_OUTPUTSTREAM << ", uint8_t accID, uint32_t __destID) {"
                     << "\taxiData __output = {0, 0xFF, 0, 0, 0, 0, 0};"
                     << "\t__output.data = accID;"
                     << "\t__output.dest = __destID;"
@@ -1127,7 +1127,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
     Source args;
     args
-        << "hls::stream<axiData> &" << STR_INPUTSTREAM << ", hls::stream<axiData> &" << STR_OUTPUTSTREAM << ", counter_t *" << STR_DATA << ", uint32_t accID"
+        << "hls::stream<axiData> &" << STR_INPUTSTREAM << ", hls::stream<axiData> &" << STR_OUTPUTSTREAM << ", counter_t *" << STR_DATA << ", uint8_t accID"
     ;
 
     pragmas_src
