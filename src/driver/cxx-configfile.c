@@ -1,23 +1,23 @@
 /*--------------------------------------------------------------------
   (C) Copyright 2006-2014 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
-  
+
   This file is part of Mercurium C/C++ source-to-source compiler.
-  
+
   See AUTHORS file in the top level directory for information
   regarding developers and contributors.
-  
+
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
   version 3 of the License, or (at your option) any later version.
-  
+
   Mercurium C/C++ source-to-source compiler is distributed in the hope
   that it will be useful, but WITHOUT ANY WARRANTY; without even the
   implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
   PURPOSE.  See the GNU Lesser General Public License for more
   details.
-  
+
   You should have received a copy of the GNU Lesser General Public
   License along with Mercurium C/C++ source-to-source compiler; if
   not, write to the Free Software Foundation, Inc., 675 Mass Ave,
@@ -59,7 +59,7 @@ static void parse_boolean(const char *c, int *value)
         }
         i++;
     }
-    
+
     // Maybe is false
     i = 0;
     while (valid_falses[i] != NULL)
@@ -325,13 +325,26 @@ int config_set_linker_options_post(struct compilation_configuration_tag* config,
     return 0;
 }
 
+// Set linker options fpga
+int config_set_linker_options_fpga(struct compilation_configuration_tag* config, const char* index, const char* value)
+{
+    int num;
+    const char *expanded_value = expand_profile_environment_variables(value);
+    const char **blank_separated_options = blank_separate_values(expanded_value, &num);
+
+    add_to_parameter_list(&config->linker_options_fpga, blank_separated_options, num);
+    DELETE(blank_separated_options);
+
+    return 0;
+}
+
 int config_add_compiler_phase(struct compilation_configuration_tag* config, const char* index, const char* value)
 {
 	compiler_phase_loader_t* cl = NEW0(compiler_phase_loader_t);
 	cl->func = compiler_regular_phase_loader;
 	cl->data = (void*)uniquestr(value);
 
-    P_LIST_ADD(config->phase_loader, 
+    P_LIST_ADD(config->phase_loader,
             config->num_compiler_phases,
 			cl);
 
@@ -341,12 +354,12 @@ int config_add_compiler_phase(struct compilation_configuration_tag* config, cons
 int config_add_preprocessor_prefix(struct compilation_configuration_tag* config, const char* index, const char* value)
 {
     const char *reserved[] = {
-        "gcc", 
+        "gcc",
         "mcc",
         "mcxx",
         /* sentinel */ NULL
     };
-    
+
     int i;
     for (i = 0; reserved[i] != NULL; i++)
     {
@@ -356,7 +369,7 @@ int config_add_preprocessor_prefix(struct compilation_configuration_tag* config,
             return 1;
         }
     }
-    
+
     // Reuse P_LIST_ADD
     int num_prefixes = config->num_pragma_custom_prefix;
     for (i = 0; i < num_prefixes; i++)
@@ -468,7 +481,7 @@ struct target_options_t
     const char* desc;
 };
 
-static 
+static
 struct target_options_t available_target_options[] =
 {
     // Sublink
@@ -530,7 +543,7 @@ static void parse_target_options(target_options_map_t* target_options, const cha
     }
 }
 
-// target_options_map_t* get_target_options(compilation_configuration_t* configuration, 
+// target_options_map_t* get_target_options(compilation_configuration_t* configuration,
 //         const char* configuration_name)
 int config_set_target_options(struct compilation_configuration_tag* config, const char* index, const char* value)
 {
@@ -556,7 +569,7 @@ int config_set_compiler_dto(struct compilation_configuration_tag* config, const 
 	cl->func = compiler_special_phase_set_dto;
 	cl->data = (void*)uniquestr(value);
 
-    P_LIST_ADD(config->phase_loader, 
+    P_LIST_ADD(config->phase_loader,
             config->num_compiler_phases,
 			cl);
 
@@ -569,7 +582,7 @@ int config_set_codegen_phase(compilation_configuration_t* config, const char* in
 	cl->func = compiler_special_phase_set_codegen;
 	cl->data = (void*)uniquestr(value);
 
-    P_LIST_ADD(config->phase_loader, 
+    P_LIST_ADD(config->phase_loader,
             config->num_compiler_phases,
 			cl);
 

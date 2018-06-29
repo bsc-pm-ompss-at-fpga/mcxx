@@ -45,6 +45,7 @@ linker_name, config_set_linker_name
 linker_options_pre, config_set_linker_options_pre
 linker_options, config_set_linker_options
 linker_options_post, config_set_linker_options_post
+linker_options_fpga, config_set_linker_options_fpga
 compiler_phase, config_add_compiler_phase
 codegen_phase, config_set_codegen_phase
 pragma_prefix, config_add_preprocessor_prefix
