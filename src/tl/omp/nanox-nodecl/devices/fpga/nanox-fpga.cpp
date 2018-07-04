@@ -74,6 +74,9 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
     if (IS_FORTRAN_LANGUAGE)
         fatal_error("Fortran for FPGA devices is not supported yet\n");
 
+    if (!Nanos::Version::interface_is_at_least("fpga", 1))
+        fatal_error("Unsupported Nanos version (fpga support). Please update your Nanos installation\n");
+
     // Unpack DTO
     Lowering* lowering = info._lowering;
     const std::string& device_outline_name = fpga_outline_name(info._outline_name);

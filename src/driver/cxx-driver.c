@@ -2485,7 +2485,7 @@ static void parse_subcommand_arguments(const char* arguments)
     char linker_flag = 0;
     char linker_flag_pre = 0;
     char linker_flag_post = 0;
-    char linker_flag_fpga= 0;
+    char linker_flag_fpga = 0;
     char prescanner_flag = 0;
 
     compilation_configuration_t* configuration = CURRENT_CONFIGURATION;
@@ -4095,8 +4095,8 @@ const char* preprocess_file(const char* input_filename)
     return preprocess_single_file(input_filename, NULL);
 }
 
-static void native_compilation(translation_unit_t* translation_unit, 
-        const char* prettyprinted_filename, 
+static void native_compilation(translation_unit_t* translation_unit,
+        const char* prettyprinted_filename,
         char remove_input)
 {
     if (CURRENT_CONFIGURATION->do_not_compile
@@ -4497,7 +4497,7 @@ static void link_files(const char** file_list, int num_files,
         count_null_ended_array((void**)compilation_configuration->linker_options_pre);
     int num_args_linker_options_post =
         count_null_ended_array((void**)compilation_configuration->linker_options_post);
-    int num_args_linker_options_fpga=
+    int num_args_linker_options_fpga =
         count_null_ended_array((void**)compilation_configuration->linker_options_fpga);
     int num_args_linker_command =
         compilation_configuration->num_args_linker_command;
@@ -4520,14 +4520,11 @@ static void link_files(const char** file_list, int num_files,
     const char* linker_args[num_arguments];
     memset(linker_args, 0, sizeof(linker_args));
 
-    const char* linker_args_fpga[num_args_linker_options_fpga+2];
+    // NULL
+    int num_arguments_fpga = num_args_linker_options_fpga + 1;
 
-    if (num_args_linker_options_fpga)
-    {
-      num_args_linker_options_fpga+=2;
-
-      memset(linker_args_fpga, 0, sizeof(linker_args_fpga));
-    }
+    const char* linker_args_fpga[num_arguments_fpga];
+    memset(linker_args_fpga, 0, sizeof(linker_args_fpga));
 
     int i = 0;
     int j = 0;
@@ -4596,16 +4593,19 @@ static void link_files(const char** file_list, int num_files,
         linker_args[i] = compilation_configuration->linker_options_post[j];
     }
 
+    unsigned char linker_args_fpga_contain_board = 0;
+    unsigned char linker_args_fpga_contain_name = 0;
 
-    if (num_args_linker_options_fpga)
+    //Adding linker options fpga
+    for(j = 0; j < num_args_linker_options_fpga; j++)
     {
-      //Adding linker options fpga
-      for(j = 0; j < num_args_linker_options_fpga-1; j++)
-      {
-          linker_args_fpga[j] = compilation_configuration->linker_options_fpga[j];
-      }
-      linker_args_fpga[j-1] = NULL;
+        linker_args_fpga[j] = compilation_configuration->linker_options_fpga[j];
+        if (!linker_args_fpga_contain_board)
+            linker_args_fpga_contain_board = (strstr(linker_args_fpga[j], "-b") != NULL);
+        if (!linker_args_fpga_contain_name)
+            linker_args_fpga_contain_name = (strstr(linker_args_fpga[j], "-n") != NULL);
     }
+    linker_args_fpga[j] = NULL;
 
     timing_t timing_link;
     timing_start(&timing_link);
@@ -4621,21 +4621,21 @@ static void link_files(const char** file_list, int num_files,
                 timing_elapsed(&timing_link));
     }
 
-    timing_t timing_link_automatic;
-    if (num_args_linker_options_fpga)
+    //FPGA linker only must be launched if board and name options exist in the flags
+    if (linker_args_fpga_contain_board & linker_args_fpga_contain_name)
     {
-      // FPGA linker
-      timing_start(&timing_link_automatic);
+        // FPGA linker
+        timing_t timing_link_automatic;
+        timing_start(&timing_link_automatic);
+        if (execute_program("autoVivado", linker_args_fpga) != 0)
+        {
+            fatal_error("Link fpga failed");
+        }
+        timing_end(&timing_link_automatic);
 
-      if (execute_program("autoVivado", linker_args_fpga) != 0)
-      {
-          fatal_error("Link fpga failed");
-      }
-      timing_end(&timing_link_automatic);
+        if (compilation_configuration->verbose)
+            fprintf(stderr, "FPGA Linking performed in %.3f seconds\n", timing_elapsed(&timing_link_automatic));
     }
-    if (num_args_linker_options_fpga && compilation_configuration->verbose)
-      fprintf(stderr, "FPGA Linking performed in %.3f seconds\n",timing_elapsed(&timing_link_automatic));
-
 }
 
 target_options_map_t* get_target_options(compilation_configuration_t* configuration,
