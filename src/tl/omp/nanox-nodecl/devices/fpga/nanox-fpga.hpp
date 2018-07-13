@@ -35,6 +35,7 @@
 
 #define STR_OUTPUTSTREAM "outStream"
 #define STR_INPUTSTREAM "inStream"
+#define STR_TWSTREAM "twStream"
 #define STR_DATA "mcxx_data"
 #define STR_PREFIX "mcxx_"
 #define STR_BUS "__mcxx_bus"
@@ -82,6 +83,7 @@ namespace TL
                 std::string _vivado_project_name;
                 std::string _ip_cache_path;
                 std::string _dataflow;
+                std::string _fpga_task_creation;
                 std::string _acc_type;
                 std::string _num_acc_instances;
                 int _current_base_acc_num;
