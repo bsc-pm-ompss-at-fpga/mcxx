@@ -1264,6 +1264,31 @@ namespace TL { namespace Nanox {
                 add_copies(copy_inout.get_inout_copies().as<Nodecl::List>(), OutlineDataItem::COPY_INOUT);
             }
 
+            void visit(const Nodecl::OmpSs::Localmem& localmem)
+            {
+                Nodecl::List list = localmem.get_localmem_expressions().as<Nodecl::List>();
+                for (Nodecl::List::iterator it = list.begin();
+                        it != list.end();
+                        it++)
+                {
+                    TL::DataReference data_ref(*it);
+                    if (data_ref.is_valid())
+                    {
+                        TL::Symbol sym = data_ref.get_base_symbol();
+
+                        OutlineDataItem &outline_info = _outline_info.get_entity_for_symbol(sym);
+                        outline_info.get_localmem().append(data_ref);
+                    }
+                    else
+                    {
+                        internal_error("%s: data reference '%s' must be valid at this point!\n",
+                                it->get_locus_str().c_str(),
+                                Codegen::get_current().codegen_to_str(*it, it->retrieve_context()).c_str()
+                                );
+                    }
+                }
+            }
+
             void visit(const Nodecl::OmpSs::Implements& implements)
             {
                 _outline_info.handle_implements_clause(

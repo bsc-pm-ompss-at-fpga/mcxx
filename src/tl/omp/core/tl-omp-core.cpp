@@ -1,23 +1,23 @@
 /*--------------------------------------------------------------------
   (C) Copyright 2006-2014 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
-  
+
   This file is part of Mercurium C/C++ source-to-source compiler.
-  
+
   See AUTHORS file in the top level directory for information
   regarding developers and contributors.
-  
+
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
   version 3 of the License, or (at your option) any later version.
-  
+
   Mercurium C/C++ source-to-source compiler is distributed in the hope
   that it will be useful, but WITHOUT ANY WARRANTY; without even the
   implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
   PURPOSE.  See the GNU Lesser General Public License for more
   details.
-  
+
   You should have received a copy of the GNU Lesser General Public
   License along with Mercurium C/C++ source-to-source compiler; if
   not, write to the Free Software Foundation, Inc., 675 Mass Ave,
@@ -51,6 +51,7 @@ namespace TL { namespace OpenMP {
         : PragmaCustomCompilerPhase(),
         _ompss_mode(false),
         _copy_deps_by_default(false),
+        _localmem_copies_by_default(false),
         _untied_tasks_by_default(false),
         _discard_unused_data_sharings(false),
         _allow_shared_without_copies(false),
@@ -171,6 +172,11 @@ namespace TL { namespace OpenMP {
     void Core::set_copy_deps_from_str(const std::string& str)
     {
         parse_boolean_option("copy_deps", str, _copy_deps_by_default, "Assuming false.");
+    }
+
+    void Core::set_localmem_copies_from_str(const std::string& str)
+    {
+        parse_boolean_option("localmem_copies", str, _localmem_copies_by_default, "Assuming false.");
     }
 
     void Core::set_untied_tasks_by_default_from_str(const std::string& str)
@@ -430,7 +436,7 @@ namespace TL { namespace OpenMP {
         public:
             DataEnvironmentSetter(
                     TL::PragmaCustomLine ref_tree,
-                    DataEnvironment& data_environment, 
+                    DataEnvironment& data_environment,
                     DataSharingAttribute data_attrib,
                     const std::string& clause_name)
                 : _ref_tree(ref_tree),
@@ -1019,8 +1025,8 @@ namespace TL { namespace OpenMP {
 
     };
 
-    void Core::get_data_implicit_attributes(TL::PragmaCustomStatement construct, 
-            DataSharingAttribute default_data_attr, 
+    void Core::get_data_implicit_attributes(TL::PragmaCustomStatement construct,
+            DataSharingAttribute default_data_attr,
             DataEnvironment& data_environment,
             bool there_is_default_clause)
     {
@@ -1028,7 +1034,7 @@ namespace TL { namespace OpenMP {
 
         FORTRAN_LANGUAGE()
         {
-            // A loop iteration variable for a sequential loop in a parallel or task construct 
+            // A loop iteration variable for a sequential loop in a parallel or task construct
             // is private in the innermost such construct that encloses the loop
             if (TL::PragmaUtils::is_pragma_construct("omp", "parallel", construct)
                     || TL::PragmaUtils::is_pragma_construct("omp", "parallel do", construct)
@@ -1221,8 +1227,8 @@ namespace TL { namespace OpenMP {
             struct Wrap
             {
                 static void into_section(
-                        Nodecl::NodeclBase& current_pragma_wrap, 
-                        Nodecl::NodeclBase& current_statement_wrap, 
+                        Nodecl::NodeclBase& current_pragma_wrap,
+                        Nodecl::NodeclBase& current_statement_wrap,
                         TL::ObjectList<Nodecl::NodeclBase>& section_seq_wrap,
                         Nodecl::NodeclBase& construct_wrap)
                 {
@@ -1248,7 +1254,7 @@ namespace TL { namespace OpenMP {
 
                     Nodecl::NodeclBase pragma_construct = Nodecl::PragmaCustomStatement::make(
                             pragma_line,
-                            Nodecl::List::make(singleton_list), 
+                            Nodecl::List::make(singleton_list),
                             "omp",
                             construct_wrap.get_locus());
                     section_seq_wrap.append(pragma_construct);
@@ -1336,7 +1342,7 @@ namespace TL { namespace OpenMP {
 
                     Nodecl::NodeclBase pragma_construct = Nodecl::PragmaCustomStatement::make(
                             pragma_line,
-                            Nodecl::List::make(statement_set_wrap), 
+                            Nodecl::List::make(statement_set_wrap),
                             "omp",
                             construct_wrap.get_locus());
                     section_seq_wrap.append(pragma_construct);
@@ -1525,7 +1531,7 @@ namespace TL { namespace OpenMP {
 
         FORTRAN_LANGUAGE()
         {
-            // A loop iteration variable for a sequential loop in a parallel or task construct 
+            // A loop iteration variable for a sequential loop in a parallel or task construct
             // is private in the innermost such construct that encloses the loop
             SequentialLoopsVariables sequential_loops;
             sequential_loops.walk(statement);
@@ -2333,7 +2339,7 @@ namespace TL { namespace OpenMP {
         }
     }
     void Core::simd_handler_post(TL::PragmaCustomStatement construct)
-    { 
+    {
         if (IS_C_LANGUAGE || IS_CXX_LANGUAGE)
         {
             for_handler_post(construct);

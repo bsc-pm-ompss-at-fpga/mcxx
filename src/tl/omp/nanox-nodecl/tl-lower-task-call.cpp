@@ -362,6 +362,25 @@ static TL::ObjectList<OutlineDataItem::CopyItem> rewrite_copies_c(
     return result;
 }
 
+
+static TL::ObjectList<Nodecl::NodeclBase> rewrite_localmem_c(
+        const TL::ObjectList<Nodecl::NodeclBase>& list,
+        const param_sym_to_arg_sym_t& param_sym_to_arg_sym)
+{
+    TL::ObjectList<Nodecl::NodeclBase> result;
+    for (TL::ObjectList<Nodecl::NodeclBase>::const_iterator it = list.begin();
+            it != list.end();
+            it++)
+    {
+        Nodecl::NodeclBase expr = it->shallow_copy();
+        Nodecl::NodeclBase rewritten = rewrite_expression_in_dependency_c(expr, param_sym_to_arg_sym);
+
+        result.append( rewritten );
+    }
+
+    return result;
+}
+
 static void copy_outline_data_item_c(
         OutlineDataItem& dest_info,
         const OutlineDataItem& source_info,
@@ -375,6 +394,9 @@ static void copy_outline_data_item_c(
 
     // Copy copy directionality
     dest_info.get_copies() = rewrite_copies_c(source_info.get_copies(), param_sym_to_arg_sym);
+
+    // Copy localmem information
+    dest_info.get_localmem() = rewrite_localmem_c(source_info.get_localmem(), param_sym_to_arg_sym);
 }
 
 static void handle_nonconstant_value_dimensions(TL::Type t,

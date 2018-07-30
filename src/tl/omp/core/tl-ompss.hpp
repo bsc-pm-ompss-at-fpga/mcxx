@@ -43,10 +43,7 @@ namespace TL { namespace OmpSs {
         COPY_DIR_UNDEFINED = 0,
         COPY_DIR_IN = 1 << 1,
         COPY_DIR_OUT = 1 << 2,
-        COPY_DIR_INOUT = COPY_DIR_IN | COPY_DIR_OUT,
-//        COPY_DIR_IN_ADDR = 1 << 3,
-//        COPY_DIR_OUT_ADDR = 1 << 4,
-//        COPY_DIR_INOUT_ADDR = COPY_DIR_IN_ADDR | COPY_DIR_OUT_ADDR,
+        COPY_DIR_INOUT = COPY_DIR_IN | COPY_DIR_OUT
     };
 
     //! We have the same function name for DependencyDirection
@@ -83,11 +80,7 @@ namespace TL { namespace OmpSs {
             ObjectList<CopyItem> _copy_in;
             ObjectList<CopyItem> _copy_out;
             ObjectList<CopyItem> _copy_inout;
-
-            // Copy addr
-            // ObjectList<CopyItem> _copy_in_addr;
-            // ObjectList<CopyItem> _copy_out_addr;
-            // ObjectList<CopyItem> _copy_inout_addr;
+            ObjectList<CopyItem> _localmem;
 
             ObjectList<Nodecl::NodeclBase> _ndrange;
             ObjectList<Nodecl::NodeclBase> _shmem;
@@ -99,6 +92,7 @@ namespace TL { namespace OmpSs {
             std::string _name;
 
             bool _copy_deps;
+            bool _localmem_copies;
 
             implementation_table_t _implementation_table;
 
@@ -117,17 +111,12 @@ namespace TL { namespace OmpSs {
             void append_to_copy_out(const ObjectList<CopyItem>& copy_items);
             void append_to_copy_inout(const ObjectList<CopyItem>& copy_items);
 
-            // void append_to_copy_in_addr(const ObjectList<CopyItem>& copy_items);
-            // void append_to_copy_out_addr(const ObjectList<CopyItem>& copy_items);
-            // void append_to_copy_inout_addr(const ObjectList<CopyItem>& copy_items);
-
             ObjectList<CopyItem> get_copy_in() const;
             ObjectList<CopyItem> get_copy_out() const;
             ObjectList<CopyItem> get_copy_inout() const;
 
-            //ObjectList<CopyItem> get_copy_in_addr() const;
-            //ObjectList<CopyItem> get_copy_out_addr() const;
-            //ObjectList<CopyItem> get_copy_inout_addr() const;
+            void append_to_localmem(const ObjectList<CopyItem>& localmem_items);
+            ObjectList<CopyItem> get_localmem() const;
 
             void append_to_ndrange(const ObjectList<Nodecl::NodeclBase>& expressions);
             ObjectList<Nodecl::NodeclBase> get_ndrange() const;
@@ -147,6 +136,9 @@ namespace TL { namespace OmpSs {
 
             void set_copy_deps(bool b);
             bool has_copy_deps() const;
+
+            void set_localmem_copies(bool b);
+            bool has_localmem_copies() const;
 
             void set_target_symbol(Symbol funct_symbol);
             Symbol get_target_symbol() const;

@@ -97,53 +97,17 @@ namespace TL
                 target_ctx.copy_in = parse_dependences_ompss_clause(copy_in, scope);
             }
 
-/*
-            PragmaCustomClause copy_in_addr = pragma_line.get_clause("copy_in_addr");
-            if (copy_in_addr.is_defined())
-            {
-#if _DEBUG_FPGA_AUTO_
-                fprintf(stderr, "COPY IN ADDR read in tl-ompss-target.cpp\n");
-#endif
-                //target_ctx.copy_in = target_ctx.copy_in.append(parse_dependences_ompss_clause(copy_in_addr,scope));
-                target_ctx.copy_in_addr = parse_dependences_ompss_clause(copy_in_addr, scope);
-            }
-*/
-
             PragmaCustomClause copy_out = pragma_line.get_clause("copy_out");
             if (copy_out.is_defined())
             {
                 target_ctx.copy_out = parse_dependences_ompss_clause(copy_out, scope);
             }
 
-/*
-            PragmaCustomClause copy_out_addr = pragma_line.get_clause("copy_out_addr");
-            if (copy_out_addr.is_defined())
-            {
-#if _DEBUG_FPGA_AUTO_
-                fprintf(stderr, "COPY OUT ADDR read in tl-ompss-target.cpp\n");
-#endif
-                //target_ctx.copy_out = target_ctx.copy_in.append(parse_dependences_ompss_clause(copy_out_addr,scope));
-                target_ctx.copy_out_addr = parse_dependences_ompss_clause(copy_out_addr, scope);
-            }
-*/
-
             PragmaCustomClause copy_inout = pragma_line.get_clause("copy_inout");
             if (copy_inout.is_defined())
             {
                 target_ctx.copy_inout = parse_dependences_ompss_clause(copy_inout, scope);
             }
-
-/*
-            PragmaCustomClause copy_inout_addr = pragma_line.get_clause("copy_inout_addr");
-            if (copy_inout_addr.is_defined())
-            {
-#if _DEBUG_FPGA_AUTO_
-                fprintf(stderr, "COPY INOUT ADDR read in tl-ompss-target.cpp\n");
-#endif
-                //target_ctx.copy_inout = target_ctx.copy_inout.append(parse_dependences_ompss_clause(copy_inout_addr,scope));
-                target_ctx.copy_inout_addr = parse_dependences_ompss_clause(copy_inout_addr, scope);
-            }
-*/
 
             PragmaCustomClause ndrange = pragma_line.get_clause("ndrange");
             if (ndrange.is_defined())
@@ -210,9 +174,6 @@ namespace TL
                         if ( !copy_in.is_defined()
                                 && !copy_out.is_defined()
                                 && !copy_inout.is_defined())
-                                //&& !copy_in_addr.is_define()
-                                //&& !copy_out_addr.is_define()
-                                //&& !copy_inout_addr.is_define())
                         {
                             target_ctx.copy_deps = OmpSs::TargetContext::COPY_DEPS;
 
@@ -332,6 +293,66 @@ namespace TL
                     warn_printf_at(pragma_line.get_locus(), "the argument of the clause 'implements' is not a valid identifier, skipping\n");
                 }
             }
+
+            PragmaCustomClause localmem = pragma_line.get_clause("localmem");
+            if (localmem.is_defined())
+            {
+                target_ctx.localmem = parse_dependences_ompss_clause(localmem, scope);
+            }
+
+            PragmaCustomClause localmem_copies = pragma_line.get_clause("localmem_copies");
+            PragmaCustomClause no_localmem_copies = pragma_line.get_clause("no_localmem_copies");
+            if (target_ctx.localmem_copies == OmpSs::TargetContext::UNDEF_LOCALMEM_COPIES)
+            {
+                target_ctx.localmem_copies = OmpSs::TargetContext::NO_LOCALMEM_COPIES;
+
+                if (!localmem_copies.is_defined()
+                        && !no_localmem_copies.is_defined())
+                {
+                    if (this->in_ompss_mode() && _localmem_copies_by_default)
+                    {
+                        // localmem_copies is true only if there is no localmem
+                        if (!localmem.is_defined())
+                        {
+                            target_ctx.localmem_copies = OmpSs::TargetContext::LOCALMEM_COPIES;
+                        }
+                    }
+                }
+                else if (localmem_copies.is_defined())
+                {
+                    target_ctx.localmem_copies = OmpSs::TargetContext::LOCALMEM_COPIES;
+                }
+                else if (no_localmem_copies.is_defined())
+                {
+                    target_ctx.localmem_copies = OmpSs::TargetContext::NO_LOCALMEM_COPIES;
+                }
+                else
+                {
+                    internal_error("Code unreachable", 0);
+                }
+            }
+            else if (target_ctx.localmem_copies == OmpSs::TargetContext::NO_LOCALMEM_COPIES
+                    || target_ctx.localmem_copies == OmpSs::TargetContext::LOCALMEM_COPIES)
+            {
+                if (localmem_copies.is_defined())
+                {
+                    warn_printf_at(pragma_line.get_locus(),
+                            "ignoring 'localmem_copies' clause because this context is already '%s'\n",
+                            target_ctx.localmem_copies == OmpSs::TargetContext::NO_LOCALMEM_COPIES ? "no_localmem_copies" : "localmem_copies");
+                }
+                if (no_localmem_copies.is_defined())
+                {
+                    warn_printf_at(pragma_line.get_locus(),
+                            "ignoring 'no_localmem_copies' clause because this context is already '%s'\n",
+                            target_ctx.localmem_copies == OmpSs::TargetContext::NO_LOCALMEM_COPIES ? "no_localmem_copies" : "localmem_copies");
+                }
+            }
+            else
+            {
+                internal_error("Code unreachable", 0);
+            }
+            ERROR_CONDITION(target_ctx.localmem_copies == OmpSs::TargetContext::UNDEF_LOCALMEM_COPIES,
+                    "Invalid value for localmem_copies at this point", 0)
         }
 
         // #pragma omp target on top of a #pragma omp task outline
@@ -510,46 +531,51 @@ namespace TL
                         target_info.append_to_copy_in(items);
                         break;
                     }
-/*
-                case TL::OmpSs::COPY_DIR_IN_ADDR:
-                    {
-
-#if _DEBUG_FPGA_AUTO_
-                        fprintf(stderr,"Inserting in target_info copy_in_addr?? \n");
-#endif
-                        target_info.append_to_copy_in_addr(items);
-                        break;
-                    }
-*/
                 case TL::OmpSs::COPY_DIR_OUT:
                     {
                         target_info.append_to_copy_out(items);
                         break;
                     }
-/*
-                case TL::OmpSs::COPY_DIR_OUT_ADDR:
-                    {
-                        target_info.append_to_copy_out_addr(items);
-                        break;
-                    }
-*/
                 case TL::OmpSs::COPY_DIR_INOUT:
                     {
                         target_info.append_to_copy_inout(items);
                         break;
                     }
-/*
-                case TL::OmpSs::COPY_DIR_INOUT_ADDR:
-                    {
-                        target_info.append_to_copy_inout_addr(items);
-                        break;
-                    }
-*/
                 default:
                     {
                         internal_error("Unreachable code", 0);
                     }
             }
+        }
+
+        static void add_localmem_items(PragmaCustomLine construct,
+                const ObjectList<Nodecl::NodeclBase>& list,
+                TL::OmpSs::TargetInfo& target_info,
+                bool in_ompss_mode)
+        {
+            TL::ObjectList<TL::OmpSs::CopyItem> items;
+
+            for (ObjectList<Nodecl::NodeclBase>::const_iterator it = list.begin();
+                    it != list.end();
+                    it++)
+            {
+                DataReference expr(*it);
+
+                if (!expr.is_valid())
+                {
+                    expr.commit_diagnostic();
+                    warn_printf_at(construct.get_locus(), "'%s' is not a valid localmem data-reference, skipping\n",
+                            expr.prettyprint().c_str());
+                    continue;
+                }
+
+                //FIXME: We need to check the data sharing here?
+
+                TL::OmpSs::CopyItem copy_item(expr, TL::OmpSs::COPY_DIR_UNDEFINED);
+                items.append(copy_item);
+            }
+
+            target_info.append_to_localmem(items);
         }
 
         // If the current target_ctx contains information about the
@@ -636,43 +662,17 @@ namespace TL
                     target_info,
                     in_ompss_mode());
 
-/*
-#if _DEBUG_FPGA_AUTO_
-            fprintf(stderr,"Inserting add_copy_items copy in addr\n");
-#endif
-            add_copy_items(construct, data_sharing_environment,
-                    target_ctx.copy_in_addr,
-                    TL::OmpSs::COPY_DIR_IN_ADDR,
-                    target_info,
-                    in_ompss_mode());
-*/
-
             add_copy_items(construct, data_sharing_environment,
                     target_ctx.copy_out,
                     TL::OmpSs::COPY_DIR_OUT,
                     target_info,
                     in_ompss_mode());
 
-/*
-            add_copy_items(construct, data_sharing_environment,
-                    target_ctx.copy_out_addr,
-                    TL::OmpSs::COPY_DIR_OUT_ADDR,
-                    target_info,
-                    in_ompss_mode());
-*/
-
             add_copy_items(construct, data_sharing_environment,
                     target_ctx.copy_inout,
                     TL::OmpSs::COPY_DIR_INOUT,
                     target_info,
                     in_ompss_mode());
-/*
-            add_copy_items(construct, data_sharing_environment,
-                    target_ctx.copy_inout_addr,
-                    TL::OmpSs::COPY_DIR_INOUT_ADDR,
-                    target_info,
-                    in_ompss_mode());
-*/
 
             target_info.set_file(target_ctx.file);
             target_info.set_name(target_ctx.name);
@@ -766,8 +766,6 @@ namespace TL
                         target_info,
                         in_ompss_mode());
 
-                // copy_deps is not copying _addrs.
-
                 if (!dep_list_weakin.empty()
                         || !dep_list_weakout.empty()
                         || !dep_list_weakinout.empty())
@@ -782,23 +780,12 @@ namespace TL
                         || !target_ctx.copy_in.empty()
                         || !target_ctx.copy_out.empty()
                         || !target_ctx.copy_inout.empty())
-//                        || !target_ctx.copy_in_addr.empty()
-//                        || !target_ctx.copy_out_addr.empty()
-//                        || !target_ctx.copy_inout_addr.empty())
                     && !_allow_shared_without_copies)
             {
                 ObjectList<TL::OmpSs::CopyItem> all_copies;
                 all_copies.append(target_info.get_copy_in());
                 all_copies.append(target_info.get_copy_out());
                 all_copies.append(target_info.get_copy_inout());
-/*
-#if _DEBUG_FPGA_AUTO_
-                fprintf(stderr,"Inserting all copies append copy in addr\n");
-#endif
-                all_copies.append(target_info.get_copy_in_addr());
-                all_copies.append(target_info.get_copy_out_addr());
-                all_copies.append(target_info.get_copy_inout_addr());
-*/
 
                 ObjectList<Symbol> all_copied_syms = all_copies.map<TL::Symbol>(&DataReference::get_base_symbol);
 
@@ -827,6 +814,18 @@ namespace TL
                                 io_it->get_qualified_name().c_str());
                     }
                 }
+            }
+
+
+            add_localmem_items(construct, target_ctx.localmem,
+                    target_info, in_ompss_mode());
+
+            // Generate the localmem caluse for each copy
+            if (target_ctx.localmem_copies == OmpSs::TargetContext::LOCALMEM_COPIES)
+            {
+                target_info.append_to_localmem(target_info.get_copy_in());
+                target_info.append_to_localmem(target_info.get_copy_out());
+                target_info.append_to_localmem(target_info.get_copy_inout());
             }
 
             // Store the target information in the current data sharing
