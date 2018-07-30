@@ -796,12 +796,10 @@ void DeviceFPGA::add_included_fpga_files(std::ostream &hls_file)
     }
 }
 
-static void get_inout_decl(ObjectList<OutlineDataItem*>& data_items, std::string &in_type, std::string &out_type, std::string &in_addr_type, std::string &out_addr_type)
+static void get_inout_decl(ObjectList<OutlineDataItem*>& data_items, std::string &in_type, std::string &out_type)
 {
     in_type = "";
     out_type = "";
-    in_addr_type = "";
-    out_addr_type = "";
     for (ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
         it != data_items.end();
         it++)
@@ -1120,8 +1118,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
      */
 
     //Source wrapper_params;
-    std::string in_dec, out_dec, in_addr_dec, out_addr_dec;
-    get_inout_decl(data_items, in_dec, out_dec, in_addr_dec, out_addr_dec);
+    std::string in_dec, out_dec;
+    get_inout_decl(data_items, in_dec, out_dec);
     Source pragmas_src;
 
     Source args;
@@ -1204,21 +1202,21 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
         const Scope &scope = (*it)->get_symbol().get_scope();
         const ObjectList<OutlineDataItem::CopyItem> &copies = (*it)->get_copies();
+        const ObjectList<Nodecl::NodeclBase> &localmem = (*it)->get_localmem();
 
-        if (!copies.empty())
+        if (!localmem.empty())
         {
-            Nodecl::NodeclBase expr = copies.front().expression;
-            TL::Symbol symbol_copy= (*it)->get_field_symbol();
+            TL::Symbol symbol_copy = (*it)->get_field_symbol();
             Nodecl::NodeclBase expr_base = (*it)->get_base_address_expression();
 
-            if (copies.size() > 1)
+            if (copies.size() > 1 || localmem.size() > 1)
             {
-                internal_error("Only one copy per object (in/out/inout) is allowed (%s)",
-                expr.get_locus_str().c_str());
+                internal_error("Only one copy/localmem per object (in/out/inout) is allowed (%s)",
+                localmem.front().get_locus_str().c_str());
             }
 
             const Type& field_type = (*it)->get_field_type().no_ref();
-            const Type &type = expr.get_type().no_ref();
+            const Type &type = localmem.front().get_type().no_ref();
             std::string field_simple_decl = field_type.get_simple_declaration(scope, field_name);
 
 #if _DEBUG_AUTOMATIC_COMPILER_
@@ -1231,13 +1229,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
 #if _DEBUG_AUTOMATIC_COMPILER_
             std::cerr << "type declaration: " << type_simple_decl << " position: " << position << std::endl;
-#endif
-
-            DataReference datareference(expr);
-
-#if _DEBUG_AUTOMATIC_COMPILER_
             std::cerr << std::endl << std::endl;
-            std::cerr << "expresion of copies.front " << expr.prettyprint() << std::endl;
+            std::cerr << "expresion of copies.front " << localmem.front().prettyprint() << std::endl;
             std::cerr << std::endl << std::endl;
 #endif
 
@@ -1256,30 +1249,31 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
             }
             else
             {
-                internal_error("ERROR!\n",0);
+                internal_error("Invalid field type, only pointer and array is allowed (%d)",
+                localmem.front().get_locus_str().c_str());
             }
 
             if (is_only_pointer)
             {
                 elem_type = field_type.points_to();
-                basic_elem_type=field_type.basic_type();
-                basic_elem_type_name= basic_elem_type.print_declarator();
+                basic_elem_type = field_type.basic_type();
+                basic_elem_type_name = basic_elem_type.print_declarator();
             }
             else if (type.is_array())
             {
                 elem_type = type.array_element();
-                basic_elem_type=type.basic_type();
-                basic_elem_type_name= basic_elem_type.print_declarator();
+                basic_elem_type = type.basic_type();
+                basic_elem_type_name = basic_elem_type.print_declarator();
             }
             else
             {
-                internal_error("invalid type for input/output, only pointer and array is allowed (%d)",
-                expr.get_locus_str().c_str());
+                internal_error("Invalid type for input/output, only pointer and array is allowed (%d)",
+                localmem.front().get_locus_str().c_str());
             }
 
             std::string par_simple_decl = elem_type.get_simple_declaration(scope, field_name);
-            TL::Type basic_par_type= field_type.basic_type();
-            std::string basic_par_type_decl= basic_par_type.print_declarator();
+            TL::Type basic_par_type = field_type.basic_type();
+            std::string basic_par_type_decl = basic_par_type.print_declarator();
 
 #if _DEBUG_AUTOMATIC_COMPILER_
             std::cerr << "BASIC PAR TYPE DECL :" << basic_par_type_decl << std::endl;
@@ -1299,11 +1293,11 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
             std::string pointed_to_string = field_type_points_to.print_declarator();
             std::string pointed_to_string_simple = field_type_points_to.get_simple_declaration(scope, field_name);
-            position=par_simple_decl.rfind(field_name);
+            position = par_simple_decl.rfind(field_name);
             std::string type_par_decl = par_simple_decl.substr(0, position);
             std::string type_basic_par_decl = get_element_type_pointer_to(field_type, field_name, scope);
 
-            if (copies.front().directionality == OutlineDataItem::COPY_INOUT)
+            if (copies.empty() || copies.front().directionality == OutlineDataItem::COPY_INOUT)
             {
 
                 const std::string field_port_name_i = STR_PREFIX + field_name + "_i";
@@ -1337,8 +1331,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                     << "\t\t\t\tbreak;"
                 ;
 
-                n_params_in++;
-
                 out_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
                     << "\t\t\t\tif(__copyFlags[5])\n"
@@ -1346,13 +1338,11 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                     << "\t\t\t\tbreak;"
                 ;
 
+                n_params_in++;
                 n_params_out++;
-
                 n_params_id++;
-
             }
-
-            if (copies.front().directionality == OutlineDataItem::COPY_IN)
+            else if (copies.front().directionality == OutlineDataItem::COPY_IN)
             {
                 const std::string field_port_name = STR_PREFIX + field_name;
                 const std::string field_name_param = type_basic_par_decl + " *" + field_port_name;
@@ -1381,8 +1371,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                 n_params_in++;
                 n_params_id++;
             }
-
-            if (copies.front().directionality == OutlineDataItem::COPY_OUT)
+            else if (copies.front().directionality == OutlineDataItem::COPY_OUT)
             {
                 const std::string field_port_name = STR_PREFIX + field_name;
                 const std::string field_name_param = type_basic_par_decl + " *" + field_port_name;
@@ -1503,7 +1492,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                 ;
 
                 TL::Symbol param_symbol = (*it)->get_field_symbol();
-                int param_id= find_parameter_position(param_list, param_symbol);
+                int param_id = find_parameter_position(param_list, param_symbol);
                 function_parameters_passed[param_id] = 1;
 
                 in_copies_aux
