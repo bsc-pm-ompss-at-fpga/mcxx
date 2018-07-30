@@ -6,6 +6,7 @@ preprocessor_options =-include nanos-fpga.h
 linker_options = -lnanox-fpga-api
 compiler_phase = libtlnanox-fpga.so
 {(instrument|instrumentation)} linker_options_fpga = --hardware_instrumentation
+{bitstream-generation} options = --variable=bitstream_generation:1
 ##  In OmpSs localmem_copies is enabled by default, so we have to change the default behavior of OpenMP::Core
 {ompss,!?localmem-copies|localmem-copies} options = --variable=localmem_copies_by_default:1
 
@@ -19,6 +20,7 @@ preprocessor_name = @G++@
 compiler_name = @G++@
 linker_name = @G++@
 {(instrument|instrumentation)} linker_options_fpga = --hardware_instrumentation
+{bitstream-generation} options = --variable=bitstream_generation:1
 ##  In OmpSs localmem_copies is enabled by default, so we have to change the default behavior of OpenMP::Core
 {ompss,!?localmem-copies|localmem-copies} options = --variable=localmem_copies_by_default:1
 
