@@ -77,14 +77,18 @@ namespace TL
                 std::string _board_name;
                 std::string _device_name;
                 std::string _frequency;
-                std::string _bitstream_generation;
+                std::string _bitstream_generation_str;
                 std::string _vivado_design_path;
                 std::string _vivado_project_name;
                 std::string _ip_cache_path;
                 std::string _dataflow;
+                bool        _bitstream_generation;
+
+                void set_bitstream_generation_from_str(const std::string& str);
+
                 std::string _acc_type;
                 std::string _num_acc_instances;
-                int _current_base_acc_num;
+                int         _current_base_acc_num;
 
                 Nodecl::List _fpga_file_code;
                 TL::ObjectList<Source> _fpga_source_codes;

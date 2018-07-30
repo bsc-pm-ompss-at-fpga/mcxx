@@ -436,7 +436,7 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
     }
 }
 
-DeviceFPGA::DeviceFPGA():DeviceProvider(std::string("fpga")) {
+DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_generation(false) {
     set_phase_name("Nanox FPGA support");
     set_phase_description("This phase is used by Nanox phases to implement FPGA device support");
     register_parameter("board_name",
@@ -455,9 +455,9 @@ DeviceFPGA::DeviceFPGA():DeviceProvider(std::string("fpga")) {
         "10");
 
     register_parameter("bitstream_generation",
-        "This is the parameter to activate the bitstream generation:ON/OFF",
-        _bitstream_generation,
-        "OFF");
+        "Enables/disables the bitstream generation of FPGA accelerators",
+        _bitstream_generation_str,
+        "0").connect(std::bind(&DeviceFPGA::set_bitstream_generation_from_str, this, std::placeholders::_1));
 
     register_parameter("vivado_design_path",
         "This is the parameter to indicate where the automatically generated vivado design will be placed",
@@ -487,7 +487,7 @@ void DeviceFPGA::pre_run(DTO& dto) {
 void DeviceFPGA::run(DTO& dto) {
     DeviceProvider::run(dto);
 
-    if (_bitstream_generation == "ON")
+    if (_bitstream_generation)
     {
         _current_base_acc_num = _base_acc_num;
         std::cerr << "FPGA bitstream generation phase analysis - ON" << std::endl;
@@ -704,7 +704,7 @@ void DeviceFPGA::preappend_list_sources_and_reset(Source outline_src, Source& fu
 void DeviceFPGA::phase_cleanup(DTO& data_flow)
 {
 
-    if (!_fpga_source_codes.empty() && (_bitstream_generation=="ON"))
+    if (!_fpga_source_codes.empty() && _bitstream_generation)
     {
         TL::ObjectList<Source>::iterator it;
         TL::ObjectList<std::string>::iterator it2;
@@ -1842,6 +1842,13 @@ void DeviceFPGA::copy_stuff_to_device_file_expand(const TL::ObjectList<Nodecl::N
         }
     }
     __number_of_calls--;
+}
+
+void DeviceFPGA::set_bitstream_generation_from_str(const std::string& in_str)
+{
+    // NOTE: Support "ON" as "1"
+    std::string str = in_str == "ON" ? "1" : in_str;
+    TL::parse_boolean_option("bitstream_generation", str, _bitstream_generation, "Assuming false.");
 }
 
 EXPORT_PHASE(TL::Nanox::DeviceFPGA);
