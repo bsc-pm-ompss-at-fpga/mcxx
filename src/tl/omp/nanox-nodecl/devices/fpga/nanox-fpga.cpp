@@ -1160,7 +1160,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
      *
      * Scalar parameters are going to be copied as long as no unpacking is needed
      */
-    Source copies_src;
     Source in_copies, out_copies, out_copies_addr;
     Source in_copies_aux, out_copies_aux;
     Source fun_params;
@@ -1177,7 +1176,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         << "\t\t__copyFlags_id = " << STR_INPUTSTREAM << ".read().data;"
         << "\t\t__copyFlags = __copyFlags_id;"
         << "\t\t__param_id = __copyFlags_id >> 32;"
-        << "\t\t__addr = " << STR_INPUTSTREAM << ".read().data;"
+        << "\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
         << "\t\tswitch (__param_id) {"
     ;
 
@@ -1185,7 +1184,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         << "\t\t__copyFlags_id = __copyFlags_id_out[__i];"
         << "\t\t__copyFlags = __copyFlags_id; "
         << "\t\t__param_id = __copyFlags_id >> 32;"
-        << "\t\t__addr = __addr_out[__i];"
+        << "\t\t__param = __param_out[__i];"
         << "\t\tswitch (__param_id) {"
     ;
 
@@ -1335,9 +1334,9 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                 in_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
                     << "\t\t\t\tif(__copyFlags[4])\n"
-                    << "\t\t\t\t\tmemcpy(" << field_name << ", (const " << type_basic_par_decl << " *)(" << field_port_name_i << " + __addr/sizeof(" << type_basic_par_decl << ")), " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
+                    << "\t\t\t\t\tmemcpy(" << field_name << ", (const " << type_basic_par_decl << " *)(" << field_port_name_i << " + __param/sizeof(" << type_basic_par_decl << ")), " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
                     << "\t\t\t\t__copyFlags_id_out[" << n_params_out << "] = __copyFlags_id;"
-                    << "\t\t\t\t__addr_out[" << n_params_out << "] = __addr;"
+                    << "\t\t\t\t__param_out[" << n_params_out << "] = __param;"
                     << "\t\t\t\tbreak;"
                 ;
 
@@ -1346,7 +1345,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                 out_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
                     << "\t\t\t\tif(__copyFlags[5])\n"
-                    << "\t\t\t\t\tmemcpy(" << field_port_name_o <<  " + __addr/sizeof(" << type_basic_par_decl << "), (const " << type_basic_par_decl << " *)" << field_name << ", " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
+                    << "\t\t\t\t\tmemcpy(" << field_port_name_o <<  " + __param/sizeof(" << type_basic_par_decl << "), (const " << type_basic_par_decl << " *)" << field_name << ", " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
                     << "\t\t\t\tbreak;"
                 ;
 
@@ -1378,7 +1377,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                 in_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
                     << "\t\t\t\tif(__copyFlags[4])\n"
-                    << "\t\t\t\t\tmemcpy(" << field_name << ", (const " << type_basic_par_decl << " *)(" << field_port_name << " + __addr/sizeof(" << type_basic_par_decl << ")), " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
+                    << "\t\t\t\t\tmemcpy(" << field_name << ", (const " << type_basic_par_decl << " *)(" << field_port_name << " + __param/sizeof(" << type_basic_par_decl << ")), " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
                     << "\t\t\t\tbreak;"
                 ;
 
@@ -1408,14 +1407,14 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                 in_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
                     << "\t\t\t\t__copyFlags_id_out[" << n_params_out << "] = __copyFlags_id;"
-                    << "\t\t\t\t__addr_out[" << n_params_out << "] = __addr;"
+                    << "\t\t\t\t__param_out[" << n_params_out << "] = __param;"
                     << "\t\t\t\tbreak;"
                 ;
 
                 out_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
                     << "\t\t\t\tif(__copyFlags[5])\n"
-                    << "\t\t\t\t\tmemcpy( " << field_port_name <<  " + __addr/sizeof(" << type_basic_par_decl << "), (const " << type_basic_par_decl << " *)" << field_name << ", " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
+                    << "\t\t\t\t\tmemcpy( " << field_port_name <<  " + __param/sizeof(" << type_basic_par_decl << "), (const " << type_basic_par_decl << " *)" << field_name << ", " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
                     << "\t\t\t\tbreak;"
                 ;
 
@@ -1512,7 +1511,33 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 in_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
-                    << "\t\t\t\t" << field_name << " = (" << casting_pointer << ")(" << field_port_name << " + __addr/sizeof(" << casting_sizeof << "));"
+                    << "\t\t\t\t" << field_name << " = (" << casting_pointer << ")(" << field_port_name << " + __param/sizeof(" << casting_sizeof << "));"
+                    << "\t\t\t\tbreak;"
+                ;
+
+                n_params_in++;
+                n_params_id++;
+			}
+            else if (field_type.is_scalar_type())
+            {
+                //TODO: Only HLS code is generated. Nanos intermediate code is not generated.
+                std::string basic_par_type_decl = get_element_type_pointer_to(field_type, field_name, scope);
+
+#if _DEBUG_AUTOMATIC_COMPILER_
+                std::cerr << "BASIC PAR TYPE DECL :" << basic_par_type_decl << std::endl;
+#endif
+
+                local_decls
+                    << "\t" << basic_par_type_decl << " " << field_name << ";"
+                ;
+
+                TL::Symbol param_symbol = (*it)->get_field_symbol();
+                int param_id = find_parameter_position(param_list, param_symbol);
+                function_parameters_passed[param_id] = 1;
+
+                in_copies_aux
+                    << "\t\t\tcase " << param_id << ":\n"
+                    << "\t\t\t\t" << field_name << " = (" << basic_par_type_decl << ")__param;"
                     << "\t\t\t\tbreak;"
                 ;
 
@@ -1613,7 +1638,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
             in_copies_aux
                 << "\t\t\tcase " << param_pos << ":\n"
-                << "\t\t\t\t" << field_name << " = (" << type_basic_par_decl << " * " << dimensions_pointer_array << ")(" << field_port_name << " + __addr/sizeof(" << type_basic_par_decl << "));"
+                << "\t\t\t\t" << field_name << " = (" << type_basic_par_decl << " * " << dimensions_pointer_array << ")(" << field_port_name << " + __param/sizeof(" << type_basic_par_decl << "));"
                 << "\t\t\t\tbreak;"
             ;
 
@@ -1663,7 +1688,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         << "\tuint64_t __addrRd, __addrWr, __accHeader;"
         << "\tap_uint<8> __copyFlags, __destID;"
         << "\tuint32_t __comp_needed;"
-        << "\tunsigned long long __addr, __copyFlags_id;"
+        << "\tunsigned long long __param, __copyFlags_id;"
         << "\tunsigned int __param_id, __n_params_in, __n_params_out;"
     ;
 
@@ -1671,7 +1696,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     {
         local_decls
             << "\tunsigned long long __copyFlags_id_out[" << n_params_out << "];"
-            << "\tunsigned long long __addr_out[" << n_params_out << "];"
+            << "\tunsigned long long __param_out[" << n_params_out << "];"
         ;
     }
 
