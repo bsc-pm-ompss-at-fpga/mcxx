@@ -69,6 +69,78 @@ UNUSED_PARAMETER static void print_ast_dot(const Nodecl::NodeclBase &node) {
     std::cerr << std::endl << std::endl;
 }
 
+Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectList<OutlineDataItem*> data_items) {
+    unsigned param_pos = 0;
+    Source fpga_outline;
+
+    for (ObjectList<Symbol>::const_iterator it = param_list.begin(); it != param_list.end(); it++, param_pos++) {
+        TL::Symbol unpacked_argument = (*it);
+
+        TL::Symbol outline_data_item_sym = data_items[param_pos]->get_symbol();
+        TL::Type field_type = data_items[param_pos]->get_field_type();
+
+        // If the outline data item has not a valid symbol, skip it
+        if (!outline_data_item_sym.is_valid()) {
+            #if _DEBUG_AUTOMATIC_COMPILER_
+                std::cerr << "Argument " << unpacked_argument.get_name() << " is not valid" << std::endl;
+            #endif
+
+            continue;
+        }
+
+        const ObjectList<OutlineDataItem::CopyItem> &copies = data_items[param_pos]->get_copies();
+        Scope scope = data_items[param_pos]->get_symbol().get_scope();
+        bool in_type, out_type;
+
+        in_type = false;
+        out_type = false;
+        if (!copies.empty()) {
+            if (copies.front().directionality == OutlineDataItem::COPY_IN) {
+                in_type = true;
+            } else if (copies.front().directionality == OutlineDataItem::COPY_OUT) {
+                out_type = true;
+            } else if (copies.front().directionality == OutlineDataItem::COPY_INOUT) {
+                in_type = true;
+                out_type = in_type;
+            }
+        }
+
+        const std::string &field_name = outline_data_item_sym.get_name();
+        std::string arg_simple_decl = field_type.get_simple_declaration(scope, unpacked_argument.get_name());
+
+        // Create union in order to reinterpret argument as a uint64_t
+        fpga_outline
+            << "union {"
+            <<     arg_simple_decl << ";"
+            <<     "uint64_t " << unpacked_argument.get_name() << "_task_arg;"
+            << "} " << field_name << ";"
+        ;
+
+        // If argument is pointer or array, get physical address
+        if (field_type.is_pointer() || field_type.is_array()) {
+            fpga_outline
+                << field_name << "." << unpacked_argument.get_name() << " = nanos_fpga_get_phy_address((void *)" << unpacked_argument.get_name() << ");"
+            ;
+        } else {
+            fpga_outline
+                << field_name << "." << unpacked_argument.get_name() << " = " << unpacked_argument.get_name() << ";"
+            ;
+        }
+
+        // Add argument to task structure
+        fpga_outline
+            << "nanos_fpga_set_task_arg(nanos_current_wd(), " << param_pos << ", " << in_type << ", " << out_type << ", " << field_name << "." << unpacked_argument.get_name() << "_task_arg);"
+        ;
+
+#if _DEBUG_AUTOMATIC_COMPILER_
+        std::cerr << "Adding argument number " << param_pos << ": " << arg_simple_decl << std::endl << std::endl;
+#endif
+    }
+
+    return fpga_outline;
+
+}
+
 void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &outline_placeholder, Nodecl::NodeclBase &output_statements, Nodecl::Utils::SimpleSymbolMap* &symbol_map) {
 
     if (IS_FORTRAN_LANGUAGE)
@@ -299,20 +371,24 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
 
     Nodecl::Utils::append_to_top_level_nodecl(unpacked_function_code);
 
-    Source fpga_params;
+    // Generate FPGA outline
+    Source fpga_outline = gen_fpga_outline(unpacked_function.get_function_parameters(), data_items);
+
+#if _DEBUG_AUTOMATIC_COMPILER_
+    std::cerr << " ===================================================================0\n";
+    std::cerr << "FPGA Outline function:\n";
+    std::cerr << " ===================================================================0\n";
+    std::cerr << fpga_outline.get_source() << std::endl << std::endl;
+#endif
 
     Source unpacked_source;
     unpacked_source
         << dummy_init_statements
         << private_entities
-        << fpga_params
+        << fpga_outline
         << statement_placeholder(outline_placeholder)
         << dummy_final_statements
     ;
-
-#if _DEBUG_AUTOMATIC_COMPILER_
-    std::cerr << "unpacked source function:" << unpacked_source.get_source() << std::endl;
-#endif
 
     // Add a declaration of the unpacked function symbol in the original source
     if (IS_CXX_LANGUAGE)
@@ -1517,7 +1593,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 n_params_in++;
                 n_params_id++;
-			}
+            }
             else if (field_type.is_scalar_type())
             {
                 //TODO: Only HLS code is generated. Nanos intermediate code is not generated.
