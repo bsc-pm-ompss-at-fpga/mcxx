@@ -102,6 +102,11 @@ namespace TL { namespace OpenMP {
                 _copy_deps_str,
                 "1").connect(std::bind(&Core::set_copy_deps_from_str, &this->_core, std::placeholders::_1));
 
+        register_parameter("localmem_copies_by_default",
+                "Enables localmem_copies by default",
+                _localmem_copies_str,
+                "1").connect(std::bind(&Core::set_localmem_copies_from_str, &this->_core, std::placeholders::_1));
+
         register_parameter("untied_tasks_by_default",
                 "If set to '1' tasks are untied by default, otherwise they are tied. This flag is only valid in OmpSs",
                 _untied_tasks_by_default_str,
@@ -3201,19 +3206,13 @@ namespace TL { namespace OpenMP {
         }
 
         ObjectList<TL::OmpSs::CopyItem> copy_in = target_info.get_copy_in();
-//        ObjectList<TL::OmpSs::CopyItem> copy_in_addr = target_info.get_copy_in_addr();
         ObjectList<TL::OmpSs::CopyItem> copy_out = target_info.get_copy_out();
-//        ObjectList<TL::OmpSs::CopyItem> copy_out_addr = target_info.get_copy_out_addr();
         ObjectList<TL::OmpSs::CopyItem> copy_inout = target_info.get_copy_inout();
-//        ObjectList<TL::OmpSs::CopyItem> copy_inout_addr = target_info.get_copy_inout_addr();
         if (emit_omp_report())
         {
             if (!copy_in.empty()
                     || !copy_out.empty()
                     || !copy_inout.empty())
-//                    || !copy_in_addr.empty()
-//                    || !copy_out_addr.empty()
-//                    || !copy_inout_addr.empty())
             {
                 *_omp_report_file
                     << OpenMP::Report::indent
@@ -3238,25 +3237,23 @@ namespace TL { namespace OpenMP {
                 TL::OmpSs::COPY_DIR_INOUT,
                 locus,
                 target_items);
-/*
-        make_copy_list<Nodecl::OmpSs::CopyInAddr>(
-                copy_in_addr,
-                TL::OmpSs::COPY_DIR_IN_ADDR,
-                locus,
-                target_items);
 
-        make_copy_list<Nodecl::OmpSs::CopyOutAddr>(
-                copy_out_addr,
-                TL::OmpSs::COPY_DIR_OUT_ADDR,
+        ObjectList<TL::OmpSs::CopyItem> localmem = target_info.get_localmem();
+        if (emit_omp_report())
+        {
+            if (!localmem.empty())
+            {
+                *_omp_report_file
+                    << OpenMP::Report::indent
+                    << "Localmem\n"
+                    ;
+            }
+        }
+        make_item_list<Nodecl::OmpSs::Localmem>(
+                localmem,
+                TL::OmpSs::COPY_DIR_UNDEFINED,
                 locus,
                 target_items);
-
-        make_copy_list<Nodecl::OmpSs::CopyInoutAddr>(
-                copy_inout_addr,
-                TL::OmpSs::COPY_DIR_INOUT_ADDR,
-                locus,
-                target_items);
-*/
 
         ObjectList<Nodecl::NodeclBase> ndrange_exprs = target_info.get_shallow_copy_of_ndrange();
 

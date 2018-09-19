@@ -144,6 +144,8 @@ namespace TL
 
                 TL::ObjectList<CopyItem> _copies;
 
+                TL::ObjectList<Nodecl::NodeclBase> _localmem;
+
                 AllocationPolicyFlags _allocation_policy_flags;
 
                 // Code run prior capturing some variable
@@ -232,12 +234,12 @@ namespace TL
 
                 // Sets a type to be used in the outline
                 // It may be a different type to the field one
-                void set_in_outline_type(Type t) 
+                void set_in_outline_type(Type t)
                 {
                     _in_outline_type = t;
                 }
 
-                void set_private_type(Type t) 
+                void set_private_type(Type t)
                 {
                     _private_type = t;
                 }
@@ -299,6 +301,16 @@ namespace TL
                 const TL::ObjectList<CopyItem>& get_copies() const
                 {
                     return _copies;
+                }
+
+                TL::ObjectList<Nodecl::NodeclBase>& get_localmem()
+                {
+                    return _localmem;
+                }
+
+                const TL::ObjectList<Nodecl::NodeclBase>& get_localmem() const
+                {
+                    return _localmem;
                 }
 
                 void set_base_address_expression(Nodecl::NodeclBase base_address_expr)

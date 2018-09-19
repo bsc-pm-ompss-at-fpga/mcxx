@@ -537,6 +537,19 @@ namespace TL { namespace OpenMP {
                 (target_info.*(it->pfunc))(copy_items);
             }
 
+            TL::ObjectList<Nodecl::NodeclBase> target_ctx_localmem = update_clauses(target_context.localmem, function_sym);
+            if (target_context.localmem_copies == OmpSs::TargetContext::LOCALMEM_COPIES)
+            {
+                target_ctx_localmem.append(target_ctx_copy_in);
+                target_ctx_localmem.append(target_ctx_copy_out);
+                target_ctx_localmem.append(target_ctx_copy_inout);
+            }
+            ObjectList<TL::OmpSs::CopyItem> localmem_items =
+                target_ctx_localmem
+                .map<TL::OmpSs::CopyItem>(ItemGenerator<TL::OmpSs::CopyItem>(TL::OmpSs::COPY_DIR_UNDEFINED))
+                .filter(&TL::DataReference::is_valid);
+            target_info.append_to_localmem(localmem_items);
+
             target_info.set_file(target_context.file);
             target_info.set_name(target_context.name);
             target_info.append_to_ndrange(update_clauses(target_context.ndrange, function_sym));
@@ -547,6 +560,7 @@ namespace TL { namespace OpenMP {
             target_info.append_to_device_list(target_context.device_list);
 
             target_info.set_copy_deps(target_context.copy_deps == OmpSs::TargetContext::COPY_DEPS);
+            target_info.set_localmem_copies(target_context.localmem_copies == OmpSs::TargetContext::LOCALMEM_COPIES);
         }
 
         // Store the target information in the current function task
