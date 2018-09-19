@@ -238,11 +238,14 @@ static implicit_conversion_sequence_t ics_make_user_defined_using_conversor(type
                 locus);
 
         standard_conversion_t second_sc;
-        standard_conversion_between_types_for_overload(
+        char ok = standard_conversion_between_types_for_overload(
                 &second_sc,
                 converted_type,
                 dest,
                 locus);
+
+        if (!ok)
+            return invalid_ics;
 
         return ics_make_user_defined(first_sc, conversor, second_sc);
     }
@@ -698,7 +701,7 @@ static void compute_ics_braced_list(type_t* orig, type_t* dest, const decl_conte
         if (braced_list_type_get_num_types(orig) == 1)
         {
             compute_ics_flags(braced_list_type_get_type_num(orig, 0),
-                    dest,
+                    ref_dest,
                     decl_context,
                     result,
                     /* no_user_defined_conversions */ 1,
@@ -1079,7 +1082,7 @@ static char solve_initialization_of_direct_reference_type_ics(
     // are selected as follows:
     DEBUG_CODE()
     {
-        fprintf(stderr, "OVERLOAD: Solving initializaion of reference type '%s' using a value of type '%s' "
+        fprintf(stderr, "OVERLOAD: Solving initialization of reference type '%s' using a value of type '%s' "
                 "by direct reference\n",
                 print_declarator(dest),
                 print_declarator(orig));
@@ -1206,7 +1209,7 @@ static char solve_initialization_of_direct_reference_type_ics(
     {
         if (overload_resolution != NULL)
         {
-            fprintf(stderr, "OVERLOAD: Solving initializaion of reference type '%s' using a value of type '%s' "
+            fprintf(stderr, "OVERLOAD: Solving initialization of reference type '%s' using a value of type '%s' "
                     "by direct reference binding succeeded using conversion '%s' at %s\n",
                     print_declarator(dest),
                     print_declarator(orig),
@@ -1215,7 +1218,7 @@ static char solve_initialization_of_direct_reference_type_ics(
         }
         else
         {
-            fprintf(stderr, "OVERLOAD: Solving initializaion of reference type '%s' using a value of type '%s' "
+            fprintf(stderr, "OVERLOAD: Solving initialization of reference type '%s' using a value of type '%s' "
                     "by direct reference binding failed\n",
                     print_declarator(dest),
                     print_declarator(orig));

@@ -2301,12 +2301,22 @@ OPERATOR_TABLE
         codegen_open_close_statement("CLOSE", node.get_io_items());
     }
 
-    void FortranBase::codegen_allocation_statement(const std::string& keyword,
-            Nodecl::NodeclBase allocation_items,
-            Nodecl::NodeclBase io_spec)
+    void FortranBase::codegen_allocation_statement(
+        const std::string &keyword,
+        Nodecl::NodeclBase allocation_items,
+        Nodecl::NodeclBase io_spec,
+        Nodecl::NodeclBase allocate_type)
     {
         indent();
         *(file) << keyword << " (";
+
+        if (!allocate_type.is_null())
+        {
+            std::string type_spec, array_spec;
+            codegen_type(allocate_type.get_type(), type_spec, array_spec);
+            ERROR_CONDITION(array_spec != "", "An array cannot be here!", 0);
+            *(file) << type_spec << " :: ";
+        }
 
         codegen_comma_separated_list(allocation_items);
 
@@ -2321,12 +2331,18 @@ OPERATOR_TABLE
 
     void FortranBase::visit(const Nodecl::FortranAllocateStatement& node)
     {
-        codegen_allocation_statement("ALLOCATE", node.get_items(), node.get_options());
+        codegen_allocation_statement("ALLOCATE",
+                                     node.get_items(),
+                                     node.get_options(),
+                                     node.get_allocate_type());
     }
 
     void FortranBase::visit(const Nodecl::FortranDeallocateStatement& node)
     {
-        codegen_allocation_statement("DEALLOCATE", node.get_items(), node.get_options());
+        codegen_allocation_statement("DEALLOCATE",
+                                     node.get_items(),
+                                     node.get_options(),
+                                     Nodecl::NodeclBase::null());
     }
 
     void FortranBase::visit(const Nodecl::FortranNullifyStatement& node)
@@ -3795,7 +3811,7 @@ OPERATOR_TABLE
                             || entry.get_type().points_to().is_pointer()) */)
                     {
                         declared_type = TL::Type(get_size_t_type());
-                        if (!CURRENT_CONFIGURATION->ifort_compatibility
+                        if (CURRENT_CONFIGURATION->native_vendor != NATIVE_VENDOR_INTEL
                                 || entry.is_optional())
                         {
                             attribute_list += ", VALUE";
@@ -3819,7 +3835,7 @@ OPERATOR_TABLE
                 // }
                 else
                 {
-                    if (!CURRENT_CONFIGURATION->ifort_compatibility
+                    if (CURRENT_CONFIGURATION->native_vendor != NATIVE_VENDOR_INTEL
                             || entry.is_optional())
                     {
                         attribute_list += ", VALUE";
@@ -3963,7 +3979,7 @@ OPERATOR_TABLE
             }
 
            if (has_value_attribute
-                   && CURRENT_CONFIGURATION->ifort_compatibility
+                   && CURRENT_CONFIGURATION->native_vendor == NATIVE_VENDOR_INTEL
                    && !entry.is_optional())
            {
                *(file)
@@ -4524,6 +4540,23 @@ OPERATOR_TABLE
         }
         else if (entry.is_enumerator() && IS_DEFAULT_FORTRAN)
         {
+            // Emit it as a parameter
+            std::string symbol_name = rename(entry);
+
+            if (entry.in_module().is_valid())
+            {
+                if (entry.get_access_specifier() == AS_PRIVATE)
+                {
+                    indent();
+                    *(file) << "PRIVATE :: " << symbol_name << std::endl;
+                }
+                else if (entry.get_access_specifier() == AS_PUBLIC)
+                {
+                    indent();
+                    *(file) << "PUBLIC :: " << symbol_name << std::endl;
+                }
+            }
+
             std::string type_spec;
             std::string array_specifier;
             std::string initializer;
@@ -4534,10 +4567,8 @@ OPERATOR_TABLE
                 = " = " + codegen_to_str(entry.get_value(),
                                          entry.get_value().retrieve_context());
 
-            // Emit it as a parameter
             indent();
-            *(file) << type_spec << ", PARAMETER :: " << rename(entry)
-                    << initializer << "\n";
+            *(file) << type_spec << ", PARAMETER :: " << symbol_name << initializer << "\n";
         }
         else if (entry.is_enumerator() && !IS_DEFAULT_FORTRAN)
         {
@@ -4555,8 +4586,7 @@ OPERATOR_TABLE
 
             inc_indent();
 
-            TL::ObjectList<TL::Symbol> enumerators
-                = entry.get_type().enum_get_enumerators();
+            TL::ObjectList<TL::Symbol> enumerators = entry.get_type().enum_get_enumerators();
             for (TL::ObjectList<TL::Symbol>::iterator it = enumerators.begin();
                  it != enumerators.end();
                  it++)
@@ -4568,14 +4598,31 @@ OPERATOR_TABLE
                                      enumerator.get_value().retrieve_context());
 
                 indent();
-                *(file) << "ENUMERATOR :: " << rename(*it) << " = "
-                        << initializer << "\n";
+                *(file) << "ENUMERATOR :: " << rename(*it) << " = " << initializer << "\n";
             }
 
             dec_indent();
 
             indent();
             *(file) << "END ENUM\n";
+            if (entry.in_module().is_valid())
+            {
+                for (TL::ObjectList<TL::Symbol>::iterator it = enumerators.begin();
+                        it != enumerators.end();
+                        it++)
+                {
+                    if (it->get_access_specifier() == AS_PRIVATE)
+                    {
+                        indent();
+                        *(file) << "PRIVATE :: " << rename(*it) << std::endl;
+                    }
+                    else if (it->get_access_specifier() == AS_PUBLIC)
+                    {
+                        indent();
+                        *(file) << "PUBLIC :: " << rename(*it) << std::endl;
+                    }
+                }
+            }
         }
         else
         {
@@ -6009,10 +6056,17 @@ OPERATOR_TABLE
             }
             else
             {
-                std::string return_type_spec;
-                std::string return_type_array_spec;
-                codegen_type(t.returns(), return_type_spec, return_type_array_spec);
-                ss << "PROCEDURE(" << return_type_spec << ")";
+                if (t.returns().is_void())
+                {
+                    ss << "PROCEDURE()";
+                }
+                else
+                {
+                    std::string return_type_spec;
+                    std::string return_type_array_spec;
+                    codegen_type(t.returns(), return_type_spec, return_type_array_spec);
+                    ss << "PROCEDURE(" << return_type_spec << ")";
+                }
             }
             type_specifier = ss.str();
         }

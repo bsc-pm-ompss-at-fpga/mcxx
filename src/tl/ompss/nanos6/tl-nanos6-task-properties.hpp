@@ -29,8 +29,9 @@
 #define TL_NANOS6_TASK_PROPERTIES_HPP
 
 #include "tl-nanos6.hpp"
-#include "tl-nanos6-directive-environment.hpp"
 #include "tl-nanos6-device.hpp"
+
+#include "tl-omp-lowering-directive-environment.hpp"
 
 #include "tl-datareference.hpp"
 
@@ -42,6 +43,8 @@
 
 
 namespace TL { namespace Nanos6 {
+
+    using TL::OpenMP::Lowering::DirectiveEnvironment;
 
     // Forward declaration of TL::Nanos6::Lower
     class Lower;
@@ -63,9 +66,13 @@ namespace TL { namespace Nanos6 {
             DirectiveEnvironment _env;
             TL::ObjectList<std::shared_ptr<Device> > _implementations;
 
+            //! This member represents the serial statements of the task, can
+            //! be null if 'final' clause transformation has been disabled
+            Nodecl::NodeclBase &_serial_context;
+
             LoweringPhase* _phase;
 
-            //FIXME: Once we have the new implementation of task reductions we may be able to remove this member
+            //! Used to store some shared information between tasks
             Lower* _lower_visitor;
 
             field_map_t _field_map;
@@ -74,7 +81,7 @@ namespace TL { namespace Nanos6 {
 
             static const int VLA_OVERALLOCATION_ALIGN = 8;
 
-            //FIXME: Once we have the new implementation of task reductions we may be able to remove this member
+            //! Used to store the number of reductions within the task (and to identify them)
             unsigned int _num_reductions;
 
             //! It's used (among other things) to avoid name collision when generating new functions
@@ -85,8 +92,14 @@ namespace TL { namespace Nanos6 {
             TL::Symbol _dependences_function;
             TL::Symbol _dependences_function_mangled;
 
+            TL::Symbol _reduction_initializers;
+            TL::Symbol _reduction_combiners;
+
             TL::Symbol _priority_function;
             TL::Symbol _priority_function_mangled;
+
+            TL::Symbol _destroy_function;
+            TL::Symbol _destroy_function_mangled;
 
             TaskloopBounds _taskloop_bounds;
 
@@ -107,14 +120,29 @@ namespace TL { namespace Nanos6 {
             void create_dependences_function_c();
 
             void create_dependences_function_fortran();
-            void create_dependences_function_fortran_proper();
-            void create_dependences_function_fortran_forward();
-            void create_dependences_function_fortran_mangled();
 
+            //! This function creates the unpacked function for the task dependences,
+            //! generates its statements and finally returns the symbol
+            TL::Symbol create_dependences_unpack_function_fortran();
+
+            void expand_parameters_with_task_args(
+                    const TL::Symbol &arg,
+                    TL::ObjectList<std::string> &parameter_names,
+                    ObjectList<TL::Type> &parameter_types,
+                    Nodecl::List &args,
+                    std::map<std::string, std::pair<TL::Symbol, TL::Symbol>> &name_to_pair_orig_field_map);
+            void create_outline_function_fortran(
+                    const TL::Symbol &unpack_function,
+                    const std::string &common_name,
+                    const TL::ObjectList<std::string> &outline_parameter_names,
+                    const ObjectList<TL::Type> &outline_parameter_types,
+                    TL::Symbol &outline_function);
+
+            void create_reduction_functions();
 
             TL::Symbol create_constraints_function() const;
-            void create_cost_function();
             void create_priority_function();
+            void create_destroy_function();
 
             TL::Symbol add_field_to_class(TL::Symbol new_class_symbol,
                                           TL::Scope class_scope,
@@ -149,15 +177,14 @@ namespace TL { namespace Nanos6 {
                     // Out
                     Nodecl::List& register_statements);
 
-            /** Note that the list of local_symbols may be modified **/
             void register_multidependence_c(
                     TL::DataReference& data_ref,
                     TL::Symbol handler,
                     TL::Symbol arg,
                     TL::Symbol register_fun,
                     TL::Scope scope,
+                    TL::ObjectList<TL::Symbol> local_symbols,
                     // Out
-                    TL::ObjectList<TL::Symbol>& local_symbols,
                     Nodecl::List& register_statements);
 
             void register_multidependence_fortran(
@@ -213,11 +240,12 @@ namespace TL { namespace Nanos6 {
         public:
             TaskProperties(
                     const Nodecl::OpenMP::Task& node,
+                    Nodecl::NodeclBase &serial_stmts,
                     LoweringPhase* lowering_phase,
                     Lower* lower);
 
             // FIXME: This constructor shouldn't exist
-            TaskProperties(const Nodecl::OmpSs::Release& node, LoweringPhase* lowering_phase, Lower* lower);
+            TaskProperties(const Nodecl::OmpSs::Release& node, Nodecl::NodeclBase &serial_stmts, LoweringPhase* lowering_phase, Lower* lower);
 
             // FIXME
             std::string get_new_name(const std::string& prefix) const;
@@ -263,8 +291,9 @@ namespace TL { namespace Nanos6 {
                     Nodecl::NodeclBase& task_flags_stmts);
 
             void handle_task_reductions(
-                    const TL::Scope& unpacked_inside_scope,
-                    Nodecl::NodeclBase unpacked_empty_stmt);
+                    TL::Scope& unpacked_inside_scope,
+                    Nodecl::NodeclBase unpacked_empty_stmt,
+                    Nodecl::Utils::SimpleSymbolMap &symbol_map);
 
             void compute_release_statements(/* out */ Nodecl::List& release_stmts);
 

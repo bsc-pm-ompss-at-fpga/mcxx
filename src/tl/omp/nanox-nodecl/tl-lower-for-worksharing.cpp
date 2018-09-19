@@ -160,7 +160,6 @@ namespace TL { namespace Nanox {
                 << "static nanos_event_key_t nanos_instr_loop_lower_key = 0;"
                 << "static nanos_event_key_t nanos_instr_loop_upper_key = 0;"
                 << "static nanos_event_key_t nanos_instr_loop_step_key = 0;"
-                << "static nanos_event_key_t nanos_instr_chunk_size_key = 0;"
 
                 << "if (nanos_loop_init == 0)"
                 << "{"
@@ -297,7 +296,8 @@ namespace TL { namespace Nanox {
                 /* current task statements */ statements,
                 task_label,
                 structure_symbol,
-                /* called_task */ TL::Symbol::invalid());
+                /* called_task */ TL::Symbol::invalid(),
+                construct.get_locus());
 
         // List of device names
         const TL::ObjectList<std::string>& device_names = target_info.get_device_names();
@@ -314,21 +314,11 @@ namespace TL { namespace Nanox {
             Nodecl::Utils::SimpleSymbolMap *symbol_map = NULL;
             device->create_outline(info, outline_placeholder, output_statements, symbol_map);
 
-            Source extended_outline_distribute_loop_source;
-            extended_outline_distribute_loop_source
-                << "{"
-                << "nanos_err_t nanos_err;"
-                << "nanos_err = nanos_omp_set_implicit(nanos_current_wd());"
-                << "if (nanos_err != NANOS_OK) nanos_handle_error(nanos_err);"
-                << "}"
-                << outline_distribute_loop_source
-                ;
-
             if (IS_FORTRAN_LANGUAGE)
             {
                 Source::source_language = SourceLanguage::C;
             }
-            Nodecl::NodeclBase outline_code = extended_outline_distribute_loop_source.parse_statement(outline_placeholder);
+            Nodecl::NodeclBase outline_code = outline_distribute_loop_source.parse_statement(outline_placeholder);
 
             if (IS_FORTRAN_LANGUAGE)
             {
@@ -476,6 +466,13 @@ namespace TL { namespace Nanox {
         Scope  enclosing_scope = construct.retrieve_context();
         TL::Symbol enclosing_function = Nodecl::Utils::get_enclosing_function(construct);
         OutlineInfo outline_info(*_lowering, environment, enclosing_function);
+
+        if (_lowering->in_ompss_mode()
+                && there_are_reductions(outline_info))
+        {
+            fatal_printf_at(construct.get_locus(),
+                    "reductions are not supported by the implementation of a for construct as a worksharing in OmpSs\n");
+        }
 
         // Handle the special object 'this'
         if (IS_CXX_LANGUAGE

@@ -25,28 +25,25 @@
 --------------------------------------------------------------------*/
 
 
-#include "tl-nanos6-directive-environment.hpp"
-#include "tl-nanos6-interface.hpp"
+#include "tl-omp-lowering-directive-environment.hpp"
+//#include "tl-nanos6-interface.hpp"
 
 #include "tl-nodecl-visitor.hpp"
 
 #include "cxx-diagnostic.h"
 
 
-namespace TL { namespace Nanos6 {
+namespace TL { namespace OpenMP { namespace Lowering {
 
     //! This visitors traverses the environment of a directive and fills the DirectiveEnvironment structure
     struct DirectiveEnvironmentVisitor : public Nodecl::ExhaustiveVisitor<void>
     {
         private:
             DirectiveEnvironment& _env;
-            TL::ObjectList<TL::Symbol>& _firstprivate;
 
             void not_supported(const std::string &feature, Nodecl::NodeclBase n)
             {
-                error_printf_at(n.get_locus(),
-                        "%s is not supported in Nanos6\n",
-                        feature.c_str());
+                error_printf_at(n.get_locus(), "%s is not supported\n", feature.c_str());
             }
 
             void not_supported_seq(const std::string &feature, Nodecl::List l)
@@ -59,8 +56,7 @@ namespace TL { namespace Nanos6 {
 
             void ignored(const std::string &feature, Nodecl::NodeclBase n)
             {
-                warn_printf_at(
-                        n.get_locus(), "%s is ignored in Nanos6\n", feature.c_str());
+                warn_printf_at(n.get_locus(), "%s is ignored\n", feature.c_str());
             }
 
             void ignored_seq(const std::string &feature, Nodecl::List l)
@@ -72,14 +68,12 @@ namespace TL { namespace Nanos6 {
             }
 
         public:
-            DirectiveEnvironmentVisitor(DirectiveEnvironment& env,
-                    TL::ObjectList<TL::Symbol>& firstprivate)
-                : _env(env), _firstprivate(firstprivate)
+            DirectiveEnvironmentVisitor(DirectiveEnvironment& env) : _env(env)
             {}
 
             virtual void visit(const Nodecl::OpenMP::Firstprivate &n)
             {
-                _firstprivate.insert(
+                _env._firstprivate.insert(
                         n.get_symbols()
                         .as<Nodecl::List>()
                         .to_object_list()
@@ -111,6 +105,7 @@ namespace TL { namespace Nanos6 {
 
             virtual void visit(const Nodecl::OpenMP::Reduction &n)
             {
+
                 Nodecl::List reductions = n.get_reductions().as<Nodecl::List>();
                 for (Nodecl::List::iterator it = reductions.begin();
                         it != reductions.end();
@@ -125,7 +120,27 @@ namespace TL { namespace Nanos6 {
                     OpenMP::Reduction* red = OpenMP::Reduction::get_reduction_info_from_symbol(reductor_sym);
                     ERROR_CONDITION(red == NULL, "Invalid value for red_item", 0);
 
-                    _env.reduction.insert(ReductionItem(reduction_symbol, reduction_type, red));
+                    _env.reduction.insert(ReductionItem(reduction_symbol, reduction_type, red, /* isWeak */ false));
+                }
+            }
+
+            virtual void visit(const Nodecl::OmpSs::WeakReduction &n)
+            {
+                Nodecl::List reductions = n.get_reductions().as<Nodecl::List>();
+                for (Nodecl::List::iterator it = reductions.begin();
+                        it != reductions.end();
+                        it++)
+                {
+                    Nodecl::OpenMP::ReductionItem red_item = it->as<Nodecl::OpenMP::ReductionItem>();
+
+                    TL::Symbol reductor_sym = red_item.get_reductor().get_symbol();
+                    TL::Symbol reduction_symbol = red_item.get_reduced_symbol().get_symbol();
+                    TL::Type reduction_type = red_item.get_reduction_type().get_type();
+
+                    OpenMP::Reduction* red = OpenMP::Reduction::get_reduction_info_from_symbol(reductor_sym);
+                    ERROR_CONDITION(red == NULL, "Invalid value for red_item", 0);
+
+                    _env.reduction.insert(ReductionItem(reduction_symbol, reduction_type, red, /* isWeak */ true));
                 }
             }
 
@@ -181,6 +196,11 @@ namespace TL { namespace Nanos6 {
                 handle_dependences(n, _env.dep_reduction);
             }
 
+            virtual void visit(const Nodecl::OmpSs::DepWeakReduction &n)
+            {
+                handle_dependences(n, _env.dep_weakreduction);
+            }
+
             virtual void visit(const Nodecl::OpenMP::Final &n)
             {
                 _env.final_clause = n.get_condition();
@@ -198,7 +218,6 @@ namespace TL { namespace Nanos6 {
 
             virtual void visit(const Nodecl::OmpSs::Wait &n)
             {
-                Interface::family_must_be_at_least("nanos6_instantiation_api", 2, "the 'wait' clause");
                 _env.wait_clause = true;
             }
 
@@ -317,42 +336,15 @@ namespace TL { namespace Nanos6 {
         any_task_dependence(false), locus_of_task_declaration(NULL)
     {
         // Traversing & filling the directive environment
-        DirectiveEnvironmentVisitor visitor(*this, _firstprivate);
+        DirectiveEnvironmentVisitor visitor(*this);
         visitor.walk(environment);
 
         // Fixing some data-sharings + capturing some special symbols
-        remove_redundant_data_sharings();
         compute_captured_values();
         fix_data_sharing_of_this();
 
         // Empty the '_firstprivate' list, since it won't be use from this point on
         _firstprivate.erase(_firstprivate.begin(), _firstprivate.end());
-    }
-
-    namespace {
-    struct IsReduction
-    {
-        private:
-            const TL::ObjectList<ReductionItem>& _reduction;
-
-        public:
-            IsReduction(const TL::ObjectList<ReductionItem>& reduction) : _reduction(reduction)
-            { }
-
-            bool operator()(TL::Symbol s) const
-            {
-                return _reduction.contains<TL::Symbol>(&ReductionItem::get_symbol, s);
-            }
-    };
-    }
-
-    void DirectiveEnvironment::remove_redundant_data_sharings()
-    {
-
-        TL::ObjectList<TL::Symbol>::iterator it = std::remove_if(
-                shared.begin(), shared.end(), IsReduction(reduction));
-
-        shared.erase(it, shared.end());
     }
 
     void DirectiveEnvironment::compute_captured_values()
@@ -378,8 +370,7 @@ namespace TL { namespace Nanos6 {
         return shared.contains(sym)         ||
                private_.contains(sym)       ||
                _firstprivate.contains(sym)  ||
-               captured_value.contains(sym) ||
-               reduction.contains<TL::Symbol>(&ReductionItem::get_symbol, sym);
+               captured_value.contains(sym);
     }
 
     struct FirstprivateSymbolsWithoutDataSharing : public Nodecl::ExhaustiveVisitor<void>
@@ -397,10 +388,22 @@ namespace TL { namespace Nanos6 {
 
         void visit(const Nodecl::MultiExpression& node)
         {
+            Nodecl::List iterators = node.get_iterators().as<Nodecl::List>();
+            for (Nodecl::List::const_iterator it = iterators.begin();
+                    it != iterators.end();
+                    it++)
+            {
+                _ignore_symbols.push_back(it->as<Nodecl::MultiExpressionIterator>().get_symbol());
+            }
             // The iterator of a MultiExpression has to be ignored!
-            _ignore_symbols.push_back(node.get_symbol());
             Nodecl::ExhaustiveVisitor<void>::visit(node);
-            _ignore_symbols.pop_back();
+
+            for (Nodecl::List::const_iterator it = iterators.begin();
+                    it != iterators.end();
+                    it++)
+            {
+                _ignore_symbols.pop_back();
+            }
         }
 
         void visit(const Nodecl::Symbol& node)
@@ -443,6 +446,7 @@ namespace TL { namespace Nanos6 {
         dep_commutative.map(fp_syms_without_data_sharing);
         dep_concurrent.map(fp_syms_without_data_sharing);
         dep_reduction.map(fp_syms_without_data_sharing);
+        dep_weakreduction.map(fp_syms_without_data_sharing);
 
         // Other task clauses
         fp_syms_without_data_sharing(cost_clause);
@@ -564,4 +568,4 @@ namespace TL { namespace Nanos6 {
         if (found_this.is_valid())
             captured_value.insert(found_this);
     }
-}}
+}}}

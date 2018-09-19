@@ -55,18 +55,23 @@ using namespace TL::Nanox;
 
 static int _base_acc_num = 0;
 
-static std::string fpga_outline_name(const std::string &name) {
+static std::string fpga_outline_name(const std::string &name)
+{
     return "fpga_" + name;
 }
 
-UNUSED_PARAMETER static void print_ast_dot(const Nodecl::NodeclBase &node) {
+UNUSED_PARAMETER static void print_ast_dot(const Nodecl::NodeclBase &node)
+{
     std::cerr << std::endl << std::endl;
     ast_dump_graphviz(nodecl_get_ast(node.get_internal_nodecl()), stderr);
     std::cerr << std::endl << std::endl;
 }
 
-void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &outline_placeholder, Nodecl::NodeclBase &output_statements, Nodecl::Utils::SimpleSymbolMap* &symbol_map) {
-
+void DeviceFPGA::create_outline(CreateOutlineInfo &info,
+        Nodecl::NodeclBase &outline_placeholder,
+        Nodecl::NodeclBase &output_statements,
+        Nodecl::Utils::SimpleSymbolMap* &symbol_map)
+{
     if (IS_FORTRAN_LANGUAGE)
         fatal_error("Fortran for FPGA devices is not supported yet\n");
 
@@ -89,7 +94,8 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
     _internal_symbol_map = *symbol_map;
 
     TL::Symbol current_function = original_statements.retrieve_context().get_related_symbol();
-    if (current_function.is_nested_function()) {
+    if (current_function.is_nested_function())
+    {
         if (IS_C_LANGUAGE || IS_CXX_LANGUAGE)
             fatal_printf_at(original_statements.get_locus(), "nested functions are not supported\n");
     }
@@ -204,7 +210,9 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
 
     TL::ObjectList<OutlineDataItem*> data_items = info._data_items;
 
-    for (TL::ObjectList<OutlineDataItem*>::iterator it = data_items.begin(); it != data_items.end(); it++)
+    for (TL::ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
+            it != data_items.end();
+            it++)
     {
         switch ((*it)->get_sharing())
         {
@@ -251,9 +259,12 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
                     // Pass the original reduced variable as if it were a shared
                     Source argument;
 
-                    if (IS_C_LANGUAGE || IS_CXX_LANGUAGE) {
+                    if (IS_C_LANGUAGE || IS_CXX_LANGUAGE)
+                    {
                         argument << "*(args." << (*it)->get_field_name() << ")";
-                    } else {
+                    }
+                    else
+                    {
                         internal_error("running error", 0);
                     }
 
@@ -283,7 +294,7 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
     symbol_entity_specs_set_is_static(unpacked_function.get_internal_symbol(), 0);
     if (IS_C_LANGUAGE)
     {
-     symbol_entity_specs_set_linkage_spec(unpacked_function.get_internal_symbol(), "\"C\"");
+        symbol_entity_specs_set_linkage_spec(unpacked_function.get_internal_symbol(), "\"C\"");
     }
 
     Nodecl::NodeclBase unpacked_function_code, unpacked_function_body;
@@ -374,7 +385,7 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
             outline_function,
             outline_function_body,
             info._task_label,
-            original_statements.get_locus(),
+            info._instr_locus,
             instrument_before,
             instrument_after
         );

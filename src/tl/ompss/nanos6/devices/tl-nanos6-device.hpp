@@ -27,12 +27,15 @@
 #ifndef TL_NANOS6_DEVICE_HPP
 #define TL_NANOS6_DEVICE_HPP
 
-#include "tl-nanos6-directive-environment.hpp"
+#include "tl-omp-lowering-directive-environment.hpp"
 
 #include "tl-symbol.hpp"
 #include "tl-nodecl.hpp"
+#include "tl-nodecl-utils.hpp"
 
 namespace TL { namespace Nanos6 {
+
+    using TL::OpenMP::Lowering::DirectiveEnvironment;
 
     class Device
     {
@@ -40,9 +43,21 @@ namespace TL { namespace Nanos6 {
             //! This function returns a symbol that represents the device type id
             virtual TL::Symbol get_device_type_id() const = 0;
 
-            //! Generic implementation: it returns a shallow copy of the task body
+            //! Generic implementation: it returns a deep copy of the task_body
+            //! in the 'unpacked_inside_scope' context applying the replacements
+            //! defined in the 'symbol_map' map.
+            //!
+            //! @param task_body task statements
+            //! @param env OpenMP task environment
+            //! @param unpacked_function_code It's used to insert declarations in the right context
+            //! @param unpacked_inside_scope It's used to deep_copy the task_body
+            //! @param symbol_map It's used to deep_copy the task_body
             virtual Nodecl::NodeclBase compute_specific_task_body(
-                    Nodecl::NodeclBase task_body, const DirectiveEnvironment &env) const;
+                    Nodecl::NodeclBase task_body,
+                    const DirectiveEnvironment &env,
+                    Nodecl::NodeclBase unpacked_function_code,
+                    const TL::Scope &unpacked_inside_scope,
+                    Nodecl::Utils::SimpleSymbolMap &symbol_map);
 
             //! Generic implementation: it appends the function code to the top level
             virtual void root_unpacked_function(

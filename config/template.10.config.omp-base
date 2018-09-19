@@ -1,5 +1,6 @@
 # OpenMP + Nanos
 [omp-base-common]
+options = --native-vendor=gnu
 {openmp|ompss} options = --openmp
 {debug} options = -g
 preprocessor_name = @GCC@
@@ -9,8 +10,8 @@ compiler_options =
 linker_name = @GCC@
 
 # Generic CUDA stuff
-{cuda} preprocessor_options = -D__CUDABE__ -I${CUDA_HOME}/include
-{cuda} linker_options = -D__CUDABE__ -L${CUDA_HOME}/lib64 -lcudart
+{cuda} preprocessor_options = -D__CUDABE__ -D__CUDA_LIBDEVICE__ -I${CUDA_HOME}/include
+{cuda} linker_options = -D__CUDABE__ -D__CUDA_LIBDEVICE__ -L${CUDA_HOME}/lib64 -lcudart
 
 # OpenMP & OmpSs (runtime independent)
 {openmp,omp-dry-run} options = --variable=omp_dry_run:1
@@ -20,6 +21,8 @@ linker_name = @GCC@
 {ompss} preprocessor_options = -D_OMPSS=1
 {ompss} fortran_preprocessor_options = -D_OMPSS=1
 {openmp|ompss} options = --variable=taskloop_as_loop_of_tasks:1
+{ompss, !@NANOX_GATE@} error = "Flag --ompss passed but Mercurium was built without support for OmpSs"
+{openmp,!@NANOX_GATE@} error = "Flag --openmp passed but Mercurium was built without support for OpenMP"
 
 {ompss} options = --variable=ompss_mode:1
 
@@ -37,6 +40,7 @@ linker_name = @GCC@
 {ompss-2} fortran_preprocessor_options = -D_OMPSS_2=1
 {ompss-2} options = --variable=ompss_mode:1 --variable=untied_tasks_by_default:1
 {ompss-2,openmp-compatibility} options = --variable=taskloop_as_loop_of_tasks:1
+{ompss-2,!@NANOS6_GATE@} error = "Flag --ompss-2 passed but Mercurium was built without support for OmpSs-2"
 
 
 #Analysis
@@ -140,12 +144,8 @@ linker_options = -Xlinker --enable-new-dtags
 {@NANOX_GATE@,openmp,!omp-dry-run,debug,!(instrument|instrumentation),mmic} linker_options = -L@NANOX_MIC_LIBS@/debug -Xlinker @RPATH_PARAMETER@ -Xlinker @NANOX_MIC_LIBS@/debug
 {@NANOX_GATE@,openmp,!omp-dry-run,!debug,(instrument|instrumentation),mmic} linker_options = -L@NANOX_MIC_LIBS@/instrumentation -Xlinker @RPATH_PARAMETER@ -Xlinker @NANOX_MIC_LIBS@/instrumentation
 {@NANOX_GATE@,openmp,!omp-dry-run,debug,(instrument|instrumentation),mmic} linker_options = -L@NANOX_MIC_LIBS@/instrumentation-debug -Xlinker @RPATH_PARAMETER@ -Xlinker @NANOX_MIC_LIBS@/instrumentation-debug
-# Old linking mechanism (libnanox-omp.so | libnanox-ss.so + libnanox-omp.so)
-{@NANOX_GATE@,@NANOX_OLD_LINK@,openmp,!omp-dry-run,!ompss} linker_options = -Xlinker --no-as-needed -lnanox-omp -lnanox-c -lnanox -lpthread -lrt
-{@NANOX_GATE@,@NANOX_OLD_LINK@,openmp,!omp-dry-run,ompss} linker_options = -Xlinker --no-as-needed -lnanox-ss -lnanox-omp -lnanox-c -lnanox -lpthread -lrt
-# New linking mechanism (libnanox-omp.so | libnanox-ompss.so)
-{@NANOX_GATE@,@NANOX_NEW_LINK@,openmp,!omp-dry-run,!ompss} linker_options = -Xlinker --no-as-needed -lnanox-omp -lnanox-c -lnanox -lpthread -lrt
-{@NANOX_GATE@,@NANOX_NEW_LINK@,openmp,!omp-dry-run,ompss} linker_options = -Xlinker --no-as-needed -lnanox-ompss -lnanox-c -lnanox -lpthread -lrt
+{@NANOX_GATE@,openmp,!omp-dry-run,!ompss} linker_options = -Xlinker --no-as-needed -lnanox-omp   -lnanox-c -lnanox -lpthread -lrt
+{@NANOX_GATE@,openmp,!omp-dry-run,ompss}  linker_options = -Xlinker --no-as-needed -lnanox-ompss -lnanox-c -lnanox -lpthread -lrt
 # used by XL
 {@NANOX_GATE@,openmp,!omp-dry-run} linker_options = @NANOX_GNU_LDFLAGS@
 # needed for the new link mechanism
@@ -191,12 +191,8 @@ linker_options = -Wl,--enable-new-dtags
 {@NANOX_GATE@,openmp,!omp-dry-run,debug,!(instrument|instrumentation)} linker_options = -L@NANOX_LIBS@/debug -Wl,@RPATH_PARAMETER@,@NANOX_LIBS@/debug
 {@NANOX_GATE@,openmp,!omp-dry-run,!debug,(instrument|instrumentation)} linker_options = -L@NANOX_LIBS@/instrumentation -Wl,@RPATH_PARAMETER@,@NANOX_LIBS@/instrumentation
 {@NANOX_GATE@,openmp,!omp-dry-run,debug,(instrument|instrumentation)} linker_options = -L@NANOX_LIBS@/instrumentation-debug -Wl,@RPATH_PARAMETER@,@NANOX_LIBS@/instrumentation-debug
-# Old linking mechanism (libnanox-omp.so | libnanox-ss.so + libnanox-omp.so)
-{@NANOX_GATE@,@NANOX_OLD_LINK@,openmp,!omp-dry-run,!ompss} linker_options = -Wl,--no-as-needed -lnanox-omp -lnanox-c -lnanox -lpthread -lrt
-{@NANOX_GATE@,@NANOX_OLD_LINK@,openmp,!omp-dry-run,ompss} linker_options = -Wl,--no-as-needed -lnanox-ss -lnanox-omp -lnanox-c -lnanox -lpthread -lrt
-# New linking mechanism (libnanox-omp.s | libnanox
-{@NANOX_GATE@,@NANOX_NEW_LINK@,openmp,!omp-dry-run,!ompss} linker_options = -Wl,--no-as-needed -lnanox-omp -lnanox-c -lnanox -lpthread -lrt
-{@NANOX_GATE@,@NANOX_NEW_LINK@,openmp,!omp-dry-run,ompss} linker_options = -Wl,--no-as-needed -lnanox-ompss -lnanox-c -lnanox -lpthread -lrt
+{@NANOX_GATE@,openmp,!omp-dry-run,!ompss} linker_options = -Wl,--no-as-needed -lnanox-omp   -lnanox-c -lnanox -lpthread -lrt
+{@NANOX_GATE@,openmp,!omp-dry-run,ompss}  linker_options = -Wl,--no-as-needed -lnanox-ompss -lnanox-c -lnanox -lpthread -lrt
 # used by XL
 {@NANOX_GATE@,openmp,!omp-dry-run} linker_options = @NANOX_IBM_LDFLAGS@
 # needed for the new link mechanism
@@ -212,6 +208,53 @@ linker_options = -Wl,--enable-new-dtags
 {@NANOX_GATE@,@ENABLE_OPENCL@,ompss,opencl} preprocessor_options = -qinclude nanos-opencl.h -D_MERCURIUM_OPENCL_
 {@NANOX_GATE@,@ENABLE_OPENCL@,ompss,opencl} linker_options = -lnanox-opencl-api
 
+
+# dlb
+{@DLB_GATE@} fortran_preprocessor_options = -I@DLB_INCLUDE@
+{@DLB_GATE@} preprocessor_options = -I@DLB_INCLUDE@
+{@DLB_GATE@} linker_options = -L@DLB_LIB@ -ldlb -Xlinker @RPATH_PARAMETER@ -Xlinker @DLB_LIB@
+
+
+[omp-base-cray : omp-base-common]
+linker_options =
+
+#Nanos++
+{@NANOX_GATE@,openmp,!(gnu|intel)} preprocessor_options = -I@NANOX_INCLUDES@ -Wp,-include,nanos.h,-include,nanos_omp.h
+{@NANOX_GATE@,openmp, (gnu|intel)} preprocessor_options = -I@NANOX_INCLUDES@ -include nanos.h -include nanos_omp.h
+linker_options = -dynamic -Wl,--enable-new-dtags
+{@NANOX_GATE@,openmp,!omp-dry-run,!debug,!(instrument|instrumentation)} linker_options = -L@NANOX_LIBS@/performance -Wl,@RPATH_PARAMETER@,@NANOX_LIBS@/performance
+{@NANOX_GATE@,openmp,!omp-dry-run,debug,!(instrument|instrumentation)} linker_options = -L@NANOX_LIBS@/debug -Wl,@RPATH_PARAMETER@,@NANOX_LIBS@/debug
+{@NANOX_GATE@,openmp,!omp-dry-run,!debug,(instrument|instrumentation)} linker_options = -L@NANOX_LIBS@/instrumentation -Wl,@RPATH_PARAMETER@,@NANOX_LIBS@/instrumentation
+{@NANOX_GATE@,openmp,!omp-dry-run,debug,(instrument|instrumentation)} linker_options = -L@NANOX_LIBS@/instrumentation-debug -Wl,@RPATH_PARAMETER@,@NANOX_LIBS@/instrumentation-debug
+{@NANOX_GATE@,openmp,!omp-dry-run,!ompss} linker_options = -Wl,--no-as-needed -lnanox-omp   -lnanox-c -lnanox -lpthread -lrt
+{@NANOX_GATE@,openmp,!omp-dry-run,ompss}  linker_options = -Wl,--no-as-needed -lnanox-ompss -lnanox-c -lnanox -lpthread -lrt
+# needed for the new link mechanism
+{@NANOX_GATE@,@NANOX_DYNAMIC_LIST@,openmp} linker_options = -Wl,--dynamic-list=@PKGDATADIR@/nanos/nanos-exports.def
+
+
+# Nanos++ & CUDA
+{@NANOX_GATE@,@ENABLE_CUDA@,ompss,cuda,!(gnu|intel)} preprocessor_options = -Wp,-include,nanos-gpu.h
+{@NANOX_GATE@,@ENABLE_CUDA@,ompss,cuda, (gnu|intel)} preprocessor_options = -include nanos-gpu.h
+{@NANOX_GATE@,@ENABLE_CUDA@,ompss,cuda} linker_options = -lnanox-gpu-api
+
+
+# Nanos++ & OpenCL
+{@NANOX_GATE@,@ENABLE_OPENCL@,ompss,opencl,!(gnu|intel)} preprocessor_options = -Wp,-include,nanos-opencl.h -D_MERCURIUM_OPENCL_
+{@NANOX_GATE@,@ENABLE_OPENCL@,ompss,opencl, (gnu|intel)} preprocessor_options = -include nanos-opencl.h -D_MERCURIUM_OPENCL_
+{@NANOX_GATE@,@ENABLE_OPENCL@,ompss,opencl} linker_options = -lnanox-opencl-api
+
+#Nanos 6
+{@NANOS6_GATE@,ompss-2,(!?default-nanos6-inc|default-nanos6-inc),!(gnu|intel)} preprocessor_options = -I@NANOS6_INCLUDES@ -Wp,-include,nanos6.h
+{@NANOS6_GATE@,ompss-2,(!?default-nanos6-inc|default-nanos6-inc), (gnu|intel)} preprocessor_options = -I@NANOS6_INCLUDES@ -include nanos6.h
+{@NANOS6_GATE@,ompss-2,!?default-nanos6-lib|default-nanos6-lib} linker_options = @NANOS6_LIB@/nanos6-main-wrapper.o
+{@NANOS6_GATE@,ompss-2,!?default-nanos6-lib|default-nanos6-lib} linker_options = -L@NANOS6_LIB@ -lnanos6 -ldl
+{@NANOS6_GATE@,ompss-2,!?default-nanos6-lib|default-nanos6-lib} linker_options = -Wl,@RPATH_PARAMETER@,@NANOS6_LIB@
+
+# Nanos6 + CUDA
+{@NANOS6_GATE@,ompss-2,cuda} preprocessor_options = -DNANOS6_CUDA
+
+# Nanos6 + OpenCL
+{@NANOS6_GATE@,ompss-2,opencl} preprocessor_options = -DNANOS6_OPENCL
 
 # dlb
 {@DLB_GATE@} fortran_preprocessor_options = -I@DLB_INCLUDE@

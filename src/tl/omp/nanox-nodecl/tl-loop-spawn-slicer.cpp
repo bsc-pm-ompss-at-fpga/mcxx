@@ -41,8 +41,7 @@ namespace TL { namespace Nanox {
             const std::string& outline_name,
             TL::Symbol structure_symbol,
             TL::Symbol slicer_descriptor,
-            Nodecl::NodeclBase task_label,
-            Nodecl::NodeclBase final_clause)
+            Nodecl::NodeclBase task_label)
     {
         Symbol enclosing_function = Nodecl::Utils::get_enclosing_function(construct);
 
@@ -125,9 +124,9 @@ namespace TL { namespace Nanox {
         dynamic_wd_info << "nanos_wd_dyn_props_t " << dyn_props_var << ";";
 
         fill_dynamic_properties(dyn_props_var,
-                /* priority_expr */ nodecl_null(), final_clause, /* is_implicit */ 0, dynamic_wd_info);
+                /* priority_expr */ nodecl_null(), /* final_clause */ nodecl_null(), /* is_implicit */ 0, dynamic_wd_info);
 
-        Source spawn_code, barrier_code;
+        Source spawn_code, tw_if_needed;
         spawn_code
         << "{"
         <<     "nanos_err_t nanos_err;"
@@ -147,17 +146,14 @@ namespace TL { namespace Nanox {
         <<     statement_placeholder(fill_outline_arguments_tree)
         <<     "nanos_err = nanos_submit(nanos_wd_, 0, 0, 0);"
         <<     "if (nanos_err != NANOS_OK) nanos_handle_error(nanos_err);"
-        <<     barrier_code
+        <<     tw_if_needed
         << "}"
         ;
 
 
         if (!distribute_environment.find_first<Nodecl::OpenMP::BarrierAtEnd>().is_null())
         {
-            barrier_code
-                << "nanos_err = nanos_wg_wait_completion(nanos_current_wd(), 0);"
-                << "if (nanos_err != NANOS_OK) nanos_handle_error(nanos_err);"
-                ;
+            tw_if_needed << full_taskwait_source(/* is_noflush */ false);
         }
 
         fill_arguments(construct, outline_info, fill_outline_arguments, fill_immediate_arguments);
