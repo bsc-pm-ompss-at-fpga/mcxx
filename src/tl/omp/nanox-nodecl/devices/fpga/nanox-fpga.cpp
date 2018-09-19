@@ -1252,7 +1252,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         << "\t\t__copyFlags_id = " << STR_INPUTSTREAM << ".read().data;"
         << "\t\t__copyFlags = __copyFlags_id;"
         << "\t\t__param_id = __copyFlags_id >> 32;"
-        << "\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
         << "\t\tswitch (__param_id) {"
     ;
 
@@ -1409,6 +1408,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 in_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
+                    << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
                     << "\t\t\t\tif(__copyFlags[4])\n"
                     << "\t\t\t\t\tmemcpy(" << field_name << ", (const " << type_basic_par_decl << " *)(" << field_port_name_i << " + __param/sizeof(" << type_basic_par_decl << ")), " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
                     << "\t\t\t\t__copyFlags_id_out[" << n_params_out << "] = __copyFlags_id;"
@@ -1452,6 +1452,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 in_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
+                    << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
                     << "\t\t\t\tif(__copyFlags[4])\n"
                     << "\t\t\t\t\tmemcpy(" << field_name << ", (const " << type_basic_par_decl << " *)(" << field_port_name << " + __param/sizeof(" << type_basic_par_decl << ")), " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
                     << "\t\t\t\tbreak;"
@@ -1483,7 +1484,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                 in_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
                     << "\t\t\t\t__copyFlags_id_out[" << n_params_out << "] = __copyFlags_id;"
-                    << "\t\t\t\t__param_out[" << n_params_out << "] = __param;"
+                    << "\t\t\t\t__param_out[" << n_params_out << "] = " << STR_INPUTSTREAM << ".read().data;"
                     << "\t\t\t\tbreak;"
                 ;
 
@@ -1596,7 +1597,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
             }
             else if (field_type.is_scalar_type())
             {
-                //TODO: Only HLS code is generated. Nanos intermediate code is not generated.
                 std::string basic_par_type_decl = get_element_type_pointer_to(field_type, field_name, scope);
 
 #if _DEBUG_AUTOMATIC_COMPILER_
@@ -1613,7 +1613,12 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 in_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
-                    << "\t\t\t\t" << field_name << " = (" << basic_par_type_decl << ")__param;"
+                    << "\t\t\t\tunion {"
+                    << "\t\t\t\t\t" << basic_par_type_decl << " " << field_name << ";"
+                    << "\t\t\t\t\tuint64_t "<< field_name << "_task_arg;"
+                    << "\t\t\t\t} mcc_arg_" << param_id << ";"
+                    << "\t\t\t\tmcc_arg_" << param_id << "." << field_name << "_task_arg = " << STR_INPUTSTREAM << ".read().data;"
+                    << "\t\t\t\talpha = mcc_arg_" << param_id << "." << field_name << ";"
                     << "\t\t\t\tbreak;"
                 ;
 
