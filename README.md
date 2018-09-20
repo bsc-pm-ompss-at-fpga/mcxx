@@ -4,13 +4,17 @@ Mercurium is a C/C++/Fortran source-to-source compilation infrastructure aimed a
 prototyping developed by the [*Programming Models group*](https://pm.bsc.es/)
 at the [**Barcelona Supercomputing Center**](http://www.bsc.es/).
 
-Mercurium is mainly used together with the [Nanos++ Runtime Library](https://github.com/bsc-pm/nanox)
-to implement the [**OmpSs programming model**](https://pm.bsc.es/ompss).
-Both tools also implement [**OpenMP 3.1**](https://pm.bsc.es/openmp). Apart
-from that, since Mercurium is quite extensible it has been used to implement
-other programming models or compiler transformations, examples include Cell
-Superscalar, Software Transactional Memory, Distributed Shared Memory or the
-ACOTES project, just to name a few.
+Mercurium is used, together with the [Nanos++ Runtime Library](https://github.com/bsc-pm/nanox),
+to implement the [**OmpSs programming model**](https://pm.bsc.es/ompss). Both
+tools provide also an implementation of [**OpenMP 3.1**](https://pm.bsc.es/openmp).
+More recently, Mercurium has been also used to implement the
+[**OmpSs-2 programming model**](https://pm.bsc.es/ompss-2) together with the
+[Nanos6 Runtime Library](https://github.com/bsc-pm/nanos6).
+
+Apart from that, since Mercurium is quite extensible it has been used to
+implement other programming models or compiler transformations, examples
+include Cell Superscalar, Software Transactional Memory, Distributed Shared
+Memory or the ACOTES project, just to name a few.
 
 Extending Mercurium is achieved using a plugin architecture, where plugins
 represent several phases of the compiler. These plugins are written in C++ and
@@ -25,9 +29,9 @@ the compiler).
 2. Download Mercurium's code
     1. From our repo
         * Clone Mercurium's repository
-    
+
             - From GitHub:
-            
+
                     $ git clone https://github.com/bsc-pm/mcxx.git
             - From our internal GitLab repository (BSC users only):
 
@@ -65,17 +69,16 @@ And that's all!
 
 Depending on the [configure flags](doc/md_pages/configure_flags.md) used to configure
 Mercurium, you may have some Mercurium profiles or others. A Mercurium profile
-is basically a binary with a predefined configuration that specifies the
+is basically a file with a predefined configuration that specifies the
 behavior of Mercurium. For example, a profile specifies which phases of
-Mercurium have to be executed or which backend compiler will be used.
+Mercurium have to be executed or which backend compiler should be used.
 
 Any installation of Mercurium has, at least, the `plain` profiles (`plaincc`,
 `plaincxx` and `plainfc` for C, C++ and Fortran languages respectively). These
 profiles do not transform any OpenMP/OmpSs pragma, they basically process your
-code and generate it again. They may seem useless, but they are really useful
-when debugging our compiler frontend.
+code and generate it again.
 
-For more information check our list of [Mercurium's profiles](https://pm.bsc.es/ompss-docs/user-guide/compile-programs.html).
+For more information check our list of [Mercurium's profiles](doc/md_pages/profiles.md).
 
 ## Contact Information
 

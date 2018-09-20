@@ -537,6 +537,19 @@ namespace TL { namespace OpenMP {
                 (target_info.*(it->pfunc))(copy_items);
             }
 
+            TL::ObjectList<Nodecl::NodeclBase> target_ctx_localmem = update_clauses(target_context.localmem, function_sym);
+            if (target_context.localmem_copies == OmpSs::TargetContext::LOCALMEM_COPIES)
+            {
+                target_ctx_localmem.append(target_ctx_copy_in);
+                target_ctx_localmem.append(target_ctx_copy_out);
+                target_ctx_localmem.append(target_ctx_copy_inout);
+            }
+            ObjectList<TL::OmpSs::CopyItem> localmem_items =
+                target_ctx_localmem
+                .map<TL::OmpSs::CopyItem>(ItemGenerator<TL::OmpSs::CopyItem>(TL::OmpSs::COPY_DIR_UNDEFINED))
+                .filter(&TL::DataReference::is_valid);
+            target_info.append_to_localmem(localmem_items);
+
             target_info.set_file(target_context.file);
             target_info.set_name(target_context.name);
             target_info.append_to_ndrange(update_clauses(target_context.ndrange, function_sym));
@@ -547,6 +560,7 @@ namespace TL { namespace OpenMP {
             target_info.append_to_device_list(target_context.device_list);
 
             target_info.set_copy_deps(target_context.copy_deps == OmpSs::TargetContext::COPY_DEPS);
+            target_info.set_localmem_copies(target_context.localmem_copies == OmpSs::TargetContext::LOCALMEM_COPIES);
         }
 
         // Store the target information in the current function task
@@ -782,13 +796,18 @@ namespace TL { namespace OpenMP {
             _openmp_info->get_new_data_environment(construct);
         _openmp_info->push_current_data_environment(data_environment);
 
+        ObjectList<Symbol> extra_symbols;
+
+        // Note: 'statements' can't be empty so we reuse pragma_line
+        get_reduction_explicit_attributes(
+                pragma_line, /* statements */ pragma_line,
+                data_environment, extra_symbols);
+
         bool there_is_default_clause = false;
         DataSharingAttribute default_data_attr = get_default_data_sharing(pragma_line,
                 /* fallback */ DS_UNDEFINED,
                 there_is_default_clause,
                 /*allow_default_auto*/ true);
-
-        ObjectList<Symbol> extra_symbols;
 
         handle_task_dependences(
                 pragma_line, /* parsing_scope */ pragma_line,
@@ -806,11 +825,13 @@ namespace TL { namespace OpenMP {
         _openmp_info->pop_current_data_environment();
     }
 
+    //! Default implementation of the OmpSs-2 loop construct as if it was a taskloop
     void Core::oss_loop_handler_pre(TL::PragmaCustomStatement construct)
     {
         taskloop_handler_pre(construct);
     }
 
+    //! Default implementation of the OmpSs-2 loop construct as if it was a taskloop
     void Core::oss_loop_handler_post(TL::PragmaCustomStatement construct)
     {
         taskloop_handler_post(construct);

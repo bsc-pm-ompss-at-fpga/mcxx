@@ -2642,7 +2642,7 @@ static void build_scope_simple_declaration(AST a, const decl_context_t* decl_con
                                 ast_get_locus(init_declarator))));
             }
 
-            if (CURRENT_CONFIGURATION->xl_compatibility)
+            if (CURRENT_CONFIGURATION->native_vendor == NATIVE_VENDOR_IBM)
             {
                 if (current_gather_info.num_xl_pragmas > 0)
                 {
@@ -4297,7 +4297,7 @@ static void gather_extra_attributes(AST a,
                 }
             case AST_UNKNOWN_PRAGMA:
                 {
-                    if (CURRENT_CONFIGURATION->xl_compatibility)
+                    if (CURRENT_CONFIGURATION->native_vendor == NATIVE_VENDOR_IBM)
                     {
                         P_LIST_ADD(gather_info->xl_pragmas, gather_info->num_xl_pragmas, ast_get_text(item));
                     }
@@ -6369,6 +6369,10 @@ void check_nodecl_member_initializer_list(
             if (is_named_class_type(t))
                 entry = named_type_get_symbol(t);
         }
+
+        if (entry->kind == SK_USING)
+            entry = entry_advance_aliases(entry);
+
 
         if (entry->kind == SK_CLASS
                 && entry == class_sym)
@@ -9178,11 +9182,11 @@ struct delayed_member_initializer_tag
 };
 
 static int _next_delayed_member_initializer = 0;
-static struct delayed_member_initializer_tag _delayed_member_initializer[MCXX_MAX_FUNCTIONS_PER_CLASS];
+static struct delayed_member_initializer_tag _delayed_member_initializer[MCXX_MAX_DELAYED_MEMBERS_PER_CLASS];
 
 static void build_scope_add_delayed_member_declarator_initializer(scope_entry_t* entry, AST initializer)
 {
-    ERROR_CONDITION(_next_delayed_member_initializer == MCXX_MAX_FUNCTIONS_PER_CLASS, "Too many function declarations delayed\n", 0);
+    ERROR_CONDITION(_next_delayed_member_initializer == MCXX_MAX_DELAYED_MEMBERS_PER_CLASS, "Too many member initializations delayed\n", 0);
 
     _delayed_member_initializer[_next_delayed_member_initializer].entry = entry;
     _delayed_member_initializer[_next_delayed_member_initializer].initializer = initializer;
@@ -9230,11 +9234,11 @@ struct delayed_function_decl_tag
 };
 
 static int _next_delayed_function_decl = 0;
-static struct delayed_function_decl_tag _delayed_functions_decl_list[MCXX_MAX_FUNCTIONS_PER_CLASS];
+static struct delayed_function_decl_tag _delayed_functions_decl_list[MCXX_MAX_DELAYED_MEMBERS_PER_CLASS];
 
 static void build_scope_delayed_add_function_declaration(scope_entry_t* entry, const decl_context_t* decl_context)
 {
-    ERROR_CONDITION(_next_delayed_function_decl == MCXX_MAX_FUNCTIONS_PER_CLASS, "Too many function declarations delayed\n", 0);
+    ERROR_CONDITION(_next_delayed_function_decl == MCXX_MAX_DELAYED_MEMBERS_PER_CLASS, "Too many function declarations delayed\n", 0);
 
     _delayed_functions_decl_list[_next_delayed_function_decl].entry = entry;
     _delayed_functions_decl_list[_next_delayed_function_decl].decl_context = decl_context;
@@ -9334,7 +9338,7 @@ struct delayed_function_def_tag
 };
 
 static int _next_delayed_function_def = 0;
-static struct delayed_function_def_tag _delayed_functions_def_list[MCXX_MAX_FUNCTIONS_PER_CLASS];
+static struct delayed_function_def_tag _delayed_functions_def_list[MCXX_MAX_DELAYED_MEMBERS_PER_CLASS];
 
 static void build_scope_delayed_add_delayed_function_def(AST function_definition,
         scope_entry_t* entry,
@@ -9342,7 +9346,7 @@ static void build_scope_delayed_add_delayed_function_def(AST function_definition
         const decl_context_t* block_context,
         gather_decl_spec_t* gather_info)
 {
-    ERROR_CONDITION(_next_delayed_function_def == MCXX_MAX_FUNCTIONS_PER_CLASS,
+    ERROR_CONDITION(_next_delayed_function_def == MCXX_MAX_DELAYED_MEMBERS_PER_CLASS,
             "Too many delayed member functions!\n", 0);
 
     DEBUG_CODE()
@@ -21929,6 +21933,7 @@ static void build_scope_fortran_allocate_statement(AST a, const decl_context_t* 
     *nodecl_output = nodecl_make_list_1(
             nodecl_make_fortran_allocate_statement(nodecl_allocate_list, 
                 nodecl_opt_value,
+                nodecl_null(),
                 ast_get_locus(a)));
 }
 

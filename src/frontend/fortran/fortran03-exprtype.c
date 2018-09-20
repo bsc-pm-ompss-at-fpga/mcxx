@@ -4294,9 +4294,7 @@ static void check_symbol_name_as_a_variable(
         const decl_context_t* decl_context,
         nodecl_t* nodecl_output)
 {
-    ERROR_CONDITION(entry->kind != SK_VARIABLE, 
-            "Symbol must be a SK_VARIABLE but it is a %s", 
-            symbol_kind_name(entry));
+    ERROR_CONDITION(entry->kind != SK_VARIABLE, "Symbol must be a SK_VARIABLE but it is a %s", symbol_kind_name(entry));
 
     // It might happen that dummy arguments/result do not have any implicit
     // type here (because the input code is wrong)
@@ -4427,10 +4425,11 @@ static void check_symbol_of_argument(AST sym, const decl_context_t* decl_context
             }
         }
     }
-    
-    if (entry == NULL || 
+
+    if (entry == NULL ||
            (entry->kind != SK_VARIABLE &&
-            entry->kind != SK_FUNCTION && 
+            entry->kind != SK_FUNCTION &&
+            entry->kind != SK_ENUMERATOR &&
             entry->kind != SK_UNDEFINED))
     {
         error_printf_at(ast_get_locus(sym), "'%s' cannot be an argument\n", entry->symbol_name);
@@ -4440,6 +4439,24 @@ static void check_symbol_of_argument(AST sym, const decl_context_t* decl_context
     if (entry->kind == SK_VARIABLE)
     {
         check_symbol_name_as_a_variable(sym, entry, decl_context, nodecl_output);
+    }
+    else if (entry->kind == SK_ENUMERATOR)
+    {
+        if (nodecl_is_null(entry->value)
+                || !nodecl_is_constant(entry->value))
+        {
+            error_printf_at(ast_get_locus(sym), "'%s' is not a valid enumerator\n", entry->symbol_name);
+            *nodecl_output = nodecl_make_err_expr(ast_get_locus(sym));
+            return;
+        }
+
+        // Use the constant value instead
+        *nodecl_output = fortran_const_value_to_nodecl(nodecl_get_constant(entry->value));
+    }
+    else if (entry->kind == SK_FUNCTION)
+    {
+        *nodecl_output = nodecl_make_symbol(entry, ast_get_locus(sym));
+        nodecl_set_type(*nodecl_output, lvalue_ref(entry->type_information));
     }
     else if (entry->kind == SK_UNDEFINED)
     {
@@ -4457,7 +4474,7 @@ static void check_symbol_of_argument(AST sym, const decl_context_t* decl_context
             // END PROGRAM P
             //
             // Note that we cannot make it a variable in the declaration
-            // because later an EXTERNAL might have turned it into a SK_FUNCTION 
+            // because later an EXTERNAL might have turned it into a SK_FUNCTION
             // (this is the case of 'Y' shown above)
             entry->kind = SK_VARIABLE;
 
@@ -4468,11 +4485,6 @@ static void check_symbol_of_argument(AST sym, const decl_context_t* decl_context
             *nodecl_output = nodecl_make_symbol(entry, ast_get_locus(sym));
             nodecl_set_type(*nodecl_output, lvalue_ref(entry->type_information));
         }
-    }
-    else if (entry->kind == SK_FUNCTION)
-    {
-        *nodecl_output = nodecl_make_symbol(entry, ast_get_locus(sym));
-        nodecl_set_type(*nodecl_output, lvalue_ref(entry->type_information));
     }
     else
     {
@@ -6710,26 +6722,40 @@ static void check_multiexpression(AST expr, const decl_context_t* decl_context, 
 {
     const decl_context_t* iterator_context = new_block_context(decl_context);
 
-    AST ompss_iterator = ASTSon1(expr);
-    AST identifier = ASTSon0(ompss_iterator);
-    AST range = ASTSon1(ompss_iterator);
+    AST list_iterators = ASTSon1(expr);
+    nodecl_t nodecl_list_iterators = nodecl_null();
 
-    const char* iterator_name = strtolower(ASTText(identifier));
-
-    scope_entry_t* new_iterator = new_symbol(iterator_context,
-            iterator_context->current_scope,
-            iterator_name);
-    new_iterator->kind = SK_VARIABLE;
-    new_iterator->type_information = get_signed_int_type();
-    new_iterator->locus = ast_get_locus(ompss_iterator);
-
-    nodecl_t nodecl_range = nodecl_null();
-    multiexpression_check_range(range, iterator_context, &nodecl_range);
-
-    if (nodecl_is_err_expr(nodecl_range))
+    AST it;
+    for_each_element(list_iterators, it)
     {
-        *nodecl_output = nodecl_range;
-        return;
+        AST iterator = ASTSon1(it);
+        AST identifier = ASTSon0(iterator);
+        AST range = ASTSon1(iterator);
+
+        const char* iterator_name = strtolower(ASTText(identifier));
+
+        // FIXME: what if the name already exists?
+
+        scope_entry_t* new_iterator = new_symbol(iterator_context,
+                iterator_context->current_scope,
+                iterator_name);
+        new_iterator->kind = SK_VARIABLE;
+        new_iterator->type_information = get_signed_int_type();
+        new_iterator->locus = ast_get_locus(iterator);
+
+        nodecl_t nodecl_range = nodecl_null();
+        multiexpression_check_range(range, iterator_context, &nodecl_range);
+
+        if (nodecl_is_err_expr(nodecl_range))
+        {
+            *nodecl_output = nodecl_range;
+            return;
+        }
+
+        nodecl_list_iterators = nodecl_append_to_list(
+                nodecl_list_iterators,
+                nodecl_make_multi_expression_iterator(
+                    nodecl_range, new_iterator, nodecl_get_type(nodecl_range), ast_get_locus(expr)));
     }
 
     nodecl_t nodecl_subexpr = nodecl_null();
@@ -6743,9 +6769,9 @@ static void check_multiexpression(AST expr, const decl_context_t* decl_context, 
         return;
     }
 
-    *nodecl_output = nodecl_make_multi_expression(nodecl_range,
+    *nodecl_output = nodecl_make_multi_expression(
+            nodecl_list_iterators,
             nodecl_subexpr,
-            new_iterator,
             nodecl_get_type(nodecl_subexpr),
             ast_get_locus(expr));
 }

@@ -362,6 +362,25 @@ static TL::ObjectList<OutlineDataItem::CopyItem> rewrite_copies_c(
     return result;
 }
 
+
+static TL::ObjectList<Nodecl::NodeclBase> rewrite_localmem_c(
+        const TL::ObjectList<Nodecl::NodeclBase>& list,
+        const param_sym_to_arg_sym_t& param_sym_to_arg_sym)
+{
+    TL::ObjectList<Nodecl::NodeclBase> result;
+    for (TL::ObjectList<Nodecl::NodeclBase>::const_iterator it = list.begin();
+            it != list.end();
+            it++)
+    {
+        Nodecl::NodeclBase expr = it->shallow_copy();
+        Nodecl::NodeclBase rewritten = rewrite_expression_in_dependency_c(expr, param_sym_to_arg_sym);
+
+        result.append( rewritten );
+    }
+
+    return result;
+}
+
 static void copy_outline_data_item_c(
         OutlineDataItem& dest_info,
         const OutlineDataItem& source_info,
@@ -375,6 +394,9 @@ static void copy_outline_data_item_c(
 
     // Copy copy directionality
     dest_info.get_copies() = rewrite_copies_c(source_info.get_copies(), param_sym_to_arg_sym);
+
+    // Copy localmem information
+    dest_info.get_localmem() = rewrite_localmem_c(source_info.get_localmem(), param_sym_to_arg_sym);
 }
 
 static void handle_nonconstant_value_dimensions(TL::Type t,
@@ -962,7 +984,7 @@ void LoweringVisitor::visit_task_call_c(
 
     Nodecl::NodeclBase statements = Nodecl::List::make(list_stmt);
 
-    Nodecl::NodeclBase new_construct = Nodecl::OpenMP::Task::make(/* environment */ Nodecl::NodeclBase::null(), statements);
+    Nodecl::NodeclBase new_construct = Nodecl::OpenMP::Task::make(/* environment */ Nodecl::NodeclBase::null(), statements, statements.get_locus());
 
     Nodecl::NodeclBase new_code;
     if (!_lowering->final_clause_transformation_disabled()
@@ -1377,7 +1399,7 @@ Nodecl::NodeclBase LoweringVisitor::fill_adapter_function(
     task_environment.walk(new_environment);
 
     // Create the #pragma omp task
-    task_construct = Nodecl::OpenMP::Task::make(new_environment, statements_of_task_seq);
+    task_construct = Nodecl::OpenMP::Task::make(new_environment, statements_of_task_seq, construct.get_locus());
 
     OutlineInfo dummy_outline_info(*_lowering, new_environment,
             called_function, /* is_task_construct */ 1,  _function_task_set);

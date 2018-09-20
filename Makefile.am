@@ -1140,12 +1140,6 @@ src_tl_omp_common_libtlomp_common_la_LIBADD = $(tl_libadd)
 src_tl_omp_common_libtlomp_common_la_SOURCES = \
    src/tl/omp/common/tl-datareference.hpp \
    src/tl/omp/common/tl-datareference.cpp \
-   src/tl/omp/common/tl-final-stmts-generator.hpp \
-   src/tl/omp/common/tl-final-stmts-generator.cpp \
-   src/tl/omp/common/tl-atomics.hpp \
-   src/tl/omp/common/tl-atomics.cpp \
-   src/tl/omp/common/tl-lowering-utils.hpp \
-   src/tl/omp/common/tl-lowering-utils.cpp \
    $(END)
 
 ##########################################################################
@@ -1938,6 +1932,39 @@ src_tl_omp_nanos_common_libtlnanos_common_la_SOURCES=\
 endif
 
 ##########################################################################
+# src/tl/omp/lowering-commnon/
+##########################################################################
+
+phases_LTLIBRARIES += src/tl/omp/lowering-common/libtlomplowering-common.la
+
+src_tl_omp_lowering_common_libtlomplowering_common_la_CFLAGS = \
+    $(tl_cflags)\
+    -I$(top_srcdir)/src/tl/omp/common \
+    -I$(top_srcdir)/src/tl/omp/core
+
+src_tl_omp_lowering_common_libtlomplowering_common_la_CXXFLAGS = \
+    $(tl_cflags) \
+    -I$(top_srcdir)/src/tl/omp/common \
+    -I$(top_srcdir)/src/tl/omp/core
+
+src_tl_omp_lowering_common_libtlomplowering_common_la_LIBADD = \
+    $(tl_libadd) \
+    $(top_builddir)/src/tl/omp/common/libtlomp-common.la
+
+src_tl_omp_lowering_common_libtlomplowering_common_la_LDFLAGS = $(tl_ldflags)
+
+src_tl_omp_lowering_common_libtlomplowering_common_la_SOURCES = \
+    src/tl/omp/lowering-common/tl-omp-lowering-atomics.cpp \
+    src/tl/omp/lowering-common/tl-omp-lowering-atomics.hpp \
+    src/tl/omp/lowering-common/tl-omp-lowering-directive-environment.cpp \
+    src/tl/omp/lowering-common/tl-omp-lowering-directive-environment.hpp \
+    src/tl/omp/lowering-common/tl-omp-lowering-final-stmts-generator.cpp \
+    src/tl/omp/lowering-common/tl-omp-lowering-final-stmts-generator.hpp \
+    src/tl/omp/lowering-common/tl-omp-lowering-utils.cpp \
+    src/tl/omp/lowering-common/tl-omp-lowering-utils.hpp
+
+
+##########################################################################
 # src/tl/omp/nanox-nodecl
 ##########################################################################
 
@@ -1946,20 +1973,25 @@ if BUILD_NANOX_NODECL
 phases_LTLIBRARIES += src/tl/omp/nanox-nodecl/libtlnanox-lowering.la
 
 src_tl_omp_nanox_nodecl_libtlnanox_lowering_la_CFLAGS = $(phases_cflags) \
-														-I$(srcdir)/src/tl/omp/nanos-common \
-														-I$(srcdir)/src/tl/omp/core \
-														-I$(srcdir)/src/tl/omp/common \
-                                                        -I@NANOX_INCLUDES@
+    -I$(srcdir)/src/tl/omp/nanos-common \
+    -I$(srcdir)/src/tl/omp/core \
+    -I$(srcdir)/src/tl/omp/common \
+    -I$(srcdir)/src/tl/omp/lowering-common \
+    -I@NANOX_INCLUDES@
+
 src_tl_omp_nanox_nodecl_libtlnanox_lowering_la_CXXFLAGS = $(phases_cxxflags) \
-														-I$(srcdir)/src/tl/omp/nanos-common \
-														-I$(srcdir)/src/tl/omp/core \
-														-I$(srcdir)/src/tl/omp/common \
-                                                        -I@NANOX_INCLUDES@
+    -I$(srcdir)/src/tl/omp/nanos-common \
+    -I$(srcdir)/src/tl/omp/core \
+    -I$(srcdir)/src/tl/omp/common \
+    -I$(srcdir)/src/tl/omp/lowering-common \
+    -I@NANOX_INCLUDES@
 
 src_tl_omp_nanox_nodecl_libtlnanox_lowering_la_LIBADD = $(phases_libadd) \
-								src/tl/omp/core/libtlomp-core.la \
-								src/tl/omp/common/libtlomp-common.la \
-								src/tl/omp/nanos-common/libtlnanos-version.la
+    src/tl/omp/core/libtlomp-core.la \
+    src/tl/omp/common/libtlomp-common.la \
+    src/tl/omp/nanos-common/libtlnanos-version.la \
+    src/tl/omp/lowering-common/libtlomplowering-common.la
+
 src_tl_omp_nanox_nodecl_libtlnanox_lowering_la_LDFLAGS = $(phases_ldflags)
 
 src_tl_omp_nanox_nodecl_libtlnanox_lowering_la_SOURCES = \
@@ -2324,6 +2356,7 @@ src_tl_ompss_nanos6_libtlnanos6_lowering_la_CFLAGS = \
     $(phases_cflags) \
     -I$(top_srcdir)/src/tl/omp/core \
     -I$(top_srcdir)/src/tl/omp/common \
+    -I$(top_srcdir)/src/tl/omp/lowering-common \
     -I$(top_srcdir)/src/tl/ompss/nanos6 \
     -I$(top_srcdir)/src/tl/ompss/nanos6/devices \
     $(END)
@@ -2332,11 +2365,13 @@ src_tl_ompss_nanos6_libtlnanos6_lowering_la_CXXFLAGS = \
     $(phases_cxxflags) \
     -I$(top_srcdir)/src/tl/omp/core \
     -I$(top_srcdir)/src/tl/omp/common \
+    -I$(top_srcdir)/src/tl/omp/lowering-common \
     -I$(top_srcdir)/src/tl/ompss/nanos6 \
     -I$(top_srcdir)/src/tl/ompss/nanos6/devices \
     $(END)
 
-src_tl_ompss_nanos6_libtlnanos6_lowering_la_LIBADD = $(phases_libadd)
+src_tl_ompss_nanos6_libtlnanos6_lowering_la_LIBADD = $(phases_libadd) \
+    src/tl/omp/lowering-common/libtlomplowering-common.la
 
 src_tl_ompss_nanos6_libtlnanos6_lowering_la_LDFLAGS = $(phases_ldflags)
 
@@ -2348,8 +2383,6 @@ src_tl_ompss_nanos6_libtlnanos6_lowering_la_SOURCES = \
     src/tl/ompss/nanos6/tl-nanos6-task.cpp \
     src/tl/ompss/nanos6/tl-nanos6-taskcall.cpp \
     src/tl/ompss/nanos6/tl-nanos6-loop.cpp \
-    src/tl/ompss/nanos6/tl-nanos6-directive-environment.cpp \
-    src/tl/ompss/nanos6/tl-nanos6-directive-environment.hpp \
     src/tl/ompss/nanos6/tl-nanos6-task-properties.hpp \
     src/tl/ompss/nanos6/tl-nanos6-task-properties.cpp \
     src/tl/ompss/nanos6/tl-nanos6-support.hpp \
@@ -3199,10 +3232,9 @@ CONFIG_FILES =  \
        config/50.config.omp.profiling \
        config/50.config.omp.intel-rtl \
        config/50.config.omp.gomp-rtl \
-       config/55.config.omp.ibm \
-       config/55.config.omp.intel \
-       config/55.config.omp.nvidia \
-       config/55.config.omp.ocl \
+       config/55.config.omp.cray   \
+       config/55.config.omp.ibm    \
+       config/55.config.omp.intel  \
        config/56.config.omp.mpi \
        config/56.config.omp.intel.mpi \
        config/57.config.omp.smp \
@@ -3212,20 +3244,21 @@ CONFIG_FILES =  \
 
 INSTALL_CONFIG_FILES = $(addprefix config/, @INSTALL_CONFIG_FILES@)
 
-# We use this to remove existing config files
-# that we know are deprecated and should not be
-# in the user installation anymore
+# We use this to remove existing config files that we know are deprecated and
+# should not be in the user installation anymore
 REMOVE_CONFIG_FILES=\
-					10.config.analysis-base \
-					50.config.gpu \
-					50.config.cuda \
-					50.config.omp.ocl \
-					50.config.omp.fortran \
-					55.config.omp.ibm.fortran \
-					55.config.omp.intel.fortran \
-					56.config.omp.intel.fortran.mpi \
-					57.config.omp.all \
-					$(END)
+	10.config.analysis-base \
+	50.config.cuda \
+	50.config.gpu \
+	50.config.omp.fortran \
+	50.config.omp.ocl \
+	55.config.omp.ibm.fortran \
+	55.config.omp.intel.fortran \
+	55.config.omp.nvidia \
+	55.config.omp.ocl \
+	56.config.omp.intel.fortran.mpi \
+	57.config.omp.all \
+	$(END)
 
 config-files-dist-hook:
 	$(MKDIR_P) $(distdir)/config
@@ -3242,8 +3275,6 @@ config_edit = \
      $(SED) \
      -e 's|@NANOX_INCLUDES[@]|$(NANOX_INCLUDES)|g' \
      -e 's|@NANOX_LIBS[@]|$(NANOX_LIBS)|g' \
-     -e 's|@NANOX_NEW_LINK[@]|$(NANOX_NEW_LINK)|g' \
-     -e 's|@NANOX_OLD_LINK[@]|$(NANOX_OLD_LINK)|g' \
      -e 's|@NANOX_DYNAMIC_LIST[@]|$(NANOX_DYNAMIC_LIST)|g' \
      -e 's|@NANOX[@]|$(NANOX)|g' \
      -e 's|@NANOX_GNU_LDFLAGS[@]|$(NANOX_GNU_LDFLAGS)|g' \
@@ -3267,6 +3298,9 @@ config_edit = \
      -e 's|@XLC[@]|$(XLC)|g' \
      -e 's|@XLCXX[@]|$(XLCXX)|g' \
      -e 's|@XLF[@]|$(XLF)|g' \
+     -e 's|@CRAYCC[@]|$(CRAYCC)|g' \
+     -e 's|@CRAYCXX[@]|$(CRAYCXX)|g' \
+     -e 's|@CRAYFC[@]|$(CRAYFC)|g' \
      -e 's|@NVCC[@]|$(NVCC)|g' \
      -e 's|@PKGDATADIR[@]|$(pkgdatadir)|g' \
      -e 's|@SIMD_FLAGS[@]|$(SIMD_FLAGS)|g' \
@@ -3286,6 +3320,7 @@ config_edit = \
      -e 's|@NANOS6_INCLUDES[@]|$(NANOS6_INCLUDES)|g' \
      -e 's|@NANOS6_LIB[@]|$(NANOS6_LIB)|g' \
      -e 's|@GOMP_OMP_LIB[@]|$(GOMP_OMP_LIB)|g' \
+     -e 's|@GFORTRAN_8_OR_GREATER_ARRAY_DESCRIPTORS[@]|$(GFORTRAN_8_OR_GREATER_ARRAY_DESCRIPTORS)|g' \
     $(END)
 
 # Cross compiler profile names

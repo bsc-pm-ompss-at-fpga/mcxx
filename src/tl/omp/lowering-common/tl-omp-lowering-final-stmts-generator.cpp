@@ -24,12 +24,12 @@
   Cambridge, MA 02139, USA.
 --------------------------------------------------------------------*/
 
-#include "tl-final-stmts-generator.hpp"
+#include "tl-omp-lowering-final-stmts-generator.hpp"
 #include "tl-symbol-utils.hpp"
 
 #include "cxx-cexpr.h"
 
-namespace TL {
+namespace TL { namespace OpenMP { namespace Lowering {
 
     Nodecl::NodeclBase FinalStmtsGenerator::generate_final_stmts(Nodecl::NodeclBase stmts)
     {
@@ -40,6 +40,7 @@ namespace TL {
        {
           private:
              bool _ompss_mode;
+             const std::string & _in_final_fun_name;
              int _num_task_related_pragmas;
              TL::ObjectList<Nodecl::NodeclBase> _function_codes_to_be_duplicated;
              TL::ObjectList<Nodecl::NodeclBase> _already_visited;
@@ -47,9 +48,11 @@ namespace TL {
 
           public:
 
-             FinalStatementsPreVisitor(bool ompss_mode, const Nodecl::Utils::SimpleSymbolMap& function_tranlation_map)
+             FinalStatementsPreVisitor(bool ompss_mode, const std::string &in_final_fun_name,
+                     const Nodecl::Utils::SimpleSymbolMap& function_tranlation_map)
                 :
                    _ompss_mode(ompss_mode),
+                   _in_final_fun_name(in_final_fun_name),
                    _num_task_related_pragmas(0),
                    _function_codes_to_be_duplicated(),
                    _already_visited(),
@@ -85,14 +88,6 @@ namespace TL {
                 walk(task_expr.get_sequential_code());
              }
 
-             void visit(const Nodecl::OpenMP::For& for_construct)
-             {
-                if (_ompss_mode)
-                   ++_num_task_related_pragmas;
-
-                walk(for_construct.get_loop());
-             }
-
              void visit(const Nodecl::OmpSs::Loop &loop)
              {
                 ++_num_task_related_pragmas;
@@ -115,7 +110,7 @@ namespace TL {
 
                 TL::Symbol called_sym = called.as<Nodecl::Symbol>().get_symbol();
 
-                if (called_sym.get_name() == "omp_in_final")
+                if (called_sym.get_name() == _in_final_fun_name)
                 {
                    ++_num_task_related_pragmas;
                    return;
@@ -159,6 +154,7 @@ namespace TL {
        {
           private:
              bool _ompss_mode;
+             const std::string &_in_final_fun_name;
              Nodecl::NodeclBase _enclosing_function_code;
              Nodecl::Utils::SimpleSymbolMap& _function_translation_map;
              const TL::ObjectList<Nodecl::NodeclBase>& _function_codes_to_be_duplicated;
@@ -167,11 +163,13 @@ namespace TL {
 
              FinalStatementsGenerator(
                    bool ompss_mode,
+                   const std::string in_final_fun_name,
                    Nodecl::NodeclBase enclosing_function_code,
                    Nodecl::Utils::SimpleSymbolMap& function_tranlation_map,
                    const TL::ObjectList<Nodecl::NodeclBase>& function_codes_to_be_duplicated)
                 :
                    _ompss_mode(ompss_mode),
+                   _in_final_fun_name(in_final_fun_name),
                    _enclosing_function_code(enclosing_function_code),
                    _function_translation_map(function_tranlation_map),
                    _function_codes_to_be_duplicated(function_codes_to_be_duplicated) { }
@@ -213,21 +211,6 @@ namespace TL {
                 walk(task_expr);
              }
 
-             void visit(const Nodecl::OpenMP::For& for_construct)
-             {
-                if (_ompss_mode)
-                {
-                   for_construct.replace(for_construct.get_loop());
-                   walk(for_construct);
-                }
-                else
-                {
-                   // Note that we are calling to the 'visit' function of the ExhaustiveVisitor
-                   // class since we want to do the generic traversal of this node
-                   Nodecl::ExhaustiveVisitor<void>::visit(for_construct);
-                }
-             }
-
              void visit(const Nodecl::ObjectInit& object_init)
              {
                 TL::Symbol sym = object_init.get_symbol();
@@ -244,7 +227,7 @@ namespace TL {
 
                 TL::Symbol called_sym = called.as<Nodecl::Symbol>().get_symbol();
 
-                if (called_sym.get_name() == "omp_in_final")
+                if (called_sym.get_name() == _in_final_fun_name)
                 {
                    nodecl_t true_expr;
                    if (IS_FORTRAN_LANGUAGE)
@@ -334,7 +317,7 @@ namespace TL {
 
        Nodecl::NodeclBase new_stmts = Nodecl::Utils::deep_copy(stmts, stmts.retrieve_context());
 
-       FinalStatementsPreVisitor pre_visitor(_ompss_mode, _function_translation_map);
+       FinalStatementsPreVisitor pre_visitor(_ompss_mode, _in_final_fun_name, _function_translation_map);
        pre_visitor.walk(new_stmts);
 
        TL::Symbol enclosing_funct_sym = Nodecl::Utils::get_enclosing_function(stmts);
@@ -342,6 +325,7 @@ namespace TL {
 
        FinalStatementsGenerator generator(
              _ompss_mode,
+             _in_final_fun_name,
              enclosing_funct_code,
              _function_translation_map,
              pre_visitor.get_function_codes_to_be_duplicated());
@@ -352,8 +336,9 @@ namespace TL {
     }
 
 
-    FinalStmtsGenerator::FinalStmtsGenerator(bool ompss_mode)
+    FinalStmtsGenerator::FinalStmtsGenerator(bool ompss_mode, const std::string &in_final_fun_name)
         : _ompss_mode(ompss_mode),
+          _in_final_fun_name(in_final_fun_name),
           _final_stmts_map(),
           _function_translation_map() { }
 
@@ -404,28 +389,8 @@ namespace TL {
         _final_stmts_map.insert(std::make_pair(task_expr, final_stmts));
     }
 
-    void FinalStmtsGenerator::visit(const Nodecl::OpenMP::For& for_construct)
-    {
-       if (_ompss_mode)
-       {
-          walk(for_construct.get_loop());
-
-          //std::cerr << "for construct: " << for_construct.get_locus_str() << std::endl;
-          Nodecl::NodeclBase final_stmts = generate_final_stmts(for_construct.get_loop());
-          _final_stmts_map.insert(std::make_pair(for_construct, final_stmts));
-       }
-       else
-       {
-          // Do not generate a sequential version of loop constructs in OpenMP
-          //
-          // Note that we are calling to the 'visit' function of the ExhaustiveVisitor
-          // class since we want to do the generic traversal of this node
-          Nodecl::ExhaustiveVisitor<void>::visit(for_construct);
-       }
-    }
-
     std::map<Nodecl::NodeclBase, Nodecl::NodeclBase>& FinalStmtsGenerator::get_final_stmts()
     {
         return _final_stmts_map;
     }
-}
+}}}

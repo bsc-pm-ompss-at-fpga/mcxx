@@ -102,6 +102,11 @@ namespace TL { namespace OpenMP {
                 _copy_deps_str,
                 "1").connect(std::bind(&Core::set_copy_deps_from_str, &this->_core, std::placeholders::_1));
 
+        register_parameter("localmem_copies_by_default",
+                "Enables localmem_copies by default",
+                _localmem_copies_str,
+                "1").connect(std::bind(&Core::set_localmem_copies_from_str, &this->_core, std::placeholders::_1));
+
         register_parameter("untied_tasks_by_default",
                 "If set to '1' tasks are untied by default, otherwise they are tied. This flag is only valid in OmpSs",
                 _untied_tasks_by_default_str,
@@ -340,6 +345,7 @@ namespace TL { namespace OpenMP {
     OSS_TO_OMP_DECLARATION_HANDLER(task)
 
     OSS_TO_OMP_DIRECTIVE_HANDLER(taskwait)
+    OSS_TO_OMP_DIRECTIVE_HANDLER(declare_reduction)
 
     OSS_INVALID_DECLARATION_HANDLER(loop)
 
@@ -471,29 +477,52 @@ namespace TL { namespace OpenMP {
     {
         TL::PragmaCustomLine pragma_line = directive.get_pragma_line();
 
-        if (emit_omp_report())
-        {
-            *_omp_report_file
-                << "\n"
-                << directive.get_locus_str() << ": " << "BARRIER construct\n"
-                << directive.get_locus_str() << ": " << "-----------------\n"
-                << OpenMP::Report::indent << "(There is no more information for BARRIER)\n"
-                ;
+        if (_core.in_ompss_mode())
+        {   // OmpSs mode
+            warn_printf_at(directive.get_locus(), "The barrier construct is not supported in OmpSs, "
+                    "replacing it by a taskwait construct (best effort).\n");
+
+            directive.replace(
+                    Nodecl::OpenMP::Taskwait::make(
+                        /* environment */ nodecl_null(),
+                        directive.get_locus()));
+
+            if (emit_omp_report())
+            {
+                *_omp_report_file
+                    << "\n"
+                    << directive.get_locus_str() << ": " << "TASKWAIT construct\n"
+                    << directive.get_locus_str() << ": " << "-----------------\n"
+                    << OpenMP::Report::indent << "(It was generated because a barrier construct was found)\n"
+                    ;
+            }
         }
+        else
+        {   // OpenMP mode
+            if (emit_omp_report())
+            {
+                *_omp_report_file
+                    << "\n"
+                    << directive.get_locus_str() << ": " << "BARRIER construct\n"
+                    << directive.get_locus_str() << ": " << "-----------------\n"
+                    << OpenMP::Report::indent << "(There is no more information for BARRIER)\n"
+                    ;
+            }
 
-        Nodecl::List execution_environment = Nodecl::List::make(
-                Nodecl::OpenMP::FlushAtEntry::make(
-                    directive.get_locus()),
-                Nodecl::OpenMP::FlushAtExit::make(
-                    directive.get_locus())
-                );
+            Nodecl::List execution_environment = Nodecl::List::make(
+                    Nodecl::OpenMP::FlushAtEntry::make(
+                        directive.get_locus()),
+                    Nodecl::OpenMP::FlushAtExit::make(
+                        directive.get_locus())
+                    );
 
-        pragma_line.diagnostic_unused_clauses();
-        directive.replace(
-                Nodecl::OpenMP::BarrierFull::make(
-                    execution_environment,
-                    directive.get_locus())
-                );
+            pragma_line.diagnostic_unused_clauses();
+            directive.replace(
+                    Nodecl::OpenMP::BarrierFull::make(
+                        execution_environment,
+                        directive.get_locus())
+                    );
+        }
     }
 
     void Base::flush_handler_pre(TL::PragmaCustomDirective) { }
@@ -1193,12 +1222,6 @@ namespace TL { namespace OpenMP {
 
         handle_label_clause(directive, execution_environment);
 
-        if (_core.in_ompss_mode())
-        {
-            handle_task_final_clause(
-                    directive, /* parsing_context */ directive, execution_environment);
-        }
-
         if (pragma_line.get_clause("schedule").is_defined())
         {
             PragmaCustomClause clause = pragma_line.get_clause("schedule");
@@ -1395,6 +1418,8 @@ namespace TL { namespace OpenMP {
         statement = statement.as<Nodecl::List>().front();
         ERROR_CONDITION(!statement.is<Nodecl::Context>(), "Invalid tree", 0);
 
+        Nodecl::Context context = statement.as<Nodecl::Context>();
+
         if (emit_omp_report())
         {
             *_omp_report_file
@@ -1471,18 +1496,18 @@ namespace TL { namespace OpenMP {
 
         handle_label_clause(directive, execution_environment);
 
-        handle_task_if_clause(directive, /* parsing_context */ statement, execution_environment);
-        handle_task_final_clause(directive, /* parsing_context */ statement, execution_environment);
-        handle_task_priority_clause(directive, /* parsing_context */ statement, execution_environment);
+        handle_task_if_clause(directive, /* parsing_context */ context, execution_environment);
+        handle_task_final_clause(directive, /* parsing_context */ context, execution_environment);
+        handle_task_priority_clause(directive, /* parsing_context */ context, execution_environment);
 
         pragma_line.diagnostic_unused_clauses();
 
         if (_taskloop_as_loop_of_tasks)
         {
-            taskloop_block_loop(directive, statement, execution_environment, grainsize_expr, num_tasks_expr);
+            taskloop_block_loop(directive, context, execution_environment, grainsize_expr, num_tasks_expr);
 
             Nodecl::List stmts;
-            stmts.append(statement);
+            stmts.append(context);
 
             // We transform the taskgroup into a taskwait, despite the fact they are not exaclty the same...
             if (!nogroup.is_defined())
@@ -1493,11 +1518,10 @@ namespace TL { namespace OpenMP {
         }
         else
         {
-            TL::ForStatement for_statement(
-                    statement.as<Nodecl::Context>()
-                    .get_in_context()
-                    .as<Nodecl::List>().front()
-                    .as<Nodecl::ForStatement>());
+            Nodecl::NodeclBase original_for_stmt = context.get_in_context().as<Nodecl::List>().front();
+            ERROR_CONDITION(!original_for_stmt.is<Nodecl::ForStatement>(), "Unexpected node\n", 0);
+
+            TL::ForStatement for_statement(original_for_stmt.as<Nodecl::ForStatement>());
 
             TL::HLT::LoopNormalize loop_normalize;
             loop_normalize.set_loop(for_statement);
@@ -1507,12 +1531,7 @@ namespace TL { namespace OpenMP {
             Nodecl::NodeclBase normalized_loop = loop_normalize.get_whole_transformation();
             ERROR_CONDITION(!normalized_loop.is<Nodecl::ForStatement>(), "Unexpected node\n", 0);
 
-            TL::ForStatement new_for_statement(normalized_loop.as<Nodecl::ForStatement>());
-            TL::Symbol induction_variable = new_for_statement.get_induction_variable();
-
-            execution_environment.append(
-                    Nodecl::OpenMP::Private::make(
-                        Nodecl::List::make(induction_variable.make_nodecl(/* set_ref_type */ true))));
+            original_for_stmt.replace(normalized_loop);
 
             if (!grainsize_expr.is_null())
                 execution_environment.append(Nodecl::OpenMP::Grainsize::make(grainsize_expr));
@@ -1522,9 +1541,7 @@ namespace TL { namespace OpenMP {
 
             Nodecl::NodeclBase stmt = Nodecl::OpenMP::Taskloop::make(
                     execution_environment,
-                    Nodecl::Context::make(
-                        Nodecl::List::make(normalized_loop),
-                        statement.as<Nodecl::Context>().retrieve_context()));
+                    context);
 
             if (!nogroup.is_defined())
             {
@@ -1542,6 +1559,8 @@ namespace TL { namespace OpenMP {
         ERROR_CONDITION(!statement.is<Nodecl::List>(), "Invalid tree", 0);
         statement = statement.as<Nodecl::List>().front();
         ERROR_CONDITION(!statement.is<Nodecl::Context>(), "Invalid tree", 0);
+
+        Nodecl::Context context = statement.as<Nodecl::Context>();
 
         if (emit_omp_report())
         {
@@ -1591,17 +1610,18 @@ namespace TL { namespace OpenMP {
 
         handle_label_clause(directive, execution_environment);
 
-        handle_task_if_clause(directive, /* parsing_context */ statement, execution_environment);
-        handle_task_final_clause(directive, /* parsing_context */ statement, execution_environment);
-        handle_task_priority_clause(directive, /* parsing_context */ statement, execution_environment);
+        handle_task_if_clause(directive, /* parsing_context */ context, execution_environment);
+        handle_task_final_clause(directive, /* parsing_context */ context, execution_environment);
+        handle_task_priority_clause(directive, /* parsing_context */ context, execution_environment);
 
         pragma_line.diagnostic_unused_clauses();
 
-        TL::ForStatement for_statement(
-                statement.as<Nodecl::Context>()
-                .get_in_context()
-                .as<Nodecl::List>().front()
-                .as<Nodecl::ForStatement>());
+        Nodecl::NodeclBase original_for_stmt =
+            context.get_in_context().as<Nodecl::List>().front();
+
+        ERROR_CONDITION(!original_for_stmt.is<Nodecl::ForStatement>(), "Unexpected node\n", 0);
+
+        TL::ForStatement for_statement(original_for_stmt.as<Nodecl::ForStatement>());
 
         TL::HLT::LoopNormalize loop_normalize;
         loop_normalize.set_loop(for_statement);
@@ -1611,19 +1631,13 @@ namespace TL { namespace OpenMP {
         Nodecl::NodeclBase normalized_loop = loop_normalize.get_whole_transformation();
         ERROR_CONDITION(!normalized_loop.is<Nodecl::ForStatement>(), "Unexpected node\n", 0);
 
-        TL::ForStatement new_for_statement(normalized_loop.as<Nodecl::ForStatement>());
-        TL::Symbol induction_variable = new_for_statement.get_induction_variable();
-        execution_environment.append(
-                Nodecl::OpenMP::Private::make(
-                    Nodecl::List::make(induction_variable.make_nodecl(/* set_ref_type */ true))));
+        original_for_stmt.replace(normalized_loop);
 
         execution_environment.append(Nodecl::OmpSs::Chunksize::make(chunksize));
 
         Nodecl::NodeclBase stmt = Nodecl::OmpSs::Loop::make(
                 execution_environment,
-                Nodecl::Context::make(
-                    Nodecl::List::make(normalized_loop),
-                    statement.as<Nodecl::Context>().retrieve_context()));
+                context);
 
         directive.replace(Nodecl::List::make(stmt));
     }
@@ -3201,19 +3215,13 @@ namespace TL { namespace OpenMP {
         }
 
         ObjectList<TL::OmpSs::CopyItem> copy_in = target_info.get_copy_in();
-//        ObjectList<TL::OmpSs::CopyItem> copy_in_addr = target_info.get_copy_in_addr();
         ObjectList<TL::OmpSs::CopyItem> copy_out = target_info.get_copy_out();
-//        ObjectList<TL::OmpSs::CopyItem> copy_out_addr = target_info.get_copy_out_addr();
         ObjectList<TL::OmpSs::CopyItem> copy_inout = target_info.get_copy_inout();
-//        ObjectList<TL::OmpSs::CopyItem> copy_inout_addr = target_info.get_copy_inout_addr();
         if (emit_omp_report())
         {
             if (!copy_in.empty()
                     || !copy_out.empty()
                     || !copy_inout.empty())
-//                    || !copy_in_addr.empty()
-//                    || !copy_out_addr.empty()
-//                    || !copy_inout_addr.empty())
             {
                 *_omp_report_file
                     << OpenMP::Report::indent
@@ -3238,25 +3246,23 @@ namespace TL { namespace OpenMP {
                 TL::OmpSs::COPY_DIR_INOUT,
                 locus,
                 target_items);
-/*
-        make_copy_list<Nodecl::OmpSs::CopyInAddr>(
-                copy_in_addr,
-                TL::OmpSs::COPY_DIR_IN_ADDR,
-                locus,
-                target_items);
 
-        make_copy_list<Nodecl::OmpSs::CopyOutAddr>(
-                copy_out_addr,
-                TL::OmpSs::COPY_DIR_OUT_ADDR,
+        ObjectList<TL::OmpSs::CopyItem> localmem = target_info.get_localmem();
+        if (emit_omp_report())
+        {
+            if (!localmem.empty())
+            {
+                *_omp_report_file
+                    << OpenMP::Report::indent
+                    << "Localmem\n"
+                    ;
+            }
+        }
+        make_item_list<Nodecl::OmpSs::Localmem>(
+                localmem,
+                TL::OmpSs::COPY_DIR_UNDEFINED,
                 locus,
                 target_items);
-
-        make_copy_list<Nodecl::OmpSs::CopyInoutAddr>(
-                copy_inout_addr,
-                TL::OmpSs::COPY_DIR_INOUT_ADDR,
-                locus,
-                target_items);
-*/
 
         ObjectList<Nodecl::NodeclBase> ndrange_exprs = target_info.get_shallow_copy_of_ndrange();
 

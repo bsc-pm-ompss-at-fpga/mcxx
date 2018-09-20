@@ -1,23 +1,23 @@
 /*--------------------------------------------------------------------
   (C) Copyright 2006-2014 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
-  
+
   This file is part of Mercurium C/C++ source-to-source compiler.
-  
+
   See AUTHORS file in the top level directory for information
   regarding developers and contributors.
-  
+
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
   version 3 of the License, or (at your option) any later version.
-  
+
   Mercurium C/C++ source-to-source compiler is distributed in the hope
   that it will be useful, but WITHOUT ANY WARRANTY; without even the
   implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
   PURPOSE.  See the GNU Lesser General Public License for more
   details.
-  
+
   You should have received a copy of the GNU Lesser General Public
   License along with Mercurium C/C++ source-to-source compiler; if
   not, write to the Free Software Foundation, Inc., 675 Mass Ave,
@@ -45,7 +45,7 @@ namespace TL
 {
     namespace OpenMP
     {
-    	struct UDRParsedInfo 
+    	struct UDRParsedInfo
 		{
 			Type type;
             Nodecl::NodeclBase combine_expression;
@@ -149,6 +149,12 @@ namespace TL
                         const TL::ObjectList<TL::Symbol> &symbols_in_construct,
                         DataEnvironment& data_environment,
                         ObjectList<ReductionSymbol>& sym_list,
+                        ObjectList<Symbol>& extra_symbols);
+
+                void get_reduction_explicit_attributes(
+                        TL::PragmaCustomLine construct,
+                        Nodecl::NodeclBase statements,
+                        DataEnvironment& data_environment,
                         ObjectList<Symbol>& extra_symbols);
 
                 void get_data_explicit_attributes(
@@ -309,6 +315,7 @@ namespace TL
 
                 bool _ompss_mode;
                 bool _copy_deps_by_default;
+                bool _localmem_copies_by_default;
                 bool _untied_tasks_by_default;
                 bool _discard_unused_data_sharings;
                 bool _allow_shared_without_copies;
@@ -343,6 +350,7 @@ namespace TL
                 /* These methods are used from Base::Base() to parse the TL::Core phase flags */
                 void set_ompss_mode_from_str(const std::string& str);
                 void set_copy_deps_from_str(const std::string& str);
+                void set_localmem_copies_from_str(const std::string& str);
                 void set_untied_tasks_by_default_from_str(const std::string& str);
                 void set_discard_unused_data_sharings_from_str(const std::string& str);
                 void set_allow_shared_without_copies_from_str(const std::string& str);
