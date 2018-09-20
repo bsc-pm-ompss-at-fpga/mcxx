@@ -144,7 +144,6 @@ namespace TL { namespace Nanox {
                 << "static nanos_event_key_t nanos_instr_loop_lower_key = 0;"
                 << "static nanos_event_key_t nanos_instr_loop_upper_key = 0;"
                 << "static nanos_event_key_t nanos_instr_loop_step_key = 0;"
-                << "static nanos_event_key_t nanos_instr_chunk_size_key = 0;"
 
                 << "nanos_err_t nanos_err;"
                 << "if (nanos_loop_init == 0)"
@@ -256,12 +255,6 @@ namespace TL { namespace Nanox {
         Nodecl::NodeclBase task_label = construct.get_environment().as<Nodecl::List>()
             .find_first<Nodecl::OmpSs::TaskLabel>();
 
-        Nodecl::NodeclBase final_clause = construct.get_environment().as<Nodecl::List>()
-            .find_first<Nodecl::OpenMP::Final>();
-
-        if (!final_clause.is_null())
-           final_clause = final_clause.as<Nodecl::OpenMP::Final>().get_condition();
-
         OutlineDataItem &wsd_data_item = outline_info.prepend_field(slicer_descriptor);
         if (IS_FORTRAN_LANGUAGE)
         {
@@ -286,7 +279,8 @@ namespace TL { namespace Nanox {
                 /* current task statements */ statements,
                 task_label,
                 structure_symbol,
-                /* called_task */ TL::Symbol::invalid());
+                /* called_task */ TL::Symbol::invalid(),
+                construct.get_locus());
 
         // List of device names
         const TL::ObjectList<std::string>& device_names = target_info.get_device_names();
@@ -403,8 +397,7 @@ namespace TL { namespace Nanox {
                 outline_name,
                 structure_symbol,
                 slicer_descriptor,
-                task_label,
-                final_clause);
+                task_label);
     }
 
     void LoweringVisitor::lower_for_slicer(const Nodecl::OpenMP::For& construct,

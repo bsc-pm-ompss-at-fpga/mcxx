@@ -1616,10 +1616,12 @@ static int compare_dependent_parts(const void *v1, const void *v2)
                     }
                 case NODECL_CXX_DEP_NAME_CONVERSION:
                     {
-                        type_t* conversion1 = (!nodecl_is_null(nodecl_get_child(list1[i], 0))) ? nodecl_get_type(nodecl_get_child(list1[i], 0)) : NULL;
-                        type_t* conversion2 = (!nodecl_is_null(nodecl_get_child(list2[i], 0))) ? nodecl_get_type(nodecl_get_child(list2[i], 0)) : NULL;
-                        
-                        if (!equivalent_types(conversion1, conversion2))
+                        type_t* conversion1 = (!nodecl_is_null(nodecl_get_child(list1[i], 1))) ? nodecl_get_type(nodecl_get_child(list1[i], 1)) : NULL;
+                        type_t* conversion2 = (!nodecl_is_null(nodecl_get_child(list2[i], 1))) ? nodecl_get_type(nodecl_get_child(list2[i], 1)) : NULL;
+
+                        if (conversion1 == NULL
+                                || conversion2 == NULL
+                                || !equivalent_types(conversion1, conversion2))
                         {
                             if (conversion1 < conversion2)
                             {
@@ -10093,6 +10095,7 @@ extern inline const char* print_intel_sse_avx_vector_type(
                 {
                     return "__m128i";
                 }
+                break;
             }
       case 32:
             {
@@ -10108,6 +10111,7 @@ extern inline const char* print_intel_sse_avx_vector_type(
                 {
                     return "__m256i";
                 }
+                break;
             }
       case 64:
             {
@@ -10123,6 +10127,7 @@ extern inline const char* print_intel_sse_avx_vector_type(
                 {
                     return "__m512i";
                 }
+                break;
             }
       case 128:
             {
@@ -10138,6 +10143,7 @@ extern inline const char* print_intel_sse_avx_vector_type(
                 {
                     return "__m1024i";
                 }
+                break;
             }
 
     }
@@ -10929,7 +10935,8 @@ static const char* get_simple_type_name_string_internal(const decl_context_t* de
     }
     else if (is_auto_type(type_info))
     {
-        result = UNIQUESTR_LITERAL("auto");
+        result = get_cv_qualifier_string(type_info);
+        result = strappend(result, UNIQUESTR_LITERAL("auto"));
     }
     else if (is_decltype_auto_type(type_info))
     {
@@ -14443,7 +14450,7 @@ static char covariant_return(type_t* overrided_type, type_t* virtual_type)
             virtual_type = reference_type_get_referenced_type(virtual_type);
         }
 
-        if (class_type_is_base(virtual_type, overrided_type))
+        if (class_type_is_base_instantiating(virtual_type, overrided_type, make_locus("", 0, 0)))
             return 1;
     }
     return 0;
@@ -17060,7 +17067,7 @@ extern inline char type_is_reference_related_to(type_t* t1, type_t* t2)
     return (equivalent_types(get_unqualified_type(t1), get_unqualified_type(t2))
             || (is_class_type(t1)
                 && is_class_type(t2)
-                && class_type_is_base(t1, t2)));
+                && class_type_is_base_instantiating(t1, t2, make_locus("", 0, 0))));
 }
 
 extern inline char type_is_reference_compatible_to(type_t* t1, type_t* t2)

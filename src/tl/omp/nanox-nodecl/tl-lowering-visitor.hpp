@@ -406,14 +406,17 @@ class LoweringVisitor : public Nodecl::ExhaustiveVisitor<void>
                 const std::string& outline_name,
                 TL::Symbol structure_symbol,
                 TL::Symbol slicer_descriptor,
-                Nodecl::NodeclBase task_label,
-                Nodecl::NodeclBase final_clause);
+                Nodecl::NodeclBase task_label);
 
         static bool there_are_reductions(OutlineInfo& outline_info);
 
-        Source full_barrier_source();
+        //! It calls to full_barrier_source if the current programming model is
+        //! OpenMP. Otherwise, it calls to full_taskwait_source.
+        Source get_implicit_sync_end_construct_source() const;
 
-        Source full_taskwait_source(bool is_noflush);
+        Source full_barrier_source() const;
+
+        Source full_taskwait_source(bool is_noflush) const;
 
         void reduction_initialization_code(
                 OutlineInfo& outline_info,

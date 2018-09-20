@@ -83,7 +83,7 @@ void temporal_files_cleanup(void)
                 if (CURRENT_CONFIGURATION->verbose)
                 {
                     fprintf(stderr, "Removing %s filename '%s'\n", 
-                            iter->info->is_temporary ? "temporal" : "intermediate",
+                            iter->info->is_temporary ? "temporary" : "intermediate",
                             iter->info->name);
                 }
                 if (remove(iter->info->name) != 0
@@ -97,7 +97,7 @@ void temporal_files_cleanup(void)
                 if (CURRENT_CONFIGURATION->verbose)
                 {
                     fprintf(stderr, "Removing %s directory '%s'\n", 
-                            iter->info->is_temporary ? "temporal" : "intermediate",
+                            iter->info->is_temporary ? "temporary" : "intermediate",
                             iter->info->name);
                 }
                 // FIXME - We really should improve this...
@@ -319,7 +319,7 @@ temporal_file_t new_temporal_file_extension(const char* extension)
 
     if (link(result->name, c) != 0)
     {
-        fatal_error("Cannot create temporal file '%s': %s\n", c, strerror(errno));
+        fatal_error("Cannot create temporary file '%s': %s\n", c, strerror(errno));
     }
 
     if (unlink(result->name) != 0)
@@ -852,7 +852,7 @@ char move_file(const char* source, const char* dest)
     {
         if (CURRENT_CONFIGURATION->verbose)
         {
-            fprintf(stderr, "Moving file through rename '%s' -> '%s'\n", source, dest);
+            fprintf(stderr, "mv %s %s \t # Moving through rename\n", source, dest);
         }
         return rename(source, dest);
     }
@@ -860,12 +860,16 @@ char move_file(const char* source, const char* dest)
     {
         if (CURRENT_CONFIGURATION->verbose)
         {
-            fprintf(stderr, "Moving file through copy '%s' -> '%s'\n", source, dest);
+            fprintf(stderr, "cp %s %s \t # Moving through copy\n", source, dest);
         }
 
         if (copy_file(source, dest) != 0)
             return -1;
 
+        if (CURRENT_CONFIGURATION->verbose)
+        {
+            fprintf(stderr, "rm %s \t # Removing because Moving through copy\n", source);
+        }
         return remove(source);
     }
     // Everything ok

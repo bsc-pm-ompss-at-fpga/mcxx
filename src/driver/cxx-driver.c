@@ -126,7 +126,7 @@
 "  -x lang                  Override language detection to <lang>\n" \
 "  -k, --keep-files         Do not remove intermediate files\n" \
 "  -K, --keep-all-files     Do not remove any generated file, including\n" \
-"                           temporal files\n" \
+"                           temporary files\n" \
 "  -J <dir>                 Sets <dir> as the output module directory\n" \
 "                           This flag is only meaningful for Fortran\n" \
 "                           See flag --module-out-pattern flag\n" \
@@ -138,13 +138,19 @@
 "                           with --help-debug-flags\n" \
 "  --cpp=<name>             Preprocessor <name> will be used for\n" \
 "                           preprocessing\n" \
-"  --cxx=<name>             Compiler <name> will be used for native\n" \
+"  --cxx=<name>             C++ Compiler <name> will be used for native\n" \
 "                           compilation\n" \
-"  --cc=<name>              Another name for --cxx=<name>\n" \
+"  --cc=<name>              C Compiler <name> will be used for native\n" \
+"                           compilation\n" \
+"  --fc=<name>              Fortran Compiler <name> will be used for native\n" \
+"                           compilation\n" \
 "  --ld=<name>              Linker <name> will be used for linking\n" \
 "  --fpc=<name>             Fortran prescanner <name> will be used\n" \
 "                           for fixed form prescanning\n" \
 "                           This flag is only meaningful for Fortran\n" \
+" --native-vendor=VENDOR    allows to specify the vendor of the native compiler\n" \
+"                           Where VENDOR is:\n" \
+"                              " NATIVE_VENDORS_LIST "\n" \
 "  --W<flags>,<options>     Pass comma-separated <options> on to\n" \
 "                           the several programs invoked by the driver\n" \
 "                           Flags is a sequence of\n"\
@@ -188,6 +194,7 @@
 "                           only if the compiler has problems when\n" \
 "                           computing size of types. Please report\n" \
 "                           a bug, you should not need this option.\n" \
+"  --iso-c-FloatN           Enables support of ISO C _FloatN types.\n" \
 "  --upc[=THREADS]          Enables UPC 1.2 syntactic support.\n" \
 "                           Optionally you can define a static \n" \
 "                           number of THREADS.\n" \
@@ -301,16 +308,18 @@
 "                           support locking at file level. This \n" \
 "                           option is incompatible with parallel\n" \
 "                           compilation\n" \
-"  --xl-compat              Enables compatibility features with\n" \
-"                           IBM XL C/C++/Fortran. This flag may be\n" \
-"                           required when using such compiler.\n" \
-"  --ifort-compat           Enables some compatibility features\n" \
-"                           required by Intel Fortran\n" \
 "  --line-markers           Adds line markers to the generated file\n" \
 "  --parallel               EXPERIMENTAL: behave in a way that \n" \
 "                           allows parallel compilation of the same\n" \
 "                           source codes without reusing intermediate\n" \
 "                           filenames\n" \
+"  --std=OPTION             Defines the standard language version of Mercurium.\n"   \
+"                           Note that this flag only affects to Mercurium\n" \
+"                           itself. Thus, if you want to affect also the\n" \
+"                           native tools you should use the '-std=OPTION'\n"\
+"                           flag, if this flag is supported by those tools, or\n" \
+"                           explicitly pass the right flag though\n" \
+"                           '--W<flags>,<options>'\n" \
 "  --Xcompiler OPTION       Equivalent to --Wn,OPTION\n" \
 "\n" \
 "Compatibility parameters:\n" \
@@ -347,7 +356,9 @@
 "  -S\n" \
 "  -static\n" \
 "  -static-libgcc\n" \
-"  -std=<option>\n" \
+"  -std=<option>            This compatibility flag affects to Mercurium\n" \
+"                           itself (i.e. it implies '--std=OPTION') and it is\n" \
+"                           also propagated to the native tools\n" \
 "  -v\n" \
 "  -V\n" \
 "  -w\n" \
@@ -373,6 +384,7 @@ typedef enum
     OPTION_UNDEFINED = 1024,
     // Keep the following options sorted (but leave OPTION_UNDEFINED as is)
     OPTION_ALWAYS_PREPROCESS,
+    OPTION_NATIVE_VENDOR,
     OPTION_CONFIG_DIR,
     OPTION_CUDA,
     OPTION_DEBUG_FLAG,
@@ -406,8 +418,8 @@ typedef enum
     OPTION_FORTRAN_REAL_KIND,
     OPTION_HELP_DEBUG_FLAGS,
     OPTION_HELP_TARGET_OPTIONS,
-    OPTION_IFORT_COMPATIBILITY,
     OPTION_INSTANTIATE_TEMPLATES,
+    OPTION_ISO_C_FLOATN,
     OPTION_LINE_MARKERS,
     OPTION_LINKER_NAME,
     OPTION_LIST_ENVIRONMENTS,
@@ -436,7 +448,6 @@ typedef enum
     OPTION_VERBOSE,
     OPTION_VERSION,
     OPTION_XCOMPILER,
-    OPTION_XL_COMPATIBILITY,
 } COMMAND_LINE_OPTIONS;
 
 
@@ -463,6 +474,7 @@ struct command_line_long_options command_line_long_options[] =
     {"output-dir",  CLP_REQUIRED_ARGUMENT, OPTION_OUTPUT_DIRECTORY},
     {"cc", CLP_REQUIRED_ARGUMENT, OPTION_NATIVE_COMPILER_NAME},
     {"cxx", CLP_REQUIRED_ARGUMENT, OPTION_NATIVE_COMPILER_NAME},
+    {"fc", CLP_REQUIRED_ARGUMENT, OPTION_NATIVE_COMPILER_NAME},
     {"cpp", CLP_REQUIRED_ARGUMENT, OPTION_PREPROCESSOR_NAME},
     {"ld", CLP_REQUIRED_ARGUMENT, OPTION_LINKER_NAME},
     {"debug-flags",  CLP_REQUIRED_ARGUMENT, OPTION_DEBUG_FLAG},
@@ -520,11 +532,11 @@ struct command_line_long_options command_line_long_options[] =
     {"enable-intel-intrinsics", CLP_NO_ARGUMENT, OPTION_ENABLE_INTEL_INTRINSICS },
     {"enable-intel-vector-types", CLP_NO_ARGUMENT, OPTION_ENABLE_INTEL_VECTOR_TYPES },
     {"disable-locking", CLP_NO_ARGUMENT, OPTION_DISABLE_FILE_LOCKING },
-    {"xl-compat", CLP_NO_ARGUMENT, OPTION_XL_COMPATIBILITY },
-    {"ifort-compat", CLP_NO_ARGUMENT, OPTION_IFORT_COMPATIBILITY },
     {"line-markers", CLP_NO_ARGUMENT, OPTION_LINE_MARKERS },
     {"parallel", CLP_NO_ARGUMENT, OPTION_PARALLEL },
     {"Xcompiler", CLP_REQUIRED_ARGUMENT, OPTION_XCOMPILER },
+    {"iso-c-FloatN", CLP_NO_ARGUMENT, OPTION_ISO_C_FLOATN },
+    {"native-vendor", CLP_REQUIRED_ARGUMENT, OPTION_NATIVE_VENDOR },
     // sentinel
     {NULL, 0, 0}
 };
@@ -642,6 +654,7 @@ int main(int argc, char* argv[])
     // command line that we have just fetched.  Committing a profile means
     // filling its values.
     commit_configuration();
+
 
     // Parse arguments again, but this time ignore implicit ones and
     // update the chosen profile
@@ -814,7 +827,10 @@ static void ensure_codegen_is_loaded(void)
 static void help_message(void)
 {
     fprintf(stdout, "Usage: %s options file [file..]\n", compilation_process.argv[0]);
+
+#define NATIVE_VENDOR(NAME, FLAG) #FLAG ", "
     fprintf(stdout, "%s", HELP_STRING);
+#undef NATIVE_VENDOR
 
     // We need to load the phases to show their help
     load_compiler_phases(CURRENT_CONFIGURATION);
@@ -868,6 +884,16 @@ static void handle_special_long_options(const char *flag_name, char from_command
     {
         internal_error("'%s' implicit flag was not properly registered", flag_name);
     }
+}
+
+static native_vendor_t compute_native_vendor(const char *vendor_name)
+{
+#define NATIVE_VENDOR(NAME, FLAG) \
+    if (strcmp(vendor_name, #FLAG) == 0) return NATIVE_VENDOR_##NAME;
+NATIVE_VENDORS_LIST
+#undef NATIVE_VENDOR
+    internal_error("'%s' unrecognized native vendor\n", vendor_name);
+    return NATIVE_VENDOR_UNKNOWN;
 }
 
 
@@ -990,7 +1016,7 @@ int parse_arguments(int argc, const char* argv[],
                     // Some files (e.g., OpenCL kernels) should be ignored because they don't
                     // affect to the current compilation. Example:
                     //
-                    //      oclmfc --ompss -o t1.o t1.c ./OCL/kernel.cl
+                    //      mfc --ompss -o t1.o t1.c ./OCL/kernel.cl
                     //
                     // In this example, the 'kernel.cl' file is not processed, compiled,
                     // embedded nor linked, it's only used to obtain the path to the kernel.
@@ -1278,6 +1304,11 @@ int parse_arguments(int argc, const char* argv[],
                     {
                         show_help_message = 1;
                         return 1;
+                    }
+                case OPTION_NATIVE_VENDOR :
+                    {
+                        CURRENT_CONFIGURATION->native_vendor = compute_native_vendor(parameter_info.argument);
+                        break;
                     }
                 case OPTION_PREPROCESSOR_NAME :
                     {
@@ -1642,16 +1673,6 @@ int parse_arguments(int argc, const char* argv[],
                         CURRENT_CONFIGURATION->disable_locking = 1;
                         break;
                     }
-                case OPTION_XL_COMPATIBILITY:
-                    {
-                        CURRENT_CONFIGURATION->xl_compatibility = 1;
-                        break;
-                    }
-                case OPTION_IFORT_COMPATIBILITY:
-                    {
-                        CURRENT_CONFIGURATION->ifort_compatibility = 1;
-                        break;
-                    }
                 case OPTION_LINE_MARKERS:
                     {
                         CURRENT_CONFIGURATION->line_markers = 1;
@@ -1669,6 +1690,11 @@ int parse_arguments(int argc, const char* argv[],
                                 &CURRENT_CONFIGURATION->native_compiler_options,
                                 parameter,
                                 1);
+                        break;
+                    }
+                case OPTION_ISO_C_FLOATN:
+                    {
+                        CURRENT_CONFIGURATION->supports_ISO_C_FloatN = 1;
                         break;
                     }
                 default:
@@ -1833,21 +1859,45 @@ int parse_arguments(int argc, const char* argv[],
     return 0;
 }
 
-static void add_parameter_all_toolchain(const char *argument, char dry_run)
+void add_to_linker_command_configuration(
+        const char *str, translation_unit_t* tr_unit, compilation_configuration_t* configuration)
+{
+    parameter_linker_command_t * ptr_param =
+        (parameter_linker_command_t *) NEW0(parameter_linker_command_t);
+
+     ptr_param->argument = str;
+
+    ptr_param->translation_unit = tr_unit;
+    P_LIST_ADD(configuration->linker_command, configuration->num_args_linker_command, ptr_param);
+}
+
+void add_to_linker_command(const char *str, translation_unit_t* tr_unit)
+{
+    add_to_linker_command_configuration(str, tr_unit, CURRENT_CONFIGURATION);
+}
+
+
+static void add_parameter_all_toolchain_configuration(
+        const char *argument, char dry_run, compilation_configuration_t* configuration)
 {
     if (!dry_run)
     {
-        if (CURRENT_CONFIGURATION->source_language == SOURCE_LANGUAGE_FORTRAN)
+        if (configuration->source_language == SOURCE_LANGUAGE_FORTRAN)
         {
-            add_to_parameter_list_str(&CURRENT_CONFIGURATION->fortran_preprocessor_options, argument);
+            add_to_parameter_list_str(&configuration->fortran_preprocessor_options, argument);
         }
         else
         {
-            add_to_parameter_list_str(&CURRENT_CONFIGURATION->preprocessor_options, argument);
+            add_to_parameter_list_str(&configuration->preprocessor_options, argument);
         }
-        add_to_parameter_list_str(&CURRENT_CONFIGURATION->native_compiler_options, argument);
-        add_to_linker_command(uniquestr(argument), NULL);
+        add_to_parameter_list_str(&configuration->native_compiler_options, argument);
+        add_to_linker_command_configuration(argument, NULL, configuration);
     }
+}
+
+static void add_parameter_all_toolchain(const char *argument, char dry_run)
+{
+    add_parameter_all_toolchain_configuration(argument, dry_run, CURRENT_CONFIGURATION);
 }
 
 static int parse_implicit_parameter_flag(int * should_advance, const char *parameter_flag)
@@ -1935,15 +1985,58 @@ static char strprefix(const char* str, const char *prefix)
 // This variable stores the '-std' flag if it was specified in the command line
 static const char* std_version_flag = NULL;
 
-// Default language versions of Mercurium
-static const char* default_mercurium_std_version[] =
-{
-    [SOURCE_LANGUAGE_C]       = "-std=gnu99",
-    // We used to define the default c++ version of Mercurium to c++03, but
-    // Intel C++ Compiler didn't recognize that version...
-    [SOURCE_LANGUAGE_CXX]     = "-std=gnu++98",
-    [SOURCE_LANGUAGE_FORTRAN] = "-std=gnu",
+
+// This map associates each vendor-specific std flag with the default Mercurium
+// standard of each language. We cannot asume that the native compiler is using
+// the same standard than Mercurium.
+static const char* map_std_flags[][3] = {
+//      VENDOR                      C               CXX        FORTRAN
+    [NATIVE_VENDOR_GNU]    = { "-std=gnu99", "-std=gnu++98", "-std=gnu" },
+    [NATIVE_VENDOR_INTEL]  = { "-std=gnu99", "-std=gnu++98", "-nostand" },
+    [NATIVE_VENDOR_IBM]    = { "-std=gnu99", "-std=gnu++03", "-qlanglvl=extended" },
+    // NVCC should be used to compile CUDA files, which are considered to be written in a different lang
+    [NATIVE_VENDOR_NVIDIA] = { "", "", "" },
+    [NATIVE_VENDOR_CRAY]   = { "-h std=c99", "-h std=c++03", ""}
 };
+
+
+static void check_argument_of_std_flag(const char* argument)
+{
+    if ( strcmp(argument, "c++11") == 0
+            || strcmp(argument, "gnu++11") == 0
+            // Old flags
+            || strcmp(argument, "c++0x") == 0
+            || strcmp(argument, "gnu++0x") == 0)
+    {
+        CURRENT_CONFIGURATION->enable_cxx11 = 1;
+    }
+    else if (strcmp(argument, "c++14") == 0
+            || strcmp(argument, "gnu++14") == 0
+            // clang flag
+            || strcmp(argument, "c++1y") == 0)
+    {
+        CURRENT_CONFIGURATION->enable_cxx11 = 1;
+        CURRENT_CONFIGURATION->enable_cxx14 = 1;
+    }
+    else if (strcmp(argument, "c11") == 0
+            || strcmp(argument, "gnu11") == 0)
+    {
+        CURRENT_CONFIGURATION->enable_c11 = 1;
+    }
+    else if (strcmp(argument, "f95") == 0)
+    {
+        // Do nothing
+    }
+    else if (strcmp(argument, "f2003") == 0)
+    {
+        CURRENT_CONFIGURATION->enable_f03 = 1;
+    }
+    else if (strcmp(argument, "f2008") == 0)
+    {
+        CURRENT_CONFIGURATION->enable_f08 = 1;
+    }
+}
+
 
 static int parse_special_parameters(int *should_advance, int parameter_index,
         const char* argv[], char dry_run)
@@ -2147,39 +2240,7 @@ static int parse_special_parameters(int *should_advance, int parameter_index,
                     if (dry_run)
                         std_version_flag = argument;
 
-                    if ( strcmp(&argument[5], "c++11") == 0
-                            || strcmp(&argument[5], "gnu++11") == 0
-                            // Old flags
-                            || strcmp(&argument[5], "c++0x") == 0
-                            || strcmp(&argument[5], "gnu++0x") == 0)
-                    {
-                        CURRENT_CONFIGURATION->enable_cxx11 = 1;
-                    }
-                    else if (strcmp(&argument[5], "c++14") == 0
-                            || strcmp(&argument[5], "gnu++14") == 0
-                            // clang flag
-                            || strcmp(&argument[5], "c++1y") == 0)
-                    {
-                        CURRENT_CONFIGURATION->enable_cxx11 = 1;
-                        CURRENT_CONFIGURATION->enable_cxx14 = 1;
-                    }
-                    else if (strcmp(&argument[5], "c11") == 0
-                            || strcmp(&argument[5], "gnu11") == 0)
-                    {
-                        CURRENT_CONFIGURATION->enable_c11 = 1;
-                    }
-                    else if (strcmp(&argument[5], "f95") == 0)
-                    {
-                        // Do nothing
-                    }
-                    else if (strcmp(&argument[5], "f2003") == 0)
-                    {
-                        CURRENT_CONFIGURATION->enable_f03 = 1;
-                    }
-                    else if (strcmp(&argument[5], "f2008") == 0)
-                    {
-                        CURRENT_CONFIGURATION->enable_f08 = 1;
-                    }
+                    check_argument_of_std_flag(&argument[5]);
                 }
                 else if (strcmp(argument, "-static") == 0) { }
                 else if (strcmp(argument, "-static-libgcc") == 0) { }
@@ -2396,6 +2457,15 @@ static int parse_special_parameters(int *should_advance, int parameter_index,
                     }
                     break;
                 }
+                else if ((strlen(argument) > strlen("--std="))
+                        && argument[2] == 's'
+                        && argument[3] == 't'
+                        && argument[4] == 'd'
+                        && argument[5] == '=')
+                {
+                    CURRENT_CONFIGURATION->explicit_std_version = 1;
+                    check_argument_of_std_flag(&argument[6]);
+                }
                 else
                 {
                     failure = 1;
@@ -2439,23 +2509,6 @@ static void enable_debug_flag(const char* flags)
     }
 
     DELETE(flag_list);
-}
-
-void add_to_linker_command_configuration(
-        const char *str, translation_unit_t* tr_unit, compilation_configuration_t* configuration)
-{
-    parameter_linker_command_t * ptr_param =
-        (parameter_linker_command_t *) NEW0(parameter_linker_command_t);
-
-     ptr_param->argument = str;
-
-    ptr_param->translation_unit = tr_unit;
-    P_LIST_ADD(configuration->linker_command, configuration->num_args_linker_command, ptr_param);
-}
-
-void add_to_linker_command(const char *str, translation_unit_t* tr_unit)
-{
-    add_to_linker_command_configuration(str, tr_unit, CURRENT_CONFIGURATION);
 }
 
 static void add_to_parameter_list_str(const char*** existing_options, const char* str)
@@ -2723,22 +2776,13 @@ static void initialize_default_values(void)
     CURRENT_CONFIGURATION->input_column_width = 72;
     CURRENT_CONFIGURATION->output_column_width = 132;
 
-    // Add openmp as an implicitly enabled
-    // SMATEO: is this suff needed anymore??
-    //
-    // printf("adding OpenMP as an implicitly enabled flag\n");
-    // parameter_flags_t *new_parameter_flag = NEW0(parameter_flags_t);
-
-    // new_parameter_flag->name = uniquestr("openmp");
-    // new_parameter_flag->value = PFV_UNDEFINED;
-
-    // P_LIST_ADD(compilation_process.parameter_flags,
-    //         compilation_process.num_parameter_flags,
-    //         new_parameter_flag);
-
     //num args linker command  = 0
     CURRENT_CONFIGURATION->num_args_linker_command = 0;
     CURRENT_CONFIGURATION->linker_command = NULL;
+
+    // Specifying the backend vendor is mandatory. Thus, we do not need to
+    // assume anything at this point
+    CURRENT_CONFIGURATION->native_vendor = NATIVE_VENDOR_UNKNOWN;
 }
 
 static void print_version(void)
@@ -2902,39 +2946,44 @@ static void add_std_flag_to_configurations()
                 get_sublanguage_configuration(SOURCE_SUBLANGUAGE_CUDA, /* fallback */ NULL))
             continue;
 
-        const char* local_std_flag = NULL;
 
-        // If the user specified a '-std' flag
+        // The current configuration does not have an explicit std flag.
+        // However, we need to explicitly add it since we cannot assume that
+        // the std version of the native compiler for a specific language is
+        // the same than in Mercurium.
+
+        // If the user specified a std flag for the same language than the current profile
+        const char* std_flag = NULL;
         if (std_version_flag != NULL
-                // and that flag was specicied in a configuration that has
-                // the same base language than the current one
                 && configuration->source_language == CURRENT_CONFIGURATION->source_language)
         {
-            local_std_flag = std_version_flag;
+            std_flag = std_version_flag;
         }
         else
         {
-            if (configuration->source_language == SOURCE_LANGUAGE_C
-                    || configuration->source_language == SOURCE_LANGUAGE_CXX)
+            if (configuration->source_language == SOURCE_LANGUAGE_C)
             {
-                local_std_flag = default_mercurium_std_version[configuration->source_language];
+                std_flag = map_std_flags[configuration->native_vendor][0];
+            }
+            else if (configuration->source_language == SOURCE_LANGUAGE_CXX)
+            {
+                std_flag = map_std_flags[configuration->native_vendor][1];
             }
             else if (configuration->source_language == SOURCE_LANGUAGE_FORTRAN)
             {
-                // '-std=XYZ' flag doesn't exist in IFORT :_( If not specifying the standard version is a
-                // problem at some point, probably we should fix it modyfing our profiles.
+                std_flag = map_std_flags[configuration->native_vendor][2];
             }
             else
             {
-                // Profiles that don't define a source language should be ignored (e.g. omp-base)
+               // Profiles that don't define a source language or the source
+               // language is not supported by Mercurium's FE (such as CUDA)
+               // should be ignored (e.g. omp-base)
             }
         }
 
-        if (local_std_flag != NULL)
+        if (std_flag != NULL)
         {
-            add_to_parameter_list_str(&configuration->preprocessor_options, local_std_flag);
-            add_to_parameter_list_str(&configuration->native_compiler_options, local_std_flag);
-            add_to_linker_command_configuration(local_std_flag, NULL, configuration);
+            add_parameter_all_toolchain_configuration(std_flag, /* dry_run */ false, configuration);
         }
     }
 }
@@ -2988,10 +3037,20 @@ static void commit_configuration(void)
                     strappend(compilation_process.home_directory, FORTRAN_BASEDIR));
         }
 
+        // If the current configuration defines a native compiler it must also define its vendor
+        if (configuration->native_compiler_name != NULL
+                && configuration->native_vendor == NATIVE_VENDOR_UNKNOWN)
+        {
+            fprintf(stderr, "Error: configuration '%s' does not specify the mandatory '--native-vendor=XXX' flag\n",
+                    configuration->configuration_name);
+            exit(EXIT_FAILURE);
+        }
+
         finalize_committed_configuration(configuration);
     }
 
     add_std_flag_to_configurations();
+
 
     DEBUG_CODE()
     {
@@ -3000,6 +3059,18 @@ static void commit_configuration(void)
             fprintf(stderr, "DRIVER: Using type environment '%s' for type size calculation\n",
                     CURRENT_CONFIGURATION->type_environment->environ_name);
         }
+    }
+}
+
+static void check_profile_errors_of_current_configuration(void)
+{
+    if (CURRENT_CONFIGURATION->num_errors != 0)
+    {
+        for (int i = 0; i < CURRENT_CONFIGURATION->num_errors; ++i)
+            fprintf(stderr, "Error in '%s' profile: '%s'\n",
+                    CURRENT_CONFIGURATION->configuration_name, CURRENT_CONFIGURATION->error_messages[i]);
+
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -3088,6 +3159,10 @@ static void compile_every_translation_unit_aux_(int num_translation_units,
         // This looks a bit redundant but it turns that the compiler has a
         // configuration even before of any file
         SET_CURRENT_CONFIGURATION(file_process->compilation_configuration);
+
+        // Some profiles may generate some errors such as using OmpSs without a
+        // proper lowering phase. Check if there are any at this point
+        check_profile_errors_of_current_configuration();
 
         translation_unit_t* translation_unit = CURRENT_COMPILED_FILE;
 
@@ -3734,7 +3809,7 @@ static const char* codegen_translation_unit(translation_unit_t* translation_unit
             FILE *raw_prettyprint_file = fopen(raw_prettyprint->name, "w");
             if (raw_prettyprint_file == NULL)
             {
-                fatal_error("Cannot create temporal file '%s' %s\n", raw_prettyprint->name, strerror(errno));
+                fatal_error("Cannot create temporary file '%s' %s\n", raw_prettyprint->name, strerror(errno));
             }
             run_codegen_phase(raw_prettyprint_file, translation_unit, output_filename);
             fclose(raw_prettyprint_file);
@@ -3742,7 +3817,7 @@ static const char* codegen_translation_unit(translation_unit_t* translation_unit
             raw_prettyprint_file = fopen(raw_prettyprint->name, "r");
             if (raw_prettyprint_file == NULL)
             {
-                fatal_error("Cannot reopen temporal file '%s' %s\n", raw_prettyprint->name, strerror(errno));
+                fatal_error("Cannot reopen temporary file '%s' %s\n", raw_prettyprint->name, strerror(errno));
             }
             fortran_split_lines(raw_prettyprint_file, prettyprint_file, CURRENT_CONFIGURATION->output_column_width);
             fclose(raw_prettyprint_file);
@@ -4696,7 +4771,7 @@ static void do_combining(target_options_map_t* target_map,
 
                 if (temp_file_fd == NULL)
                 {
-                    fatal_error("Cannot create temporal assembler file '%s': %s\n",
+                    fatal_error("Cannot create temporary assembler file '%s': %s\n",
                             temp_file_as->name,
                             strerror(errno));
                 }
@@ -5387,7 +5462,7 @@ fortran_array_descriptor_t* get_fortran_array_descriptor(const char* descriptor_
     }
 
     fprintf(stderr, "Unknown Fortran array descriptor '%s'. "
-            "Use '--list-fortran-descriptors' to get a list of supported Fortran array descriptors\n", descriptor_id);
+            "Use '--list-fortran-array-descriptors' to get a list of supported Fortran array descriptors\n", descriptor_id);
     return NULL;
 }
 

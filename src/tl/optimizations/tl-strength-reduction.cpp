@@ -145,13 +145,16 @@ void TL::Optimizations::StrengthReduction::visit(const Nodecl::Div& node)
     else if(rhs.is_constant() && rhs_type.is_floating_type())
     {
         const_value_t * cv = rhs.get_constant();
-        float const_float = const_value_cast_to_float(rhs.get_constant());
+        double const_double = const_value_cast_to_double(rhs.get_constant());
 
         int exp;
-        double mantissa = frexp(const_float, &exp);
+        double mantissa = frexp(const_double, &exp);
 
-        if (mantissa == 0x1p-1 ||   // If mantissa is power of 2, the transformation is exact
-                _fast_math)          // 0x1p-1 == 1 * 2^-1
+        // We used to have 0x1p-1, which is a hexadecimal float constant. This
+        // kind of constants are not part of the C++11 standard, so we decided
+        // to change that expression by the current expression.
+        // Note that 0x1p-1 == 1 * 2^-1 == (1.0 / 2.0)
+        if (mantissa == 0.5 || _fast_math)
         {
             // a / c --> a * 1/c
             Nodecl::Mul mul =

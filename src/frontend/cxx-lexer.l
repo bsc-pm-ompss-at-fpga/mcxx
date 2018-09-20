@@ -661,7 +661,7 @@ type {
 
     pragma_directive_kind_t directive_kind = PDK_NONE; 
 
-    char original_directive[strlen(yytext)];
+    char original_directive[strlen(yytext) + 1];
     memset(original_directive, 0, sizeof(original_directive));
 
     // This call will unput appropriately what was lexed too much
@@ -1051,9 +1051,7 @@ type {
 
     // Get the flags
     char start_of_new_file = 0;
-    char return_of_a_file = 0;
     char system_header_file = 0;
-    char extern_c_block UNUSED_PARAMETER = 1;
     while (*directive == ' '
             || isdigit(*directive))
     {
@@ -1075,7 +1073,7 @@ type {
                 }
             case 2:
                 {
-                    return_of_a_file = 1;
+                    /* return_of_a_file */
                     break;
                 }
             case 3:
@@ -1085,7 +1083,7 @@ type {
                 }
             case 4:
                 {
-                    extern_c_block = 1;
+                    /* extern_c_block */
                     break;
                 }
             default:
@@ -1459,6 +1457,25 @@ type {
     return IDENTIFIER;
 #endif
 }
+
+
+"_Float128" {
+    parse_token_text();
+    update_location();
+    if (CURRENT_CONFIGURATION->supports_ISO_C_FloatN)
+    {
+#ifdef HAVE_QUADMATH_H
+        return TOKEN_FLOAT128;
+#else
+        return IDENTIFIER;
+#endif
+    }
+    else
+    {
+        return IDENTIFIER;
+    }
+}
+
 
  /* Special tokens for subparsing */
 @EXPRESSION@ { parse_token_text(); update_location(); return SUBPARSE_EXPRESSION; }

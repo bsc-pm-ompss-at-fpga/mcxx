@@ -1,5 +1,5 @@
 dnl Package definition: name, version, mail
-AC_INIT([mcxx],[2.1.0],[sergi.mateo@bsc.es])
+AC_INIT([mcxx],[2.2.0],[sergi.mateo@bsc.es])
 
 configure_orig_arguments="$@"
 
@@ -140,6 +140,9 @@ INSTALL_CONFIG_FILES="${INSTALL_CONFIG_FILES} 02.config.utilities"
 # Note that these profiles are just for testing, no soft link is created for them
 INSTALL_CONFIG_FILES="${INSTALL_CONFIG_FILES} 10.config.hlt"
 
+# CUDA auxiliary profile should be always installed
+INSTALL_CONFIG_FILES="${INSTALL_CONFIG_FILES} 40.config.cuda"
+
 # plaincxx is always installed as a binary
 COMPILER_NAMES="plaincc plainfc plainf95"
 SCRIPT_COMPILER_NAMES=""
@@ -265,193 +268,131 @@ FORTRAN_TESTS_ENABLED=$fortran_tests_enabled
 AC_SUBST([FORTRAN_TESTS_ENABLED])
 dnl -- End Fortran tests ---
 
+dnl -- Use GNU Fortran compiler >= 8 array descriptors
 
-dnl -- Extra compilers ---
-disable_xlc=no
-AC_MSG_CHECKING([if support for IBM XL C/C++ was explicitly disabled])
-AC_ARG_ENABLE([xlc],
-  AS_HELP_STRING([--disable-xlc], [Disables support for IBM XL C/C++]),
-  [
-    if test x"$enableval" = x"yes" -o x"$enableval" = x"";
-    then
-        disable_xlc="no"
-        AC_MSG_RESULT([no])
-    else if test x"$enableval" = x"no";
-         then
-            AC_MSG_RESULT([yes])
-            disable_xlc="yes"
-         else
-            AC_MSG_ERROR([This option can only be given 'yes' or 'no' values])
-         fi
-    fi
-  ],
-  [
-    disable_xlc="no"
-    AC_MSG_RESULT([no])
-  ]
-)
+AC_MSG_CHECKING([whether the GNU Fortran compiler >= 8 array descriptors are explicitly enabled])
+AC_ARG_ENABLE([gfortran-8-or-greater-array-descriptors],
+  AS_HELP_STRING([--enable-gfortran-8-or-greater-array-descriptors], [Enable GNU Fortran compiler > 8 array descriptors (disabled by default)]),
+  [ ], # enable_gfortran_8_or_greater_array_descriptors=$enableval
+  [ enable_gfortran_8_or_greater_array_descriptors="no" ])
+AC_MSG_RESULT([$enable_gfortran_8_or_greater_array_descriptors])
 
-disable_xlf=no
-AC_MSG_CHECKING([if support for IBM XL Fortran was explicitly disabled])
-AC_ARG_ENABLE([xlf],
-  AS_HELP_STRING([--disable-xlf], [Disables support for IBM XL Fortran]),
-  [
-    if test x"$enableval" = x"yes" -o x"$enableval" = x"";
-    then
-        disable_xlf="no"
-        AC_MSG_RESULT([no])
-    else if test x"$enableval" = x"no";
-         then
-            AC_MSG_RESULT([yes])
-            disable_xlf="yes"
-         else
-            AC_MSG_ERROR([This option can only be given 'yes' or 'no' values])
-         fi
-    fi
-  ],
-  [
-    disable_xlf="no"
-    AC_MSG_RESULT([no])
-  ]
-)
+if test x"$enable_gfortran_8_or_greater_array_descriptors" = x"yes";
+then
+    GFORTRAN_8_OR_GREATER_ARRAY_DESCRIPTORS="--fortran-array-descriptor=gfortran-8-or-greater"
+fi
+AC_SUBST([GFORTRAN_8_OR_GREATER_ARRAY_DESCRIPTORS])
 
-disable_icc=no
-AC_MSG_CHECKING([if support for Intel C/C++ was explicitly disabled])
-AC_ARG_ENABLE([icc],
-  AS_HELP_STRING([--disable-icc], [Disables support for Intel C/C++]),
-  [
-    if test x"$enableval" = x"yes" -o x"$enableval" = x"";
-    then
-        disable_icc="no"
-        AC_MSG_RESULT([no])
-    else if test x"$enableval" = x"no";
-         then
-            AC_MSG_RESULT([yes])
-            disable_icc="yes"
-         else
-            AC_MSG_ERROR([This option can only be given 'yes' or 'no' values])
-         fi
-    fi
-  ],
-  [
-    disable_icc="no"
-    AC_MSG_RESULT([no])
-  ]
-)
+dnl --------------- Extra Compilers ---------------------
 
-disable_ifort=no
-AC_MSG_CHECKING([if support for Intel Fortran was explicitly disabled])
-AC_ARG_ENABLE([ifort],
-  AS_HELP_STRING([--disable-ifort], [Disables support for Intel Fortran]),
-  [
-    if test x"$enableval" = x"yes" -o x"$enableval" = x"";
-    then
-        disable_ifort="no"
-        AC_MSG_RESULT([no])
-    else if test x"$enableval" = x"no";
-         then
-            AC_MSG_RESULT([yes])
-            disable_ifort="yes"
-         else
-            AC_MSG_ERROR([This option can only be given 'yes' or 'no' values])
-         fi
-    fi
-  ],
-  [
-    disable_ifort="no"
-    AC_MSG_RESULT([no])
-  ]
-)
+dnl --------------- IBM Compilers ---------------------
+AC_MSG_CHECKING([whether support for IBM XL Fortran/C/C++ compilers is enabled])
+AC_ARG_ENABLE([ibm-compilers],
+  AS_HELP_STRING([--disable-ibm-compilers], [Disables support for IBM XL Fortran/C/C++ compilers (enabled by default)]),
+  [ ], # enable_ibm_compilers=$enableval
+  [ enable_ibm_compilers="yes"])
+AC_MSG_RESULT([$enable_ibm_compilers])
+
+XLF=
+XLC=
+XLCXX=
+if test x"$enable_ibm_compilers" = x"yes";
+then
+    AC_PATH_TARGET_TOOL([XLF], [xlf95], [$XLF])
+    AC_PATH_TARGET_TOOL([XLC], [xlc], [$XLC])
+    AC_PATH_TARGET_TOOL([XLCXX], [xlC], [$XLCXX])
+fi
+dnl --------------- END IBM Compilers ---------------------
+
+
+dnl --------------- Intel Compilers ---------------------
+AC_MSG_CHECKING([whether support for Intel Fortran/C/C++ compilers is enabled])
+AC_ARG_ENABLE([intel-compilers],
+  AS_HELP_STRING([--disable-intel-compilers], [Disables support for Intel Fortran/C/C++ compilers (enabled by default)]),
+  [ ], # enable_intel_compilers=$enableval
+  [ enable_intel_compilers="yes"])
+AC_MSG_RESULT([$enable_intel_compilers])
+
+
+IFORT=
+ICC=
+ICPC=
+if test x"$enable_intel_compilers" = x"yes";
+then
+   AC_CHECK_PROG([IFORT], [ifort], [ifort])
+   AC_CHECK_PROG([ICC], [icc], [icc])
+   AC_CHECK_PROG([ICPC], [icpc], [icpc])
+fi
+dnl --------------- END Intel Compilers ---------------------
 
 mic_compilation="no"
 mic_testing="no"
 mic_testing_device="no"
-
-MIC_COMPILATION=$mic_compilation
-MIC_TESTING=$mic_testing
-MIC_TESTING_DEVICE=$mic_testing_device
-
-if test x$disable_icc = xno;
+if test x"$ICC" != x;
 then
-   dnl Check Intel Compiler C
-   AC_CHECK_PROG([ICC], [icc], [icc])
-   if test x"$ICC" != x;
+   AC_MSG_CHECKING([if support for Intel Xeon Phi was enabled])
+   AC_ARG_ENABLE([mic],
+          AS_HELP_STRING([--enable-mic], [Enables support for Intel Xeon Phi]),
+          [
+              if test x"$enableval" = x"yes" -o x"$enableval" = x"";
+              then
+                  mic_compilation="yes"
+                  AC_MSG_RESULT([yes])
+              else if test x"$enableval" = x"no";
+                   then
+                      AC_MSG_RESULT([no])
+                      mic_compilation="no"
+                   else
+                      AC_MSG_ERROR([This option can only be given 'yes' or 'no' values])
+                   fi
+              fi
+          ],
+          [AC_MSG_RESULT([no])]
+          )
+
+   AC_MSG_CHECKING([if testing for Intel Xeon Phi was enabled])
+   AC_ARG_ENABLE([mic-testing],
+          AS_HELP_STRING([--enable-mic-testing=mic_dev], [Sets 'mic_dev' as the remote host used for Intel Xeon Phi testing]),
+          [
+             if test x$enableval != x;
+             then
+                AC_MSG_RESULT([yes])
+                mic_testing_device="$enableval"
+                mic_testing="yes"
+             else
+                AC_MSG_RESULT([--enable-mic-testing requires the name of a remote host])
+             fi
+          ],
+          [AC_MSG_RESULT([no])]
+          )
+fi
+
+dnl --------------- Cray Compilers ---------------------
+AC_MSG_CHECKING([whether support for Cray Fortran/C/C++ compilers is enabled])
+AC_ARG_ENABLE([cray-compilers],
+  AS_HELP_STRING([--disable-cray-compilers], [Disables support for Cray Fortran/C/C++ compilers (enabled by default)]),
+  [ ], # enable_cray_compilers=$enableval
+  [ enable_cray_compilers="yes"])
+AC_MSG_RESULT([$enable_cray_compilers])
+
+
+CRAYFC=
+CRAYCC=
+CRAYCXX=
+if test x"$enable_cray_compilers" = x"yes";
+then
+   AC_CHECK_PROG([CRAYFC], [ftn], [ftn])
+
+   # If the Cray Fortran compiler (i.e. 'ftn' binary) is present in the $PATH, we
+   # will look for 'cc' and 'CC' binaries. We do not directly check for them because
+   # there are other vendors that also define the 'cc' binary
+   if test x"$CRAYFC" != x;
    then
-      AC_MSG_CHECKING([if support for Intel Xeon Phi was enabled])
-      AC_ARG_ENABLE([mic],
-             AS_HELP_STRING([--enable-mic], [Enables support for Intel Xeon Phi]),
-             [
-                 if test x"$enableval" = x"yes" -o x"$enableval" = x"";
-                 then
-                     mic_compilation="yes"
-                     AC_MSG_RESULT([yes])
-                 else if test x"$enableval" = x"no";
-                      then
-                         AC_MSG_RESULT([no])
-                         mic_compilation="no"
-                      else
-                         AC_MSG_ERROR([This option can only be given 'yes' or 'no' values])
-                      fi
-                 fi
-             ],
-             [AC_MSG_RESULT([no])]
-             )
-
-      AC_MSG_CHECKING([if testing for Intel Xeon Phi was enabled])
-      AC_ARG_ENABLE([mic-testing],
-             AS_HELP_STRING([--enable-mic-testing=mic_dev], [Sets 'mic_dev' as the remote host used for Intel Xeon Phi testing]),
-             [
-                if test x$enableval != x;
-                then
-                   AC_MSG_RESULT([yes])
-                   mic_testing_device="$enableval"
-                   mic_testing="yes"
-                else
-                   AC_MSG_RESULT([--enable-mic-testing requires the name of a remote host])
-                fi
-             ],
-             [AC_MSG_RESULT([no])]
-             )
-
-      MIC_COMPILATION=$mic_compilation
-      MIC_TESTING=$mic_testing
-      MIC_TESTING_DEVICE=$mic_testing_device
-
-      dnl end
+      AC_CHECK_PROG([CRAYCC], [cc], [cc])
+      AC_CHECK_PROG([CRAYCXX], [CC], [CC])
    fi
-   dnl Check Intel Compiler C++
-   AC_CHECK_PROG([ICPC], [icpc], [icpc])
-else
-    ICC=
-    ICPC=
 fi
-
-if test x$disable_xlc = xno;
-then
-    dnl XL (gcc driver)
-    AC_PATH_TARGET_TOOL([XLC], [xlc], [$XLC])
-    dnl XL (g++ driver)
-    AC_PATH_TARGET_TOOL([XLCXX], [xlC], [$XLCXX])
-else
-    XLC=
-    XLCXX=
-fi
-
-dnl Check Intel Fortran
-if test x$disable_ifort = xno;
-then
-   AC_CHECK_PROG([IFORT], [ifort], [ifort])
-else
-    IFORT=
-fi
-
-dnl IBM Fortran
-if test x$disable_xlf = xno;
-then
-    AC_PATH_TARGET_TOOL([XLF], [xlf95], [$XLF])
-else
-    XLF=
-fi
+dnl --------------- END Cray Compilers ---------------------
 
 
 dnl --------------------- Support for plain profiles for Intel Compilers -------------
@@ -472,10 +413,12 @@ then
 
     if test -x"$IFORT" != x;
     then
-        COMPILER_NAMES="${COMPILER_NAMES} plainifort plainimfc ifort-plainfc"
+        COMPILER_NAMES="${COMPILER_NAMES} plainifort ifort-plainfc"
     fi
 fi
 dnl --------------------- End support for plain profiles for Intel Compilers ---------
+
+
 dnl -- End of extra compiler checks ---
 
 
@@ -578,7 +521,6 @@ nanox=""
 nanox_mic_include=""
 nanox_mic_lib=""
 nanox=""
-nanox_pm_selection="none"
 # Nanos++ automatic features detection mechanism
 nanox_auto_feat_detection="new"
 NANOX=""
@@ -595,8 +537,6 @@ MIC_TOOLS="/usr/linux-k1om-4.7/x86_64-k1om-linux/bin/"
 show_mic_tools_warning=NO
 MIC_LIBS=""
 NANOX_GATE=":false:"
-NANOX_NEW_LINK=":false:"
-NANOX_OLD_LINK=":false:"
 NANOX_DYNAMIC_LIST=":false:"
 
 if test x$is_enabled_tl_omp_nanox = xyes;
@@ -629,11 +569,8 @@ then
            ]
    )
 
-   CFLAGSBACKUP="$CFLAGS"
    CPPFLAGSBACKUP="$CPPFLAGS"
-
    CPPFLAGS="$CPPFLAGS -I$nanox_include"
-   CFLAGS="$CFLAGS -I$nanox_include"
 
    AC_CHECK_HEADER([nanos.h],
                    [break],
@@ -665,66 +602,7 @@ then
     fi
 
     CPPFLAGS="$CPPFLAGSBACKUP"
-    CFLAGS="$CFLAGSBACKUP"
 
-   AC_MSG_CHECKING([linking mechanism of Nanos++])
-
-    AC_ARG_ENABLE([nanos-new-link-mechanism],
-      AS_HELP_STRING([--enable-nanos-new-link-mechanism], [Override nanos++ linking mechanism autodetection]),
-      [
-        if test x$enableval = xyes -o x$enableval = x;
-        then
-            nanox_pm_selection="new"
-        else if test x$enableval = xno;
-             then
-                nanox_pm_selection="old"
-             else
-                AC_MSG_ERROR([This option can only be given 'yes' or 'no' values])
-             fi
-        fi
-      ])
-
-   if test "$nanox_pm_selection" = "none"; then
-       for nanox_version in performance debug instrumentation instrumentation-debug;
-       do
-           if test -f $nanox_lib/$nanox_version/libnanox-ompss.so;
-           then
-               if test "$nanox_pm_selection" = "none";
-               then
-                   nanox_pm_selection="new"
-               elif test "$nanox_pm_selection" != "new"
-               then
-                   AC_MSG_ERROR([Nanos++ installation is broken, new library found but old library also found first. You may have to reinstall Nanos++ in a clean directory to get rid of the old libraries])
-               fi
-               if test -f $nanox_lib/$nanox_version/libnanox-ss.so;
-               then
-                   AC_MSG_ERROR([Nanos++ installation is broken, new and old libraries found. You may have to reinstall Nanos++ in a clean directory to get rid of the old libraries])
-               fi
-           elif test -f $nanox_lib/$nanox_version/libnanox-ss.so;
-           then
-               if test "$nanox_pm_selection" = "none";
-               then
-                   nanox_pm_selection="old"
-               elif test "$nanox_pm_selection" != "old";
-               then
-                   AC_MSG_ERROR([Nanos++ installation is broken, old library found but new library also found first. You may have to reinstall Nanos++ in a clean directory to get rid of the old libraries])
-               fi
-           fi
-       done
-   fi
-
-   if test "$nanox_pm_selection" = "none";
-   then
-       AC_MSG_ERROR([Cannot determine Nanos++ mechanism of Programming Model selection. Likely Nanos++ library path is wrong])
-   elif test "$nanox_pm_selection" = "new";
-   then
-       AC_MSG_RESULT([new mechanism])
-       NANOX_NEW_LINK=":true:"
-   elif test "$nanox_pm_selection" = "old";
-   then
-       AC_MSG_RESULT([old mechanism])
-       NANOX_OLD_LINK=":true:"
-   fi
 
    AC_ARG_WITH([nanox-mic],
            AS_HELP_STRING([--with-nanox-mic=dir], [Directory of Nanos++ MIC installation]),
@@ -763,8 +641,8 @@ then
    fi
    NANOX_MIC_INCLUDES="${nanox_mic_include}"
    NANOX_MIC_LIBS="${nanox_mic_lib}"
-   NANOX_MIC="${nanox_mic}" 
-   
+   NANOX_MIC="${nanox_mic}"
+
 
    AC_ARG_WITH([mic-tools],
            AS_HELP_STRING([--with-mic-tools=dir], [Directory where MIC (k1om arch) tools are located (objcopy,objdump & ar)]),
@@ -801,13 +679,10 @@ then
    INSTALL_CONFIG_FILES="${INSTALL_CONFIG_FILES} 57.config.omp.smp"
    COMPILER_NAMES="${COMPILER_NAMES} smpfc smpcc smpcxx"
 
-   INSTALL_CONFIG_FILES="${INSTALL_CONFIG_FILES} 40.config.cuda"
 fi
 
 AC_SUBST([NANOX_ENABLED])
 AC_SUBST([NANOX_GATE])
-AC_SUBST([NANOX_NEW_LINK])
-AC_SUBST([NANOX_OLD_LINK])
 AC_SUBST([NANOX_DYNAMIC_LIST])
 
 AM_CONDITIONAL([BUILD_NANOS_COMMON], test x$is_enabled_tl_omp_nanox = xyes)
@@ -855,7 +730,7 @@ dnl --------------------- Support for CUDA devices in Nanox --------------------
 AC_MSG_CHECKING([whether the CUDA Nanos++ Lowering is enabled])
 AC_ARG_ENABLE([nanox-cuda-device],
   AS_HELP_STRING([--disable-nanox-cuda-device], [Disables the CUDA Nanos++ Lowering phase in Mercurium (enabled by default)]),
-  [ ], # enable_nanox_cuda_device=$enable_val
+  [ ], # enable_nanox_cuda_device=$enableval
   [ enable_nanox_cuda_device="yes" ])
 AC_MSG_RESULT([$enable_nanox_cuda_device])
 
@@ -868,21 +743,14 @@ then
     AC_MSG_RESULT([$nanox_supports_cuda])
 fi
 
+ENABLE_CUDA=":false:"
 ompss_supports_cuda="no"
 if test x"$enable_nanox_cuda_device" = x"yes" -a x"$nanox_supports_cuda" = x"yes";
 then
     ompss_supports_cuda="yes"
+    ENABLE_CUDA=":true:"
 fi
 
-
-if test x"$ompss_supports_cuda" = x"yes";
-then
-   ENABLE_CUDA=":true:"
-   INSTALL_CONFIG_FILES="${INSTALL_CONFIG_FILES} 55.config.omp.nvidia"
-   COMPILER_NAMES="${COMPILER_NAMES} mnvfc mnvcc mnvcxx"
-else
-   ENABLE_CUDA=":false:"
-fi
 AM_CONDITIONAL([BUILD_NANOX_DEVICE_CUDA], test x"$ompss_supports_cuda" = x"yes")
 
 AC_SUBST([ENABLE_CUDA])
@@ -935,27 +803,18 @@ then
    AC_MSG_CHECKING([if nanox has opencl header installed])
    #tests if opencl headers are usable and correct
    #backup vars before we do the tests
-   CFLAGSBACKUP="$CFLAGS"
    CPPFLAGSBACKUP="$CPPFLAGS"
-   CXXFLAGSBACKUP="$CXXFLAGS"
-
-   CFLAGS="$CFLAGS -I$nanox_include"
    CPPFLAGS="$CPPFLAGS -I$nanox_include"
-   CXXFLAGS="$CXXFLAGS -I$nanox_include"
 
    AC_CHECK_HEADER([nanos-opencl.h], [opencl_valid=yes], [opencl_valid=no])
 
-   CFLAGS="$CFLAGSBACKUP"
    CPPFLAGS="$CPPFLAGSBACKUP"
-   CXXFLAGS="$CXXFLAGSBACKUP"
 fi
 
+
+ENABLE_OPENCL=":false:"
 if test x$is_enabled_tl_omp_nanox = xyes -a x$opencl_valid = xyes; then
-    INSTALL_CONFIG_FILES="${INSTALL_CONFIG_FILES} 55.config.omp.ocl"
-    COMPILER_NAMES="${COMPILER_NAMES} oclmcc oclmcxx oclmfc"
     ENABLE_OPENCL=":true:"
-else
-    ENABLE_OPENCL=":false:"
 fi
 
 AC_SUBST([opencl_valid])
@@ -1058,18 +917,12 @@ then
         AC_MSG_CHECKING([if nanox has mpi enabled])
         #tests if mpi headers are usable and correct
         #backup vars before we do the tests
-        CFLAGSBACKUP="$CFLAGS"
         CPPFLAGSBACKUP="$CPPFLAGS"
-        CXXFLAGSBACKUP="$CXXFLAGS"
-
-        CFLAGS="$CFLAGS -D_NANOS_MPI_H_ -I$nanox_include"
         CPPFLAGS="$CPPFLAGS -D_NANOS_MPI_H_ -I$nanox_include"
-        CXXFLAGS="$CXXFLAGS -D_NANOS_MPI_H_ -I$nanox_include"
+
         AC_CHECK_HEADER([nanos-mpi.h], [mpi_valid=yes],[])
 
-        CFLAGS="$CFLAGSBACKUP"
         CPPFLAGS="$CPPFLAGSBACKUP"
-        CXXFLAGS="$CXXFLAGSBACKUP"
     fi
 fi
 
@@ -1151,42 +1004,34 @@ then
     )
 
     if test x${boostrapping_nanos6} != xyes ; then
-
-        CFLAGSBACKUP="$CFLAGS"
         CPPFLAGSBACKUP="$CPPFLAGS"
-
         CPPFLAGS="$CPPFLAGS -I$nanos6_include"
-        CFLAGS="$CFLAGS -I$nanos6_include"
 
         AC_CHECK_HEADER([nanos6.h],
                 [break],
                 [AC_MSG_ERROR([Nanos6 support was required but 'nanos6.h' was not found])])
 
+        # Best effort: do not execute the following check when the host and target archs do not match
+        if test x"$target" == x"$host"; then
+            LDFLAGSBACKUP="$LDFLAGS"
+            LDFLAGS="$LDFLAGSBACKUP -L$nanos6_lib"
 
-        CPPFLAGS="$CPPFLAGSBACKUP -L$nanos6_lib"
-        CFLAGS="$CFLAGSBACKUP -L$nanos6_lib"
-
-        AC_CHECK_LIB([nanos6], [nanos_in_final],
-            [break],
-            [
-                if test x${nanos6_mandatory_lib} = xyes; then
-                    AC_MSG_ERROR([Nanos6 support was required but 'libnanos6.so' was not found])
-                fi
-
-                AS_UNSET(ac_cv_lib_nanos6_nanos_in_final)
-
-                nanos6_lib="${nanos6}/lib64"
-
-                CPPFLAGS="$CPPFLAGSBACKUP -L$nanos6_lib"
-                CFLAGS="$CFLAGSBACKUP -L$nanos6_lib"
-
-                AC_CHECK_LIB([nanos6], [nanos_in_final],
-                    [break],
-                    [AC_MSG_ERROR([Nanos6 support was required but 'libnanos6.so' was not found])])
-            ])
-
+            AC_CHECK_LIB([nanos6], [nanos_in_final],
+                [break],
+                [
+                    if test x${nanos6_mandatory_lib} = xyes; then
+                        AC_MSG_ERROR([Nanos6 support was required but 'libnanos6.so' was not found])
+                    fi
+                    AS_UNSET(ac_cv_lib_nanos6_nanos_in_final)
+                    nanos6_lib="${withval}/lib64"
+                    LDFLAGS="$LDFLAGSBACKUP -L${nanos6_lib}"
+                    AC_CHECK_LIB([nanos6], [nanos_in_final],
+                        [break],
+                        [AC_MSG_ERROR([Nanos6 support was required but 'libnanos6.so' was not found])])
+                ])
+            LDFLAGS="$LDFLAGSBACKUP"
+        fi
         CPPFLAGS="$CPPFLAGSBACKUP"
-        CFLAGS="$CFLAGSBACKUP"
     fi
 fi
 
@@ -1424,13 +1269,34 @@ then
           COMPILER_NAMES="${COMPILER_NAMES} xlmfc xlmf95 xlsmpfc"
       fi
    fi
+
+   if test x"$CRAYCC" != x -o x"$CRAYCXX" != x -o x"$CRAYFC" != x;
+   then
+      INSTALL_CONFIG_FILES="${INSTALL_CONFIG_FILES} 55.config.omp.cray"
+
+      # Intel Mercurium C/C++/Fortran profiles
+      if test x"$CRAYCC" != x;
+      then
+          COMPILER_NAMES="${COMPILER_NAMES} craymcc"
+      fi
+
+      if test x"$CRAYCXX" != x;
+      then
+          COMPILER_NAMES="${COMPILER_NAMES} craymcxx"
+      fi
+
+      if test -x"$CRAYFC" != x;
+      then
+          COMPILER_NAMES="${COMPILER_NAMES} craymfc"
+      fi
+   fi
 fi
 
 AM_CONDITIONAL([BUILD_OMP_PROFILE], test x$is_enabled_tl_omp_profile = xyes)
 
-AC_SUBST([MIC_COMPILATION])
-AC_SUBST([MIC_TESTING])
-AC_SUBST([MIC_TESTING_DEVICE])
+AC_SUBST([MIC_COMPILATION], $mic_compilation)
+AC_SUBST([MIC_TESTING], $mic_testing)
+AC_SUBST([MIC_TESTING_DEVICE], $mic_testing_device)
 dnl --------------------- End of shared between Nanox and Nanos6 ------------------
 
 
@@ -1705,6 +1571,9 @@ AC_ARG_VAR([IFORT], [Intel Fortran])
 AC_ARG_VAR([XLC], [IBM XL C compiler])
 AC_ARG_VAR([XLCXX], [IBM XL C++ compiler])
 AC_ARG_VAR([XLF], [IBM XL Fortran compiler])
+AC_ARG_VAR([CRAYCC], [Cray C Compiler])
+AC_ARG_VAR([CRAYCXX], [Cray C++ Compiler])
+AC_ARG_VAR([CRAYFC], [Cray Fortran Compiler])
 AC_ARG_VAR([GPERF], [GNU gperf])
 AC_ARG_VAR([GIT], [git content tracker])
 
@@ -2001,120 +1870,74 @@ AC_HEADER_STDC
 AC_CHECK_HEADERS(stdint.h)
 AC_CHECK_HEADERS(string.h)
 
-disable_int128=no
-disable_float128=no
 
-AC_MSG_CHECKING([if __int128 has been disabled])
+dnl --------------------- __int128 support ----------------------
+AC_MSG_CHECKING([if __int128 is enabled])
 AC_ARG_ENABLE([int128],
-    AS_HELP_STRING([--disable-int128], [Disables support for __int128. It also disables INTEGER(KIND=16) in Fortran]),
-    [
-      if test x$enableval = xyes -o x$enableval = x;
-      then
-         disable_int128="no"
-         dnl no, it has NOT been disabled
-         AC_MSG_RESULT([no])
-      else if test x$enableval = xno;
-           then
-              disable_int128="yes"
-              dnl yes, it DOES have been disabled
-              AC_MSG_RESULT([yes])
-           else
-              AC_MSG_ERROR([This option can only be given 'yes' or 'no' values])
-           fi
-      fi
-    ],
-    [
-       AC_MSG_RESULT([no])
-    ]
-)
+    AS_HELP_STRING([--disable-int128], [Disables support for __int128. It also disables INTEGER(KIND=16) in Fortran (enabled by default)]),
+    [ ], # enable_int128 =$enableval
+    [ enable_int128=yes ])
+AC_MSG_RESULT($enable_int128)
 
-AC_MSG_CHECKING([if __float128 has been disabled])
-AC_ARG_ENABLE([float128],
-    AS_HELP_STRING([--disable-float128], [Disables support for __float128. It also disables REAL(KIND=16) in Fortran]),
-    [
-      if test x$enableval = xyes -o x$enableval = x;
-      then
-         disable_float128="no"
-         dnl no, it has NOT been disabled
-         AC_MSG_RESULT([no])
-      else if test x$enableval = xno;
-           then
-               disable_float128="yes"
-               dnl yes, it DOES have been disabled
-               AC_MSG_RESULT([yes])
-           else
-               AC_MSG_ERROR([This option can only be given 'yes' or 'no' values])
-           fi
-      fi
-    ],
-    [
-       AC_MSG_RESULT([no])
-    ]
-)
-
-dnl -- Check if our GCC supports __int128
-have_int128=no
-
-AC_CHECK_TYPE([__int128], [have_int128=yes])
-
-if test x$disable_int128 = xyes;
+AC_CHECK_TYPE([__int128], [have_int128=yes], [have_int128=no])
+if test x"$enable_int128" = x"no";
 then
     have_int128=no
 fi
 
-if test x$have_int128 = xyes;
+if test x"$have_int128" = x"yes";
 then
- AC_DEFINE([HAVE_INT128], 1, [Define to 1 if __int128 is available])
+    AC_DEFINE([HAVE_INT128], 1, [Define to 1 if __int128 is available])
+    AC_DEFINE([HAVE_FORTRAN_KIND16], 1, [Define to 1 if Fortran KIND=16 is supported])
 fi
+dnl --------------------- End of __int128 support ----------------------
 
 
-dnl The idea is that we may have a software implementation of kind=16 not
-dnl relying on __int128
-if test x$have_int128 = xyes;
+dnl --------------------- __float128 & quadmath.h support ----------------------
+AC_MSG_CHECKING([if __float128 is enabled])
+AC_ARG_ENABLE([float128],
+    AS_HELP_STRING([--disable-float128], [Disables support for __float128. It also disables REAL(KIND=16) in Fortran (enabled by default]),
+    [ ], #enable_float128=$enableval
+    [ enable_float128=yes ])
+AC_MSG_RESULT($enable_float128)
+
+AC_CHECK_TYPE([__float128], [have_float128=yes], [have_float128=no])
+if test x"$enable_float128" = x"no";
 then
- AC_DEFINE([HAVE_FORTRAN_KIND16], 1, [Define to 1 if Fortran KIND=16 is supported])
+    have_float128=no
 fi
-
-dnl -- Check if our GCC supports __float128 quadmath.h and HUGE_VALQ
-have_float_128="no"
+have_float128_and_valid_quadmath_h=no
 quadmath_LIBS=""
-AC_CHECK_TYPE([__float128], [have_float_128="yes"])
-
-if test x$disable_float128 = xyes;
+if test x"$have_float128" = x"yes";
 then
-    have_float_128=no
+    AC_CHECK_HEADER([quadmath.h], [have_float128_and_valid_quadmath_h=yes], have_float128_and_valid_quadmath_h=no)
+    if test x"$have_float128_and_valid_quadmath_h" = x"yes";
+    then
+        AC_MSG_CHECKING([for __builtin_huge_valq])
+        keep_LIBS="$LIBS"
+        LIBS="-lquadmath"
+        AC_LINK_IFELSE([AC_LANG_PROGRAM([], [return __builtin_huge_valq ();])],
+            [
+                AC_DEFINE([HAVE__BUILTIN_HUGE_VALQ], 1, [Define to 1 if __builtin_huge_valq is available])
+                AC_MSG_RESULT([yes])
+            ],
+            [
+                have_float128_and_valid_quadmath_h=no
+                AC_MSG_RESULT([no])
+            ]
+        )
+        LIBS="$keep_LIBS"
+    fi
 fi
 
-
-have_quadmath_h="no"
-if test x$have_float_128 = xyes;
+if test x"$have_float128_and_valid_quadmath_h" = x"yes";
 then
-  AC_CHECK_HEADER([quadmath.h], [have_quadmath_h="yes"])
-  if test x$have_quadmath_h = xyes;
-  then
-    huge_valq="no"
-    AC_MSG_CHECKING([for __builtin_huge_valq])
-    keep_LIBS="$LIBS"
-    LIBS="-lquadmath"
-    AC_LINK_IFELSE([AC_LANG_PROGRAM([], [return __builtin_huge_valq ();])],
-            [AC_DEFINE([HAVE__BUILTIN_HUGE_VALQ], 1, [Define to 1 if __builtin_huge_valq is available])] 
-            [huge_valq="yes"]
-            [AC_MSG_RESULT([yes])],
-            [AC_MSG_RESULT([no])])
-    LIBS="$keep_LIBS"
-    if test x$huge_valq = xyes;
-    then
-        AC_DEFINE([HAVE_QUADMATH_H], 1, [Define to 1 if quadmath.h is fully useable])
-        quadmath_LIBS="-lquadmath"
-    else
-        have_float_128=no
-    fi
-  else
-    have_float_128=no
-  fi
+    AC_DEFINE([HAVE_QUADMATH_H], 1, [Define to 1 if quadmath.h is fully useable])
+    quadmath_LIBS="-lquadmath"
 fi
 
 AC_SUBST([quadmath_LIBS])
+dnl --------------------- End of __float128 & quadmath.h support ----------------------
 
 dnl Check for compliant const
 AC_C_CONST
@@ -2345,11 +2168,15 @@ print_tool "IBM XL C compiler " "$XLC"
 print_tool "IBM XL C++ compiler " "$XLCXX"
 print_tool "IBM XL Fortran compiler " "$XLF"
 
+print_tool "Cray C compiler " "$CRAYCC"
+print_tool "Cray C++ compiler " "$CRAYCXX"
+print_tool "Cray Fortran compiler " "$CRAYFC"
+
 echo ""
 
 echo " * Default type environment : " $default_type_environ
 echo ""
-echo "   Host supports __float128 and quadmath.h : " $have_float_128
+echo "   Host supports __float128 and quadmath.h : " $have_float128_and_valid_quadmath_h
 echo "   Host supports __int128 : " $have_int128
 echo "   SIMD Support: " $simd_version $simd_math_version
 echo "   Intel Xeon Phi compilation support: " $mic_compilation
@@ -2373,18 +2200,6 @@ then
   then
      AC_MSG_WARN([directory '${nanox_include}' does not seem to exist, compilation is likely to fail])
   fi
-
-  echo ""
-  if test "$nanox_pm_selection" = "new";
-  then
-      nanox_pm_selection_desc="new, more portable"
-  elif test "$nanox_pm_selection" = "old";
-  then
-      nanox_pm_selection_desc="old, less portable"
-  else
-      nanox_pm_selection_desc="error"
-  fi
-  echo "   Nanos++ Prog.Model. Selection Mechanism:" $nanox_pm_selection_desc
 fi
 
 echo ""

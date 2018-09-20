@@ -73,13 +73,13 @@ omp_dr_operator : '+'
 | USER_DEFINED_OPERATOR
 ;
 
-omp_dr_typename : declaration_type_spec
+omp_dr_typename : type_spec
 {
     $$ = $1;
 }
 ;
 
-omp_dr_combiner : name '=' expr
+omp_dr_combiner : data_ref '=' expr
 {
     $$ = ASTMake2(AST_ASSIGNMENT, $1, $3, ast_get_locus($1), NULL);
 }
