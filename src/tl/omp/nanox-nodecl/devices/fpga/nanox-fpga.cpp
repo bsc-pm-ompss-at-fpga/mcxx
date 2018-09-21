@@ -117,7 +117,7 @@ Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectLis
         // If argument is pointer or array, get physical address
         if (field_type.is_pointer() || field_type.is_array()) {
             fpga_outline
-                << field_name << "." << unpacked_argument.get_name() << " = nanos_fpga_get_phy_address((void *)" << unpacked_argument.get_name() << ");"
+                << field_name << "." << unpacked_argument.get_name() << " = ("<<  as_type(unpacked_argument.get_type().no_ref()) << ")nanos_fpga_get_phy_address((void *)" << unpacked_argument.get_name() << ");"
             ;
         } else {
             fpga_outline
