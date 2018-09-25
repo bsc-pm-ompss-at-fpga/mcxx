@@ -76,18 +76,20 @@ Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectLis
 
         TL::Symbol outline_data_item_sym = data_items[param_pos]->get_symbol();
         TL::Type field_type = data_items[param_pos]->get_field_type();
+        const std::string &field_name = outline_data_item_sym.get_name();
+        Scope scope = data_items[param_pos]->get_symbol().get_scope();
+        std::string arg_simple_decl = field_type.get_simple_declaration(scope, unpacked_argument.get_name());
 
         // If the outline data item has not a valid symbol, skip it
-        if (!outline_data_item_sym.is_valid()) {
+        if (!outline_data_item_sym.is_valid() or field_type.get_size() > sizeof(uint64_t)) {
             #if _DEBUG_AUTOMATIC_COMPILER_
-                std::cerr << "Argument " << unpacked_argument.get_name() << " is not valid" << std::endl;
+                std::cerr << "Argument " << param_pos << ": " << arg_simple_decl << " is not valid" << std::endl << std::endl;
             #endif
 
-            continue;
+            fatal_error("Non-valid argument in FPGA task. Data type must be at most 64-bit wide\n");
         }
 
         const ObjectList<OutlineDataItem::CopyItem> &copies = data_items[param_pos]->get_copies();
-        Scope scope = data_items[param_pos]->get_symbol().get_scope();
         bool in_type, out_type;
 
         in_type = false;
@@ -102,9 +104,6 @@ Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectLis
                 out_type = in_type;
             }
         }
-
-        const std::string &field_name = outline_data_item_sym.get_name();
-        std::string arg_simple_decl = field_type.get_simple_declaration(scope, unpacked_argument.get_name());
 
         // Create union in order to reinterpret argument as a uint64_t
         fpga_outline
@@ -131,7 +130,7 @@ Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectLis
         ;
 
 #if _DEBUG_AUTOMATIC_COMPILER_
-        std::cerr << "Adding argument number " << param_pos << ": " << arg_simple_decl << std::endl << std::endl;
+        std::cerr << "Adding argument " << param_pos << ": " << arg_simple_decl << std::endl << std::endl;
 #endif
     }
 
