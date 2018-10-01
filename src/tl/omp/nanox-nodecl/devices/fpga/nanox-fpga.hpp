@@ -83,10 +83,12 @@ namespace TL
                 std::string _vivado_project_name;
                 std::string _ip_cache_path;
                 std::string _dataflow;
-                std::string _fpga_task_creation;
+                std::string _fpga_task_creation_str;
                 bool        _bitstream_generation;
+                bool        _fpga_task_creation;
 
                 void set_bitstream_generation_from_str(const std::string& str);
+                void set_fpga_task_creation_from_str(const std::string& str);
 
                 std::string _acc_type;
                 std::string _num_acc_instances;

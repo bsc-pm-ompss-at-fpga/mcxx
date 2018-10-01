@@ -82,7 +82,7 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
 
     const TL::Symbol& arguments_struct = info._arguments_struct;
     const TL::Symbol& called_task = info._called_task;
-    bool creates_children_tasks = _fpga_task_creation == "ON"; //TODO: Check if this is true or false
+    bool creates_children_tasks = _fpga_task_creation;
 
     lowering->seen_fpga_task = true;
 
@@ -521,8 +521,8 @@ DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_gener
 
     register_parameter("fpga_task_creation",
         "This is the parameter to add the task creation infrastructure in each FPGA accelerator:ON/OFF",
-        _fpga_task_creation,
-        "OFF");
+        _fpga_task_creation_str,
+        "0").connect(std::bind(&DeviceFPGA::set_fpga_task_creation_from_str, this, std::placeholders::_1));
 }
 
 void DeviceFPGA::pre_run(DTO& dto) {
@@ -1150,7 +1150,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     ObjectList<Symbol> param_list = called_task.get_function_parameters();
     int size = num_parameters(param_list);
     char function_parameters_passed[size];
-    bool creates_children_tasks = _fpga_task_creation == "ON";
+    bool creates_children_tasks = _fpga_task_creation;
 
     memset(function_parameters_passed, 0, size);
 
@@ -1984,6 +1984,11 @@ void DeviceFPGA::set_bitstream_generation_from_str(const std::string& in_str)
     // NOTE: Support "ON" as "1"
     std::string str = in_str == "ON" ? "1" : in_str;
     TL::parse_boolean_option("bitstream_generation", str, _bitstream_generation, "Assuming false.");
+}
+
+void DeviceFPGA::set_fpga_task_creation_from_str(const std::string& str)
+{
+    TL::parse_boolean_option("fpga_task_creation", str, _fpga_task_creation, "Assuming false.");
 }
 
 EXPORT_PHASE(TL::Nanox::DeviceFPGA);
