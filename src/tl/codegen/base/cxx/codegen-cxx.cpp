@@ -2838,7 +2838,7 @@ CxxBase::Ret CxxBase::visit(const Nodecl::FunctionCode& node)
         // gcc does not like asm specifications appear in the
         // function-definition so emit a declaration before the definition
         indent();
-        if (CURRENT_CONFIGURATION->xl_compatibility)
+        if (CURRENT_CONFIGURATION->native_vendor == NATIVE_VENDOR_IBM)
         {
             // IBM XL is very picky regarding attribute location
             *(file) << gcc_extension << decl_spec_seq << declarator
@@ -3667,7 +3667,35 @@ CxxBase::Ret CxxBase::visit(const Nodecl::ReturnStatement& node)
     emit_line_marker(node);
     indent();
     *(file) << "return ";
-    walk(expression);
+
+    // The epression may be invalid (i.e. empty return statements)
+    if (!expression.is_null())
+    {
+        TL::Scope enclosing_function_scope = expression.retrieve_context();
+        TL::Symbol function_symbol(enclosing_function_scope.get_decl_context()->block_scope->related_entry);
+
+        TL::Type return_type = function_symbol.get_type().returns();
+
+        bool is_non_ref = is_non_language_reference_type(return_type);
+        bool extra_parentheses = false;
+        if (is_non_ref)
+        {
+            if (!return_type.no_ref().is_array())
+            {
+                extra_parentheses = true;
+                *(file) << "&";
+            }
+        }
+
+        if (extra_parentheses)
+            *(file) << "(";
+
+        walk(expression);
+
+        if (extra_parentheses)
+            *(file) << ")";
+    }
+
     *(file) << ";\n";
 }
 
@@ -6676,7 +6704,7 @@ void CxxBase::define_or_declare_variable(TL::Symbol symbol, bool is_definition)
 
     if (symbol.has_gcc_attributes())
     {
-        if (CURRENT_CONFIGURATION->xl_compatibility)
+        if (CURRENT_CONFIGURATION->native_vendor == NATIVE_VENDOR_IBM)
         {
             gcc_attributes = " " + gcc_attributes_to_str(symbol);
         }
@@ -6720,7 +6748,7 @@ void CxxBase::define_or_declare_variable(TL::Symbol symbol, bool is_definition)
         }
     }
 
-    if (CURRENT_CONFIGURATION->xl_compatibility)
+    if (CURRENT_CONFIGURATION->native_vendor == NATIVE_VENDOR_IBM)
     {
         // IBM XL C/C++ only understands attributes before the initializer...
         *(file) << gcc_extension << decl_specifiers << std_attributes << declarator << gcc_attributes << virt_specifiers << bit_field;
@@ -7494,7 +7522,7 @@ void CxxBase::do_declare_symbol(TL::Symbol symbol,
         }
 
         indent();
-        if (CURRENT_CONFIGURATION->xl_compatibility)
+        if (CURRENT_CONFIGURATION->native_vendor == NATIVE_VENDOR_IBM)
         {
             // IBM XL requires asm_specification after the attributes, just the opposite
             // as GCC

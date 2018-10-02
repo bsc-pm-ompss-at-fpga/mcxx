@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------
-  (C) Copyright 2006-2015 Barcelona Supercomputing Center
+  (C) Copyright 2006-2012 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
   
   This file is part of Mercurium C/C++ source-to-source compiler.
@@ -25,19 +25,15 @@
 --------------------------------------------------------------------*/
 
 
-
-#ifndef TL_ATOMICS_HPP
-#define TL_ATOMICS_HPP
-
-#include"tl-nodecl.hpp"
-
-namespace TL {
-
-    bool allowed_expression_atomic(Nodecl::NodeclBase expr, bool &using_builtin, bool &using_nanos_api);
-
-    Nodecl::NodeclBase compare_and_exchange(Nodecl::NodeclBase expr);
-
-    Nodecl::NodeclBase builtin_atomic_int_op(Nodecl::NodeclBase expr);
+/*
+<testinfo>
+test_generator=config/mercurium-ompss-2
+test_nolink=yes
+</testinfo>
+*/
+void bar()
+{
+    int v[10][10];
+    #pragma oss task inout({v[i][j], i=0:9, j=0:i})
+    {}
 }
-
-#endif // TL_ATOMICS_HPP

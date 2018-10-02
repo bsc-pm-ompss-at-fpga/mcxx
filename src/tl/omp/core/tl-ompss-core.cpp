@@ -796,13 +796,18 @@ namespace TL { namespace OpenMP {
             _openmp_info->get_new_data_environment(construct);
         _openmp_info->push_current_data_environment(data_environment);
 
+        ObjectList<Symbol> extra_symbols;
+
+        // Note: 'statements' can't be empty so we reuse pragma_line
+        get_reduction_explicit_attributes(
+                pragma_line, /* statements */ pragma_line,
+                data_environment, extra_symbols);
+
         bool there_is_default_clause = false;
         DataSharingAttribute default_data_attr = get_default_data_sharing(pragma_line,
                 /* fallback */ DS_UNDEFINED,
                 there_is_default_clause,
                 /*allow_default_auto*/ true);
-
-        ObjectList<Symbol> extra_symbols;
 
         handle_task_dependences(
                 pragma_line, /* parsing_scope */ pragma_line,
@@ -820,11 +825,13 @@ namespace TL { namespace OpenMP {
         _openmp_info->pop_current_data_environment();
     }
 
+    //! Default implementation of the OmpSs-2 loop construct as if it was a taskloop
     void Core::oss_loop_handler_pre(TL::PragmaCustomStatement construct)
     {
         taskloop_handler_pre(construct);
     }
 
+    //! Default implementation of the OmpSs-2 loop construct as if it was a taskloop
     void Core::oss_loop_handler_post(TL::PragmaCustomStatement construct)
     {
         taskloop_handler_post(construct);

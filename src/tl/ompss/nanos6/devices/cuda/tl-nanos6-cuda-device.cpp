@@ -137,16 +137,20 @@ Nodecl::NodeclBase get_grid_member_initialization(
 
 
 Nodecl::NodeclBase CUDADevice::compute_specific_task_body(
-        Nodecl::NodeclBase task_body, const DirectiveEnvironment &env) const
+        Nodecl::NodeclBase task_body,
+        const DirectiveEnvironment &env,
+        Nodecl::NodeclBase unpacked_function_code,
+        const TL::Scope &unpacked_inside_scope,
+        Nodecl::Utils::SimpleSymbolMap &symbol_map)
 {
-    if (!env.task_is_taskcall)
+    if (!env.task_is_taskcall // If it's an inline task
+            || env.ndrange.empty()) // or it's an outline task without the 'ndrange' clause
     {
-        return task_body.shallow_copy();
+        return Device::compute_specific_task_body(task_body, env, unpacked_function_code, unpacked_inside_scope, symbol_map);
     }
     else
     {
-        Nodecl::NodeclBase new_task_body = Nodecl::Utils::deep_copy(task_body, task_body);
-
+        Nodecl::NodeclBase new_task_body = task_body.shallow_copy();
         Nodecl::NodeclBase context = new_task_body.as<Nodecl::List>().front();
         ERROR_CONDITION(!context.is<Nodecl::Context>(), "Unexpected node\n", 0);
         Nodecl::NodeclBase compound_statement = context.as<Nodecl::Context>().get_in_context().as<Nodecl::List>().front();
@@ -155,6 +159,14 @@ Nodecl::NodeclBase CUDADevice::compute_specific_task_body(
         ERROR_CONDITION(!expr_stmt.is<Nodecl::ExpressionStatement>(), "Unexpected node\n", 0);
         Nodecl::NodeclBase function_call = expr_stmt.as<Nodecl::ExpressionStatement>().get_nest();
         ERROR_CONDITION(!function_call.is<Nodecl::FunctionCall>(), "Unexpected node\n", 0);
+
+        if (IS_CXX_LANGUAGE)
+        {
+            Nodecl::NodeclBase called = function_call.as<Nodecl::FunctionCall>().get_called();
+            ERROR_CONDITION(function_call.is<Nodecl::Symbol>(), "Unexpected node\n", 0);
+            unpacked_function_code.prepend_sibling(
+                    Nodecl::CxxDecl::make(/* context */ Nodecl::NodeclBase::null(), called.as<Nodecl::Symbol>().get_symbol()));
+        }
 
         TL::Symbol dim3_struct = TL::Scope::get_global_scope().get_symbol_from_name("dim3");
         TL::Type dim3_type = dim3_struct.get_user_defined_type();
@@ -227,6 +239,37 @@ Nodecl::NodeclBase CUDADevice::compute_specific_task_body(
         expr_stmt.prepend_sibling(get_block_member_initialization(dim_block, dim3_z, globals[2], locals[2]));
         expr_stmt.prepend_sibling(get_grid_member_initialization(dim_grid, dim3_z, globals[2], locals[2]));
 
+
+        Nodecl::NodeclBase stream_expr;
+        {
+            TL::Symbol device_env = unpacked_inside_scope.get_symbol_from_name("device_env");
+
+            TL::Symbol dev_env_type_symbol =
+                TL::Scope::get_global_scope().get_symbol_from_name("nanos6_cuda_device_environment_t");
+            ERROR_CONDITION(!dev_env_type_symbol.is_valid(), "Invalid 'nanos6_cuda_device_environment_t' type", 0);
+
+            // Adding a definition of the nanos6_cuda_device_environment_t type
+            _cuda_code.prepend(Nodecl::CxxDef::make(Nodecl::NodeclBase::null(), dev_env_type_symbol));
+
+            stream_expr = Nodecl::Conversion::make(
+                    device_env.make_nodecl(/* ref_type */true),
+                    dev_env_type_symbol.get_user_defined_type().get_pointer_to());
+            stream_expr.set_text("C");
+
+            TL::ObjectList<TL::Symbol> fields = dev_env_type_symbol.get_type().get_nonstatic_data_members();
+
+            TL::ObjectList<TL::Symbol> aux = fields.find<std::string>(&TL::Symbol::get_name, "stream");
+            ERROR_CONDITION(aux.size() == 0, "'stream' member was not found", 0);
+
+            stream_expr = Nodecl::ClassMemberAccess::make(
+                    Nodecl::Dereference::make(
+                        stream_expr,
+                        stream_expr.get_type().points_to().get_lvalue_reference_to()),
+                    aux[0].make_nodecl(/* ref_type */true),
+                    /* member_literal */ Nodecl::NodeclBase::null(),
+                    aux[0].get_type().get_lvalue_reference_to());
+        }
+
         Nodecl::NodeclBase empty_stmt = Nodecl::EmptyStatement::make();
         expr_stmt.prepend_sibling(empty_stmt);
         Nodecl::Utils::remove_from_enclosing_list(expr_stmt);
@@ -234,7 +277,9 @@ Nodecl::NodeclBase CUDADevice::compute_specific_task_body(
         Nodecl::NodeclBase kernel_call = Nodecl::CudaKernelCall::make(
                 Nodecl::List::make(
                     dim_grid.make_nodecl(/*ref_type */ true),
-                    dim_block.make_nodecl( /*ref_type*/ true)),
+                    dim_block.make_nodecl( /*ref_type*/ true),
+                    const_value_to_nodecl(const_value_get_zero(4, 1)),
+                    stream_expr),
                 function_call,
                 function_call.get_type());
 
@@ -242,7 +287,7 @@ Nodecl::NodeclBase CUDADevice::compute_specific_task_body(
 
         empty_stmt.replace(expr_stmt);
 
-        return new_task_body;
+        return Nodecl::Utils::deep_copy(new_task_body, unpacked_inside_scope, symbol_map);
     }
 }
 

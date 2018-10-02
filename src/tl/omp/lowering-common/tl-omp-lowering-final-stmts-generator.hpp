@@ -24,30 +24,34 @@
   Cambridge, MA 02139, USA.
 --------------------------------------------------------------------*/
 
-#ifndef TL_FINAL_STMTS_GENERATOR_HPP
-#define TL_FINAL_STMTS_GENERATOR_HPP
+#ifndef TL_OMP_LOWERING_FINAL_STMTS_GENERATOR_HPP
+#define TL_OMP_LOWERING_FINAL_STMTS_GENERATOR_HPP
 
 #include "tl-nodecl-visitor.hpp"
 #include "tl-nodecl-utils.hpp"
 
 #include <map>
+#include <string>
 
-namespace TL {
+namespace TL { namespace OpenMP  { namespace Lowering {
 
     class FinalStmtsGenerator : public Nodecl::ExhaustiveVisitor<void>
     {
         private:
             bool _ompss_mode;
+            const std::string _in_final_fun_name;
             std::map<Nodecl::NodeclBase, Nodecl::NodeclBase> _final_stmts_map;
             Nodecl::Utils::SimpleSymbolMap _function_translation_map;
 
         public:
-            FinalStmtsGenerator(bool ompss_mode);
+
+            //! The second parameter represents a runtime function that checks
+            //! whether the current task is a final task
+            FinalStmtsGenerator(bool ompss_mode, const std::string &in_final_fun_name);
 
             void visit(const Nodecl::OmpSs::Loop &loop);
             void visit(const Nodecl::OmpSs::TaskCall &task_call);
             void visit(const Nodecl::OmpSs::TaskExpression &task_expr);
-            void visit(const Nodecl::OpenMP::For &for_construct);
             void visit(const Nodecl::OpenMP::Task &task);
             void visit(const Nodecl::OpenMP::Taskloop &taskloop);
 
@@ -56,6 +60,5 @@ namespace TL {
         private:
             Nodecl::NodeclBase generate_final_stmts(Nodecl::NodeclBase original_stmts);
     };
-
-}
-#endif // TL_FINAL_STMTS_GENERATOR_HPP
+}}}
+#endif // TL_OMP_LOWERING_FINAL_STMTS_GENERATOR_HPP

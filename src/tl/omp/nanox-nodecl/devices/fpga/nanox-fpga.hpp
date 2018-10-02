@@ -126,6 +126,7 @@ namespace TL
                         Source& called_source,
                         Source& wrapper_after
                         );
+                Source gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectList<OutlineDataItem*> data_items);
                 bool task_has_scalars(TL::ObjectList<OutlineDataItem*> &);
 //                void copy_symbols_to_device_file( const TL::ObjectList<Nodecl::NodeclBase>& stuff_to_be_copied);
                 void copy_stuff_to_device_file_expand( const TL::ObjectList<Nodecl::NodeclBase> stuff_to_be_copied);

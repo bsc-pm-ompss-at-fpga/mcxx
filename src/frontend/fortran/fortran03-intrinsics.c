@@ -1641,7 +1641,6 @@ static void fortran_init_specific_names(const decl_context_t* decl_context)
     REGISTER_SPECIFIC_INTRINSIC_2("atan2", "atan2", fortran_get_default_real_type(), fortran_get_default_real_type());
     REGISTER_SPECIFIC_INTRINSIC_1("cabs", "abs", get_complex_type(fortran_get_default_real_type()));
     REGISTER_SPECIFIC_INTRINSIC_1("ccos", "cos", get_complex_type(fortran_get_default_real_type()));
-    REGISTER_SPECIFIC_INTRINSIC_1("cdcos", "cos", get_complex_type(fortran_get_doubleprecision_type()));
     REGISTER_SPECIFIC_INTRINSIC_1("cexp", "exp", get_complex_type(fortran_get_default_real_type()));
     REGISTER_SPECIFIC_INTRINSIC_2("char", "char", fortran_get_default_integer_type(), NULL);
     REGISTER_SPECIFIC_INTRINSIC_1("clog", "log", get_complex_type(fortran_get_default_real_type()));
@@ -1717,11 +1716,19 @@ static void fortran_init_specific_names(const decl_context_t* decl_context)
     // Non standard stuff
     // Very old (normally from g77) intrinsics
     REGISTER_SPECIFIC_INTRINSIC_1("cdabs", "abs", get_complex_type(fortran_get_doubleprecision_type()));
-    REGISTER_SPECIFIC_INTRINSIC_1("zabs", "abs", get_complex_type(fortran_get_doubleprecision_type()));
+    REGISTER_SPECIFIC_INTRINSIC_1("cdcos", "cos", get_complex_type(fortran_get_doubleprecision_type()));
+    REGISTER_SPECIFIC_INTRINSIC_1("cdexp", "exp", get_complex_type(fortran_get_doubleprecision_type()));
+    REGISTER_SPECIFIC_INTRINSIC_1("cdsin", "sin", get_complex_type(fortran_get_doubleprecision_type()));
+    REGISTER_SPECIFIC_INTRINSIC_1("cdsqrt", "sqrt", get_complex_type(fortran_get_doubleprecision_type()));
     REGISTER_SPECIFIC_INTRINSIC_1("dconjg", "conjg", get_complex_type(fortran_get_doubleprecision_type()));
-    REGISTER_SPECIFIC_INTRINSIC_1("dimag", "aimag", get_complex_type(fortran_get_doubleprecision_type()));
     REGISTER_SPECIFIC_INTRINSIC_1("derf", "erf", fortran_get_doubleprecision_type());
     REGISTER_SPECIFIC_INTRINSIC_1("derfc", "erfc", fortran_get_doubleprecision_type());
+    REGISTER_SPECIFIC_INTRINSIC_1("dimag", "aimag", get_complex_type(fortran_get_doubleprecision_type()));
+    REGISTER_SPECIFIC_INTRINSIC_1("zabs", "abs", get_complex_type(fortran_get_doubleprecision_type()));
+    REGISTER_SPECIFIC_INTRINSIC_1("zcos", "cos", get_complex_type(fortran_get_doubleprecision_type()));
+    REGISTER_SPECIFIC_INTRINSIC_1("zexp", "exp", get_complex_type(fortran_get_doubleprecision_type()));
+    REGISTER_SPECIFIC_INTRINSIC_1("zsin", "sin", get_complex_type(fortran_get_doubleprecision_type()));
+    REGISTER_SPECIFIC_INTRINSIC_1("zsqrt", "sqrt", get_complex_type(fortran_get_doubleprecision_type()));
 
     REGISTER_CUSTOM_INTRINSIC_2("getenv", get_void_type(), fortran_get_default_character_type(), 
             fortran_get_default_character_type());
@@ -1961,7 +1968,7 @@ scope_entry_t* compute_intrinsic_allocated_1(scope_entry_t* symbol UNUSED_PARAME
     scope_entry_t* entry = NULL;
 
     if (!nodecl_is_null(argument_expressions[0])
-            && (entry = nodecl_get_symbol(argument_expressions[0])))
+            && (entry = fortran_data_ref_get_symbol(argument_expressions[0])))
     {
         if (entry != NULL
                 && !fortran_is_array_type(entry->type_information)
@@ -3318,9 +3325,18 @@ scope_entry_t* compute_intrinsic_getcwd(scope_entry_t* symbol UNUSED_PARAMETER,
         }
         else if (num_arguments == 1)
         {
-            return GET_INTRINSIC_TRANSFORMATIONAL(symbol, "getcwd",
-                    fortran_get_default_integer_type(),
-                    lvalue_ref(t0));
+            if (solving_call_statement)
+            {
+                return GET_INTRINSIC_IMPURE(symbol, "getcwd",
+                        /* subroutine */ get_void_type(),
+                        lvalue_ref(t0));
+            }
+            else
+            {
+                return GET_INTRINSIC_TRANSFORMATIONAL(symbol, "getcwd",
+                        fortran_get_default_integer_type(),
+                        lvalue_ref(t0));
+            }
         }
     }
     return NULL;
@@ -5585,9 +5601,18 @@ scope_entry_t* compute_intrinsic_chdir(scope_entry_t* symbol UNUSED_PARAMETER,
         }
         else if (num_arguments == 1)
         {
-            return GET_INTRINSIC_TRANSFORMATIONAL(symbol, "chdir",
-                    fortran_get_default_integer_type(),
-                    lvalue_ref(t0));
+            if (solving_call_statement)
+            {
+                return GET_INTRINSIC_IMPURE(symbol, "chdir",
+                        /* subroutine */ get_void_type(),
+                        lvalue_ref(t0));
+            }
+            else
+            {
+                return GET_INTRINSIC_TRANSFORMATIONAL(symbol, "chdir",
+                        fortran_get_default_integer_type(),
+                        lvalue_ref(t0));
+            }
         }
     }
     return NULL;

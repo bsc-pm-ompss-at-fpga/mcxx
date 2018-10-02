@@ -25,8 +25,8 @@
 --------------------------------------------------------------------*/
 
 
-#ifndef TL_NANOS6_DIRECTIVE_ENVIRONMENT_HPP
-#define TL_NANOS6_DIRECTIVE_ENVIRONMENT_HPP
+#ifndef TL_OMP_LOWERING_DIRECTIVE_ENVIRONMENT_HPP
+#define TL_OMP_LOWERING_DIRECTIVE_ENVIRONMENT_HPP
 
 #include "tl-nodecl.hpp"
 #include "tl-type.hpp"
@@ -34,7 +34,7 @@
 
 #include "tl-omp-reduction.hpp"
 
-namespace TL { namespace Nanos6 {
+namespace TL { namespace OpenMP { namespace Lowering {
 
     //! It represents all the information that we need to keep in order to
     //! support task reductions
@@ -43,9 +43,12 @@ namespace TL { namespace Nanos6 {
         TL::Symbol symbol;
         TL::Type reduction_type;
         TL::OpenMP::Reduction* reduction_info;
+        bool is_weak;
 
-        ReductionItem(TL::Symbol sym, TL::Type red_type, TL::OpenMP::Reduction* red_info)
-            : symbol(sym), reduction_type(red_type), reduction_info(red_info)
+        ReductionItem(TL::Symbol sym, TL::Type red_type,
+                TL::OpenMP::Reduction* red_info, bool weak)
+            : symbol(sym), reduction_type(red_type),
+            reduction_info(red_info), is_weak(weak)
         { }
 
         TL::Symbol get_symbol() const
@@ -78,6 +81,7 @@ namespace TL { namespace Nanos6 {
         TL::ObjectList<Nodecl::NodeclBase> dep_commutative;
         TL::ObjectList<Nodecl::NodeclBase> dep_concurrent;
         TL::ObjectList<Nodecl::NodeclBase> dep_reduction;
+        TL::ObjectList<Nodecl::NodeclBase> dep_weakreduction;
 
         /* --------  OmpSs-2 scheduling & threshold information ------ */
         Nodecl::NodeclBase final_clause;
@@ -108,10 +112,6 @@ namespace TL { namespace Nanos6 {
 
         TL::ObjectList<TL::Symbol> _firstprivate;
 
-        //! If a symbol has a SHARED and a REDUCTION data-sharing, this
-        //! function removes the SHARED part from the directive-environment
-        void remove_redundant_data_sharings();
-
         //! OpenMP::Base marks C++'s 'this' as shared, which concepually is if
         //! it weren't because 'this' is an rvalue pointer. We should
         //! firstprivatized it instead.
@@ -130,8 +130,11 @@ namespace TL { namespace Nanos6 {
         bool symbol_has_data_sharing_attribute(TL::Symbol sym) const;
 
         friend class FirstprivateSymbolsWithoutDataSharing;
+        friend class DirectiveEnvironmentVisitor;
+
+
     };
 
-} }
-#endif // TL_NANOS6_DIRECTIVE_ENVIRONMENT_HPP
+} } }
+#endif // TL_OMP_LOWERING_DIRECTIVE_ENVIRONMENT_HPP
 
