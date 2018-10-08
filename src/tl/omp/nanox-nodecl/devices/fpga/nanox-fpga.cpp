@@ -1610,7 +1610,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                     << "\t\t\t\t\tuint64_t "<< field_name << "_task_arg;"
                     << "\t\t\t\t} mcc_arg_" << param_id << ";"
                     << "\t\t\t\tmcc_arg_" << param_id << "." << field_name << "_task_arg = " << STR_INPUTSTREAM << ".read().data;"
-                    << "\t\t\t\talpha = mcc_arg_" << param_id << "." << field_name << ";"
+                    << "\t\t\t\t" << field_name << " = mcc_arg_" << param_id << "." << field_name << ";"
                     << "\t\t\t\tbreak;"
                 ;
 
