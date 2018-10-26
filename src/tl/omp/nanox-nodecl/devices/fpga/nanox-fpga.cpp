@@ -1550,7 +1550,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 position = type_mcxx_par_decl.find("TO_CHANGE_MCXX");
                 const std::string field_port_name = STR_PREFIX + field_name;
-                std::string name_parameter_dimension = "*" + field_port_name;
+                std::string name_parameter_dimension = "(*" + field_port_name + ")";
                 std::string declaration_param_wrapper = type_mcxx_par_decl;
                 declaration_param_wrapper.replace(position, 14, name_parameter_dimension);
 
