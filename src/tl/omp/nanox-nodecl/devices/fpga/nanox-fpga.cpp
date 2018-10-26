@@ -1580,6 +1580,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 in_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
+                    << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
                     << "\t\t\t\t" << field_name << " = (" << casting_pointer << ")(" << field_port_name << " + __param/sizeof(" << casting_sizeof << "));"
                     << "\t\t\t\tbreak;"
                 ;
@@ -1711,6 +1712,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
             in_copies_aux
                 << "\t\t\tcase " << param_pos << ":\n"
+                << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
                 << "\t\t\t\t" << field_name << " = (" << type_basic_par_decl << " * " << dimensions_pointer_array << ")(" << field_port_name << " + __param/sizeof(" << type_basic_par_decl << "));"
                 << "\t\t\t\tbreak;"
             ;
