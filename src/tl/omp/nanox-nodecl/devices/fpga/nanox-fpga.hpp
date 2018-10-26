@@ -33,12 +33,17 @@
 #include "tl-devices.hpp"
 #include "tl-source.hpp"
 
-#define STR_OUTPUTSTREAM "outStream"
-#define STR_INPUTSTREAM "inStream"
-#define STR_TWSTREAM "twStream"
-#define STR_DATA "mcxx_data"
-#define STR_PREFIX "mcxx_"
-#define STR_BUS "__mcxx_bus"
+#define STR_OUTPUTSTREAM       "outStream"
+#define STR_GLOB_OUTPORT       "__mcxx_outPort"
+#define STR_INPUTSTREAM        "inStream"
+#define STR_GLOB_TWPORT        "__mcxx_twPort"
+#define STR_INSTRDATA          "mcxx_data"
+#define STR_ACCID              "accID"
+#define STR_TASKID             "__mcxx_taskId"
+#define STR_INSTRCOUNTER       "__mcxx_instrCounter"
+#define STR_INSTRBUFFER        "__mcxx_instrBuffer"
+#define STR_PREFIX             "mcxx_"
+#define STR_REAL_PARAM_PREFIX  "__mcxx_param_"
 //#define _DEBUG_AUTOMATIC_COMPILER_ 1
 
 
@@ -122,9 +127,8 @@ namespace TL
                         const TL::Symbol& func_symbol_original,
                         const TL::Symbol& func_symbol,
                         TL::ObjectList<TL::Nanox::OutlineDataItem*>&,
-                        Source& wrapper_before,
-                        Source& called_source,
-                        Source& wrapper_after
+                        Source& wrapper_decls,
+                        Source& wrapper_source
                         );
                 Source gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectList<OutlineDataItem*> data_items);
                 bool task_has_scalars(TL::ObjectList<OutlineDataItem*> &);
