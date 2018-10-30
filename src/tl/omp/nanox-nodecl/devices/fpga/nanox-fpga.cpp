@@ -1324,10 +1324,9 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     Source generic_initial_code;
 
     in_copies_aux
-        << "\t\t__copyFlags_id = read_stream(" << STR_INPUTSTREAM << ");"
+        << "\t\t__copyFlags_id = " << STR_INPUTSTREAM << ".read().data;"
         << "\t\t__copyFlags = __copyFlags_id;"
         << "\t\t__param_id = __copyFlags_id >> 32;"
-	<< "\t\t__param = read_stream(" << STR_INPUTSTREAM << ");"
         << "\t\tswitch (__param_id) {"
     ;
 
@@ -1479,6 +1478,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 in_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
+                    << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
                     << "\t\t\t\tif(__copyFlags[4])\n"
                     << "\t\t\t\t\tmemcpy(" << field_name << ", (const " << type_basic_par_decl << " *)(" << field_port_name_i << " + __param/sizeof(" << type_basic_par_decl << ")), " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
                     << "\t\t\t\t__copyFlags_id_out[" << n_params_out << "] = __copyFlags_id;"
@@ -1517,10 +1517,10 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 in_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
+                    << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
                     << "\t\t\t\tif(__copyFlags[4])\n"
                     << "\t\t\t\t\tmemcpy(" << field_name << ", (const " << type_basic_par_decl << " *)(" << field_port_name << " + __param/sizeof(" << type_basic_par_decl << ")), " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
                 ;
-
 
                 n_params_in++;
                 n_params_id++;
@@ -1547,7 +1547,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                 in_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
                     << "\t\t\t\t__copyFlags_id_out[" << n_params_out << "] = __copyFlags_id;"
-                    << "\t\t\t\t__param_out[" << n_params_out << "] = __param;"
+                    << "\t\t\t\t__param_out[" << n_params_out << "] = " << STR_INPUTSTREAM << ".read().data;"
                 ;
 
                 out_copies_aux
@@ -1638,7 +1638,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 position = type_mcxx_par_decl.find("TO_CHANGE_MCXX");
                 const std::string field_port_name = STR_PREFIX + field_name;
-                std::string name_parameter_dimension = "*" + field_port_name;
+                std::string name_parameter_dimension = "(*" + field_port_name + ")";
                 std::string declaration_param_wrapper = type_mcxx_par_decl;
                 declaration_param_wrapper.replace(position, 14, name_parameter_dimension);
 
@@ -1668,6 +1668,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 in_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
+                    << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
                     << "\t\t\t\t" << field_name << " = (" << casting_pointer << ")(" << field_port_name << " + __param/sizeof(" << casting_sizeof << "));"
                 ;
 
@@ -1711,7 +1712,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                     << "\t\t\t\t\t" << basic_par_type_decl << " " << field_name << ";"
                     << "\t\t\t\t\tuint64_t "<< field_name << "_task_arg;"
                     << "\t\t\t\t} mcc_arg_" << param_id << ";"
-                    << "\t\t\t\tmcc_arg_" << param_id << "." << field_name << "_task_arg = __param;"
+                    << "\t\t\t\tmcc_arg_" << param_id << "." << field_name << "_task_arg = " << STR_INPUTSTREAM << ".read().data;"
                     << "\t\t\t\t" << field_name << " = mcc_arg_" << param_id << "." << field_name << ";"
                     << "\t\t\t\tbreak;"
                 ;
@@ -1817,6 +1818,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
             in_copies_aux
                 << "\t\t\tcase " << param_pos << ":\n"
+                << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
                 << "\t\t\t\t" << field_name << " = (" << type_basic_par_decl << " * " << dimensions_pointer_array << ")(" << field_port_name << " + __param/sizeof(" << type_basic_par_decl << "));"
             ;
 
@@ -1906,10 +1908,10 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     }
 
     generic_initial_code
-        << "\t" << STR_TASKID << " = read_stream(" << STR_INPUTSTREAM << ");"
-        << "\t" << STR_INSTRCOUNTER << " = read_stream(" << STR_INPUTSTREAM << ");"
-        << "\t" << STR_INSTRBUFFER << " = read_stream(" << STR_INPUTSTREAM << ");"
-        << "\t__accHeader = read_stream(" << STR_INPUTSTREAM << ");"
+        << "\t" << STR_TASKID << " = " << STR_INPUTSTREAM << ".read().data;"
+        << "\t" << STR_INSTRCOUNTER << " = " << STR_INPUTSTREAM << ".read().data;"
+        << "\t" << STR_INSTRBUFFER << " = " << STR_INPUTSTREAM << ".read().data;"
+        << "\t__accHeader = " << STR_INPUTSTREAM << ".read().data;"
         << "\t__comp_needed = __accHeader;"
         << "\t__destID = __accHeader>>32;"
     ;
@@ -1917,7 +1919,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     sync_output_code
         << "\tend_task: {"
         << "\t#pragma HLS PROTOCOL fixed\n"
-        << "\t\tend_acc_task(outStream, __destID);"
+        << "\t\tend_acc_task(" << STR_OUTPUTSTREAM << ", __destID);"
         << "\t}"
         << " "
     ;
