@@ -199,10 +199,10 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
                     << "\t__data.data = data;"
                     << "\tstream.write(__data);"
                     << "}"
-                    << "uint64_t read_stream(axiStream_t &stream) {"
-                    << "#pragma HLS INTERFACE axis port=stream\n"
-                    << "\treturn stream.read().data;"
-                    << "}"
+                    //<< "uint64_t read_stream(axiStream_t &stream) {"
+                    //<< "#pragma HLS INTERFACE axis port=stream\n"
+                    //<< "\treturn stream.read().data;"
+                    //<< "}"
                 ;
 
                 if (instrumentation_enabled())
