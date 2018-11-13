@@ -44,6 +44,15 @@
 #define STR_INSTRBUFFER        "__mcxx_instrBuffer"
 #define STR_PREFIX             "mcxx_"
 #define STR_REAL_PARAM_PREFIX  "__mcxx_param_"
+#define STR_INSTRSLOTS         "__mcxx_instrSlots"
+#define STR_INSTRCURRENTSLOT   "__mcxx_instrCurrentSlot"
+#define STR_INSTROVERFLOW      "__mcxx_instrNumOverflow"
+#define STR_EVENTTYPE          "__mcxx_eventType"
+#define STR_EVENTSTRUCT        "__mcxx_event_t"
+#define STR_WRITEEVENT         "__mcxx_writeInstrEvent"
+#define STR_INSTREND           "__mcxx_instrEnd"
+
+
 //#define _DEBUG_AUTOMATIC_COMPILER_ 1
 
 

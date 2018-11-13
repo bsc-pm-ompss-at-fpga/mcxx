@@ -211,16 +211,58 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
                     func_aux_code
                         << "counter_t get_time() {"
                         << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRDATA << "\n"
-                        << "\tcounter_t data;"
-                        << "\tmemcpy(&data, (const void *)(" << STR_INSTRDATA << " + "
-                        << STR_INSTRCOUNTER << "/sizeof(counter_t)), sizeof(counter_t));"
-                        << "\treturn data;"
+                        << "#pragma HLS inline off\n"
+                        << "return *(" STR_INSTRDATA " + ( " STR_INSTRCOUNTER "/sizeof(counter_t)));"
                         << "}"
-                        <<  "void write_profiling_registers(counter_t * counters_src) {"
+                        //write events
+
+                        << "void " << STR_WRITEEVENT << "(uint32_t event, uint64_t val, uint32_t type) {"
+                        << "#pragma HLS inline off\n"
                         << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRDATA << "\n"
-                        <<  "\tmemcpy((void *)(" << STR_INSTRDATA << " + "
-                        << STR_INSTRBUFFER << "/sizeof(counter_t)), counters_src, 4*sizeof(counter_t));"
-                        <<  "}"
+
+                        << "\t" << STR_EVENTSTRUCT << " fpga_event;"
+                        //Save last slot for end status
+                        //In case of instrumentation buffer size = 0, do not emit events
+                        << "\tif (" << STR_INSTRCURRENTSLOT << "< (int)" << STR_INSTRSLOTS << "-1) {"
+                        << "\t\tfpga_event.eventId = ((uint64_t)type<<32) | event;"
+                        << "\t\tfpga_event.value = val;"
+                        << "\t\tfpga_event.timestamp = get_time();"
+                        << "\t\tmemcpy((void*)(mcxx_data + ((" << STR_INSTRBUFFER " + " << STR_INSTRCURRENTSLOT
+                        << " * " "sizeof(" << STR_EVENTSTRUCT << "))/sizeof(uint64_t))),"
+                        << "&fpga_event, sizeof(" << STR_EVENTSTRUCT << "));"
+                        << STR_INSTRCURRENTSLOT << "++;"
+                        << "\t} else if (" << STR_INSTRCURRENTSLOT << " == " STR_INSTRSLOTS "  -1) {" //last event overflow
+                        << "\t\t" << STR_INSTROVERFLOW << "++;"   //First time overflow=1
+                        << "\t\tfpga_event.eventId = ((uint64_t) " << STR_PREFIX << "_EVENT_TYPE_LAST << 32) | " << STR_INSTROVERFLOW << ";"
+                        << "\t\tfpga_event.value = " << STR_INSTROVERFLOW << ";"
+                        << "\t\tmemcpy((void *)(" << STR_INSTRDATA " + ((" << STR_INSTRBUFFER << " + " << STR_INSTRCURRENTSLOT << " * sizeof(" << STR_EVENTSTRUCT << "))/sizeof(uint64_t))),"
+                        << "&fpga_event, sizeof(" << STR_EVENTSTRUCT << "));"
+                        << "\t}"
+                        << "}"
+
+                        << "void nanos_instrument_burst_begin(uint32_t event, uint64_t value) {"
+                        << "#pragma HLS inline\n"
+                        << STR_WRITEEVENT << "(event, value, " << STR_PREFIX << "_EVENT_TYPE_BURST_OPEN );"
+                        << "}"
+
+                        << "void nanos_instrument_burst_end(uint32_t event, uint64_t value) {"
+                        << "#pragma HLS inline\n"
+                        << STR_WRITEEVENT << "(event, value, " << STR_PREFIX << "_EVENT_TYPE_BURST_CLOSE );"
+                        << "}"
+
+                        << "void nanos_instrument_point_event(uint32_t event, uint64_t value) {"
+                        << "#pragma HLS inline\n"
+                        << STR_WRITEEVENT << "(event, value, " << STR_PREFIX << "_EVENT_TYPE_POINT );"
+                        << "}"
+
+
+                        << "void " << STR_INSTREND << "() {"
+                        << "#pragma HLS inline\n"
+                        << STR_WRITEEVENT << "(" << STR_PREFIX << "_EVENT_TYPE_LAST, " << STR_PREFIX << "_EVENT_VAL_OK, " << STR_PREFIX << "_EVENT_TYPE_POINT );"
+                        //<< "    _emit_xtasks_ins_event(EVENT_ID_LAST, EVENT_VAL_OK, XTASKS_EVENT_TYPE_LAST);"
+                        << "}"
+
+
                     ;
                 }
 
@@ -1265,6 +1307,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         << "extern const uint8_t " << STR_ACCID << ";"
         << "static uint64_t " << STR_TASKID << ";"
         << "static uint64_t " << STR_INSTRCOUNTER << ", " << STR_INSTRBUFFER << ";"
+        << "static unsigned int " << STR_INSTRSLOTS << ", " << STR_INSTRCURRENTSLOT << ";"
+        << "static int " << STR_INSTROVERFLOW << ";"
     ;
 
     fun_params_wrapper
@@ -1280,8 +1324,24 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
     if (instrumentation_enabled())
     {
+        //instrumentation declarations/definitions
         wrapper_decls
             << "extern volatile counter_t * " << STR_INSTRDATA << ";"
+
+            << "typedef struct {"
+            << "    uint64_t eventId;"
+            << "    uint64_t value;"
+            << "    uint64_t timestamp;"
+            << "}" << STR_EVENTSTRUCT << ";"
+
+            << "typedef enum {"
+            STR_PREFIX << "_EVENT_TYPE_BURST_OPEN = 0,\n"
+            STR_PREFIX << "_EVENT_TYPE_BURST_CLOSE = 1,\n"
+            STR_PREFIX << "_EVENT_TYPE_POINT = 2,\n"
+            STR_PREFIX << "_EVENT_TYPE_LAST = 0XFFFFFFFF\n"
+            << "} " << STR_EVENTTYPE << ";"
+            << "#define " << STR_PREFIX << "_EVENT_VAL_OK   0\n"
+            << "#define " << STR_PREFIX << "_EVENT_VAL_OVERFLOW   0xFFFFFFFF\n"
         ;
 
         pragmas_src
@@ -1321,6 +1381,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     Source profiling_2;
     Source profiling_3;
     Source sync_output_decl, sync_output_code;
+    Source end_instrumentation;
     Source generic_initial_code;
 
     in_copies_aux
@@ -1877,6 +1938,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         << "\tuint32_t __comp_needed;"
         << "\tunsigned long long __param, __copyFlags_id;"
         << "\tunsigned int __param_id, __n_params_in, __n_params_out;"
+        << "\tuint64_t __bufferData;"
     ;
 
     if (n_params_out)
@@ -1887,34 +1949,47 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         ;
     }
 
+    //TODO: emit default instrumentation events
     if (instrumentation_enabled())
     {
-        profiling_0
-            << "\t__counter_reg[0] = get_time(); "
-        ;
-
-        profiling_1
-            << "\t__counter_reg[1] = get_time(); "
-        ;
-
-        profiling_2
-            << "\t__counter_reg[2] = get_time(); "
-        ;
-
-        profiling_3
-            << "\t__counter_reg[3] = get_time(); "
-            << "\twrite_profiling_registers(__counter_reg);"
-        ;
+//        profiling_0
+//            << "\t__counter_reg[0] = get_time(); "
+//        ;
+//
+//        profiling_1
+//            << "\t__counter_reg[1] = get_time(); "
+//        ;
+//
+//        profiling_2
+//            << "\t__counter_reg[2] = get_time(); "
+//        ;
+//
+//        profiling_3
+//            << "\t__counter_reg[3] = get_time(); "
+//            << "\twrite_profiling_registers(__counter_reg);"
+//        ;
     }
 
     generic_initial_code
         << "\t" << STR_TASKID << " = " << STR_INPUTSTREAM << ".read().data;"
         << "\t" << STR_INSTRCOUNTER << " = " << STR_INPUTSTREAM << ".read().data;"
-        << "\t" << STR_INSTRBUFFER << " = " << STR_INPUTSTREAM << ".read().data;"
+        << "\t__bufferData = " << STR_INPUTSTREAM << ".read().data;"
+        //<< "\t" << STR_INSTRBUFFER << " = " << STR_INPUTSTREAM << ".read().data;"
         << "\t__accHeader = " << STR_INPUTSTREAM << ".read().data;"
         << "\t__comp_needed = __accHeader;"
         << "\t__destID = __accHeader>>32;"
     ;
+
+    if (instrumentation_enabled())
+    {
+        generic_initial_code
+            << "\t" << STR_INSTRBUFFER << " = __bufferData & ((1ULL<<48)-1);" //48 lower bits
+            << "\t" << STR_INSTRSLOTS << " =__bufferData >> 48;"
+            << "\t" << STR_INSTROVERFLOW << " = 0;"
+            << "\t" << STR_INSTRCURRENTSLOT << " = 0;"
+        ;
+
+    }
 
     sync_output_code
         << "\tend_task: {"
@@ -1924,8 +1999,12 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         << " "
     ;
 
+    if (instrumentation_enabled())
+        end_instrumentation << STR_INSTREND << "();" ;
+
     sync_output_decl
         << "void end_acc_task(axiStream_t& stream, uint32_t destId) {"
+        << end_instrumentation
         << "\tuint64_t data = " << STR_ACCID << ";"
         << "\tdata = (data << 56) | (" << STR_TASKID << " & 0x00FFFFFFFFFFFFFF);"
         << "\twrite_stream(stream, data, destId, 1);"
