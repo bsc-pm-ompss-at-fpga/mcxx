@@ -698,6 +698,12 @@ void LoweringVisitor::visit_task_call_c(
 
     Nodecl::NodeclBase parameters_environment = construct.get_environment();
 
+    TaskEnvironmentVisitor task_environment;
+    task_environment.walk(parameters_environment);
+
+    bool inside_device_task = !task_environment.creation_ctx.is_null()
+            && task_environment.creation_ctx.get_text() != "smp";
+
     Nodecl::OpenMP::FunctionTaskParsingContext function_parsing_context
         = parameters_environment.as<Nodecl::List>()
         .find_first<Nodecl::OpenMP::FunctionTaskParsingContext>();
@@ -990,7 +996,8 @@ void LoweringVisitor::visit_task_call_c(
     if (!_lowering->final_clause_transformation_disabled()
             && Nanos::Version::interface_is_at_least("master", 5024)
             && arguments_outline_info.only_has_smp_or_mpi_implementations()
-            && !inside_task_expression)
+            && !inside_task_expression
+            && !inside_device_task)
     {
         std::map<Nodecl::NodeclBase, Nodecl::NodeclBase>::iterator it = _final_stmts_map.find(construct);
         ERROR_CONDITION(it == _final_stmts_map.end(), "Unreachable code", 0);
@@ -1032,9 +1039,6 @@ void LoweringVisitor::visit_task_call_c(
 
     Nodecl::NodeclBase updated_priority, updated_if_condition, updated_final_condition;
 
-    TaskEnvironmentVisitor task_environment;
-    task_environment.walk(parameters_environment);
-
     updated_priority = rewrite_expression_in_terms_of_arguments(task_environment.priority, param_to_arg_expr);
     updated_if_condition = rewrite_expression_in_terms_of_arguments(task_environment.if_condition, param_to_arg_expr);
     updated_final_condition = rewrite_expression_in_terms_of_arguments(task_environment.final_condition, param_to_arg_expr);
@@ -1064,19 +1068,45 @@ void LoweringVisitor::visit_task_call_c(
 
     enclosing_expression_statement.replace(new_code);
 
-    emit_async_common(
-            new_construct,
-            function_symbol,
-            called_sym,
-            statements,
-            updated_priority,
-            updated_if_condition,
-            updated_final_condition,
-            task_environment.task_label,
-            task_environment.is_untied,
-            arguments_outline_info,
-            &parameters_outline_info,
-            placeholder_task_expr_transformation);
+    // If the task call is done in a non-SMP context, delegate the task spawn to the context device.
+    // Otherwise (the context is not known or it is a SMP task), proceed with the common code.
+    if (inside_device_task)
+    {
+        DeviceHandler device_handler = DeviceHandler::get_device_handler();
+        const std::string parent_device_name = task_environment.creation_ctx.get_text();
+        DeviceProvider* parent_device = device_handler.get_device(parent_device_name);
+        ERROR_CONDITION(parent_device == NULL, " Device '%s' has not been loaded.", parent_device_name.c_str());
+
+        parent_device->emit_async_device(
+                new_construct,
+                function_symbol,
+                called_sym,
+                statements,
+                updated_priority,
+                updated_if_condition,
+                updated_final_condition,
+                task_environment.task_label,
+                task_environment.is_untied,
+                arguments_outline_info,
+                &parameters_outline_info,
+                placeholder_task_expr_transformation);
+    }
+    else
+    {
+        emit_async_common(
+                new_construct,
+                function_symbol,
+                called_sym,
+                statements,
+                updated_priority,
+                updated_if_condition,
+                updated_final_condition,
+                task_environment.task_label,
+                task_environment.is_untied,
+                arguments_outline_info,
+                &parameters_outline_info,
+                placeholder_task_expr_transformation);
+    }
 }
 
 
@@ -1583,6 +1613,11 @@ void LoweringVisitor::visit_task_call_fortran(
 
     TaskEnvironmentVisitor task_environment;
     task_environment.walk(new_environment);
+
+    bool inside_device_task = !task_environment.creation_ctx.is_null()
+            && task_environment.creation_ctx.get_text() != "smp";
+    ERROR_CONDITION(!inside_device_task,
+            " Support for fortran task calls inside a device task not implemented.", 0);
 
     Nodecl::Utils::SimpleSymbolMap params_to_data_items_map;
     TL::ObjectList<OutlineDataItem*> data_items = new_outline_info.get_data_items();

@@ -2174,6 +2174,33 @@ void DeviceFPGA::copy_stuff_to_device_file_expand(const TL::ObjectList<Nodecl::N
     __number_of_calls--;
 }
 
+void DeviceFPGA::emit_async_device(
+        Nodecl::NodeclBase construct,
+        TL::Symbol current_function,
+        TL::Symbol called_task,
+        Nodecl::NodeclBase statements,
+        Nodecl::NodeclBase priority_expr,
+        Nodecl::NodeclBase if_condition,
+        Nodecl::NodeclBase final_condition,
+        Nodecl::NodeclBase task_label,
+        bool is_untied,
+        OutlineInfo& outline_info,
+        /* this is non-NULL only for function tasks */
+        OutlineInfo* parameter_outline_info,
+        /* this is non-NULL only for task expressions */
+        Nodecl::NodeclBase* placeholder_task_expr_transformation)
+{
+    Source spawn_code;
+
+    spawn_code
+        << "{"
+        // TODO: Put here the call to create_task
+        << "}";
+
+    Nodecl::NodeclBase spawn_code_tree = spawn_code.parse_statement(construct);
+    construct.replace(spawn_code_tree);
+}
+
 void DeviceFPGA::set_bitstream_generation_from_str(const std::string& in_str)
 {
     // NOTE: Support "ON" as "1"

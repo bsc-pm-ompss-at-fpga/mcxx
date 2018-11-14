@@ -151,6 +151,20 @@ namespace TL
                 void preappend_list_sources_and_reset(Source outline_src, Source& full_src, TL::Scope scope);
 
                 void add_included_fpga_files(std::ostream &hls_file);
+
+                virtual void emit_async_device(
+                        Nodecl::NodeclBase construct,
+                        TL::Symbol function_symbol,
+                        TL::Symbol called_task,
+                        Nodecl::NodeclBase statements,
+                        Nodecl::NodeclBase priority_expr,
+                        Nodecl::NodeclBase if_condition,
+                        Nodecl::NodeclBase final_condition,
+                        Nodecl::NodeclBase task_label,
+                        bool is_untied,
+                        OutlineInfo& outline_info,
+                        OutlineInfo* parameter_outline_info,
+                        Nodecl::NodeclBase* placeholder_task_expr_transformation);
         };
     }
 }

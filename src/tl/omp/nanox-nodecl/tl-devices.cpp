@@ -1,23 +1,23 @@
 /*--------------------------------------------------------------------
   (C) Copyright 2006-2015 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
-  
+
   This file is part of Mercurium C/C++ source-to-source compiler.
-  
+
   See AUTHORS file in the top level directory for information
   regarding developers and contributors.
-  
+
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
   version 3 of the License, or (at your option) any later version.
-  
+
   Mercurium C/C++ source-to-source compiler is distributed in the hope
   that it will be useful, but WITHOUT ANY WARRANTY; without even the
   implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
   PURPOSE.  See the GNU Lesser General Public License for more
   details.
-  
+
   You should have received a copy of the GNU Lesser General Public
   License along with Mercurium C/C++ source-to-source compiler; if
   not, write to the Free Software Foundation, Inc., 675 Mass Ave,
@@ -233,6 +233,25 @@ namespace TL { namespace Nanox {
             << "event.value = (nanos_event_value_t) " << extra_cast << function_name_instr << ";"
             << "nanos_err = nanos_instrument_events(1, &event);"
             ;
+    }
+
+    void DeviceProvider::emit_async_device(
+            Nodecl::NodeclBase construct,
+            TL::Symbol current_function,
+            TL::Symbol called_task,
+            Nodecl::NodeclBase statements,
+            Nodecl::NodeclBase priority_expr,
+            Nodecl::NodeclBase if_condition,
+            Nodecl::NodeclBase final_condition,
+            Nodecl::NodeclBase task_label,
+            bool is_untied,
+            OutlineInfo& outline_info,
+            /* this is non-NULL only for function tasks */
+            OutlineInfo* parameter_outline_info,
+            /* this is non-NULL only for task expressions */
+            Nodecl::NodeclBase* placeholder_task_expr_transformation)
+    {
+        fatal_error("Task creation not supported for '%s' device\n", get_name().c_str());
     }
 
     // This is only for Fortran!
