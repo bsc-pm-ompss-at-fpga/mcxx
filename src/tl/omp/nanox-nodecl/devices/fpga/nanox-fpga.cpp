@@ -108,7 +108,7 @@ Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectLis
         // Create union in order to reinterpret argument as a uint64_t
         fpga_outline
             << "union {"
-            <<     arg_simple_decl << ";"
+            <<     as_type(unpacked_argument.get_type().get_unqualified_type().no_ref()) << " " << unpacked_argument.get_name() << ";"
             <<     "uint64_t " << unpacked_argument.get_name() << "_task_arg;"
             << "} " << field_name << ";"
         ;
@@ -116,7 +116,7 @@ Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectLis
         // If argument is pointer or array, get physical address
         if (field_type.is_pointer() || field_type.is_array()) {
             fpga_outline
-                << field_name << "." << unpacked_argument.get_name() << " = ("<<  as_type(unpacked_argument.get_type().no_ref()) << ")nanos_fpga_get_phy_address((void *)" << unpacked_argument.get_name() << ");"
+                << field_name << "." << unpacked_argument.get_name() << " = (" << as_type(unpacked_argument.get_type().get_unqualified_type().no_ref()) << ")nanos_fpga_get_phy_address((void *)" << unpacked_argument.get_name() << ");"
             ;
         } else {
             fpga_outline
@@ -130,7 +130,7 @@ Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectLis
         ;
 
 #if _DEBUG_AUTOMATIC_COMPILER_
-        std::cerr << "Adding argument " << param_pos << ": " << arg_simple_decl << std::endl << std::endl;
+        std::cerr << "Adding argument " << param_pos << ": " << as_type(unpacked_argument.get_type().get_unqualified_type().no_ref()) << " " << unpacked_argument.get_name() << std::endl << std::endl;
 #endif
     }
 
