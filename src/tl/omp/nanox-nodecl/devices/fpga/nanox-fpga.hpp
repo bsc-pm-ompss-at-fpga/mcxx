@@ -33,11 +33,31 @@
 #include "tl-devices.hpp"
 #include "tl-source.hpp"
 
-#define STR_OUTPUTSTREAM "outStream"
-#define STR_INPUTSTREAM "inStream"
-#define STR_DATA "mcxx_data"
-#define STR_PREFIX "mcxx_"
-#define STR_BUS "__mcxx_bus"
+#define STR_OUTPUTSTREAM       "outStream"
+#define STR_GLOB_OUTPORT       "__mcxx_outPort"
+#define STR_INPUTSTREAM        "inStream"
+#define STR_GLOB_TWPORT        "__mcxx_twPort"
+#define STR_INSTRDATA          "mcxx_data"
+#define STR_ACCID              "accID"
+#define STR_TASKID             "__mcxx_taskId"
+#define STR_INSTRCOUNTER       "__mcxx_instrCounter"
+#define STR_INSTRBUFFER        "__mcxx_instrBuffer"
+#define STR_PREFIX             "mcxx_"
+#define STR_REAL_PARAM_PREFIX  "__mcxx_param_"
+#define STR_INSTRSLOTS         "__mcxx_instrSlots"
+#define STR_INSTRCURRENTSLOT   "__mcxx_instrCurrentSlot"
+#define STR_INSTROVERFLOW      "__mcxx_instrNumOverflow"
+#define STR_EVENTTYPE          "__mcxx_eventType"
+#define STR_EVENTSTRUCT        "__mcxx_event_t"
+#define STR_WRITEEVENT         "__mcxx_writeInstrEvent"
+#define STR_INSTREND           "__mcxx_instrEnd"
+
+//Default events
+#define EV_DEVCOPYIN            77
+#define EV_DEVCOPYOUT           78
+#define EV_DEVEXEC              79
+
+
 //#define _DEBUG_AUTOMATIC_COMPILER_ 1
 
 
@@ -82,9 +102,12 @@ namespace TL
                 std::string _vivado_project_name;
                 std::string _ip_cache_path;
                 std::string _dataflow;
+                std::string _fpga_task_creation_str;
                 bool        _bitstream_generation;
+                bool        _fpga_task_creation;
 
                 void set_bitstream_generation_from_str(const std::string& str);
+                void set_fpga_task_creation_from_str(const std::string& str);
 
                 std::string _acc_type;
                 std::string _num_acc_instances;
@@ -118,9 +141,8 @@ namespace TL
                         const TL::Symbol& func_symbol_original,
                         const TL::Symbol& func_symbol,
                         TL::ObjectList<TL::Nanox::OutlineDataItem*>&,
-                        Source& wrapper_before,
-                        Source& called_source,
-                        Source& wrapper_after
+                        Source& wrapper_decls,
+                        Source& wrapper_source
                         );
                 Source gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectList<OutlineDataItem*> data_items);
                 bool task_has_scalars(TL::ObjectList<OutlineDataItem*> &);

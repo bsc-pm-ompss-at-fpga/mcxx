@@ -101,14 +101,14 @@ Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectLis
                 out_type = true;
             } else if (copies.front().directionality == OutlineDataItem::COPY_INOUT) {
                 in_type = true;
-                out_type = in_type;
+                out_type = true;
             }
         }
 
         // Create union in order to reinterpret argument as a uint64_t
         fpga_outline
             << "union {"
-            <<     arg_simple_decl << ";"
+            <<     as_type(unpacked_argument.get_type().get_unqualified_type().no_ref()) << " " << unpacked_argument.get_name() << ";"
             <<     "uint64_t " << unpacked_argument.get_name() << "_task_arg;"
             << "} " << field_name << ";"
         ;
@@ -116,7 +116,7 @@ Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectLis
         // If argument is pointer or array, get physical address
         if (field_type.is_pointer() || field_type.is_array()) {
             fpga_outline
-                << field_name << "." << unpacked_argument.get_name() << " = ("<<  as_type(unpacked_argument.get_type().no_ref()) << ")nanos_fpga_get_phy_address((void *)" << unpacked_argument.get_name() << ");"
+                << field_name << "." << unpacked_argument.get_name() << " = (" << as_type(unpacked_argument.get_type().get_unqualified_type().no_ref()) << ")nanos_fpga_get_phy_address((void *)" << unpacked_argument.get_name() << ");"
             ;
         } else {
             fpga_outline
@@ -130,7 +130,7 @@ Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectLis
         ;
 
 #if _DEBUG_AUTOMATIC_COMPILER_
-        std::cerr << "Adding argument " << param_pos << ": " << arg_simple_decl << std::endl << std::endl;
+        std::cerr << "Adding argument " << param_pos << ": " << as_type(unpacked_argument.get_type().get_unqualified_type().no_ref()) << " " << unpacked_argument.get_name() << std::endl << std::endl;
 #endif
     }
 
@@ -155,6 +155,7 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
 
     const TL::Symbol& arguments_struct = info._arguments_struct;
     const TL::Symbol& called_task = info._called_task;
+    bool creates_children_tasks = _fpga_task_creation;
 
     lowering->seen_fpga_task = true;
 
@@ -180,57 +181,146 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
 
                 TL::Symbol new_function_wrapper = SymbolUtils::new_function_symbol_for_deep_copy(called_task, called_task.get_name() + "_hls_automatic_mcxx_wrapper");
 
-                Source instrument_before, called_source, instrument_after;
+                Source wrapper_decls, wrapper_code;
 
-                DeviceFPGA::gen_hls_wrapper(called_task, new_function, new_function_wrapper, info._data_items, instrument_before, called_source, instrument_after);
+                DeviceFPGA::gen_hls_wrapper(called_task, new_function, new_function_wrapper, info._data_items, wrapper_decls, wrapper_code);
 
                 Source outline_src;
                 Source full_src;
-                Source func_syn_output_code;
-                Source func_read_profiling_code;
-                Source func_write_profiling_code;
+                Source func_aux_code;
 
-                func_syn_output_code
-                    << "void end_acc_task(hls::stream<axiData> &" << STR_OUTPUTSTREAM << ", uint8_t accID, uint32_t __destID) {"
-                    << "\taxiData __output = {0, 0xFF, 0, 0, 0, 0, 0};"
-                    << "\t__output.data = accID;"
-                    << "\t__output.dest = __destID;"
-                    << "\t__output.last = 1;"
-                    << ""
-                    << "\t" << STR_OUTPUTSTREAM << ".write(__output);"
+                func_aux_code
+                    << "void write_stream(axiStream_t &stream, uint64_t data, unsigned short dest, unsigned char last) {"
+                    << "#pragma HLS INTERFACE axis port=stream\n"
+                    << "\taxiData_t __data = {0, 0, 0, 0, 0, 0, 0};"
+                    << "\t__data.keep = 0xFF;"
+                    << "\t__data.dest = dest;"
+                    << "\t__data.last = last;"
+                    << "\t__data.data = data;"
+                    << "\tstream.write(__data);"
                     << "}"
-                    << "\n"
-                    << "\n"
+                    //<< "uint64_t read_stream(axiStream_t &stream) {"
+                    //<< "#pragma HLS INTERFACE axis port=stream\n"
+                    //<< "\treturn stream.read().data;"
+                    //<< "}"
                 ;
 
                 if (instrumentation_enabled())
                 {
-                    func_read_profiling_code
-                        << "counter_t get_time(const volatile counter_t * counter){"
-                        << "\treturn *counter;"
+                    //NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
+                    func_aux_code
+                        << "counter_t get_time() {"
+                        << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRDATA << "\n"
+                        << "#pragma HLS inline off\n"
+                        << "return *(" STR_INSTRDATA " + ( " STR_INSTRCOUNTER "/sizeof(counter_t)));"
                         << "}"
-                    ;
+                        //write events
 
-                    func_write_profiling_code
-                        <<  "void write_profiling_registers(counter_t * counter_dest, counter_t * counters_src) {"
-                        <<  "\tmemcpy(counter_dest, counters_src, 4*sizeof(counter_t));"
-                        <<  "}"
-                        <<  ""
-                        <<  ""
+                        << "void " << STR_WRITEEVENT << "(uint32_t event, uint64_t val, uint32_t type) {"
+                        << "#pragma HLS inline off\n"
+                        << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRDATA << "\n"
+
+                        << "\t" << STR_EVENTSTRUCT << " fpga_event;"
+                        //Save last slot for end status
+                        //In case of instrumentation buffer size = 0, do not emit events
+                        << "\tif (" << STR_INSTRCURRENTSLOT << "< (int)" << STR_INSTRSLOTS << "-1) {"
+                        << "\t\tfpga_event.eventId = ((uint64_t)type<<32) | event;"
+                        << "\t\tfpga_event.value = val;"
+                        << "\t\tfpga_event.timestamp = get_time();"
+                        << "\t\tmemcpy((void*)(mcxx_data + ((" << STR_INSTRBUFFER " + " << STR_INSTRCURRENTSLOT
+                        << " * " "sizeof(" << STR_EVENTSTRUCT << "))/sizeof(uint64_t))),"
+                        << "&fpga_event, sizeof(" << STR_EVENTSTRUCT << "));"
+                        << STR_INSTRCURRENTSLOT << "++;"
+                        << "\t} else if (" << STR_INSTRCURRENTSLOT << " == " STR_INSTRSLOTS "  -1) {" //last event overflow
+                        << "\t\t" << STR_INSTROVERFLOW << "++;"   //First time overflow=1
+                        << "\t\tfpga_event.eventId = ((uint64_t) " << STR_PREFIX << "_EVENT_TYPE_LAST << 32) | " << STR_INSTROVERFLOW << ";"
+                        << "\t\tfpga_event.value = " << STR_INSTROVERFLOW << ";"
+                        << "\t\tmemcpy((void *)(" << STR_INSTRDATA " + ((" << STR_INSTRBUFFER << " + " << STR_INSTRCURRENTSLOT << " * sizeof(" << STR_EVENTSTRUCT << "))/sizeof(uint64_t))),"
+                        << "&fpga_event, sizeof(" << STR_EVENTSTRUCT << "));"
+                        << "\t}"
+                        << "}"
+
+                        << "void nanos_instrument_burst_begin(uint32_t event, uint64_t value) {"
+                        << "#pragma HLS inline\n"
+                        << STR_WRITEEVENT << "(event, value, " << STR_PREFIX << "_EVENT_TYPE_BURST_OPEN );"
+                        << "}"
+
+                        << "void nanos_instrument_burst_end(uint32_t event, uint64_t value) {"
+                        << "#pragma HLS inline\n"
+                        << STR_WRITEEVENT << "(event, value, " << STR_PREFIX << "_EVENT_TYPE_BURST_CLOSE );"
+                        << "}"
+
+                        << "void nanos_instrument_point_event(uint32_t event, uint64_t value) {"
+                        << "#pragma HLS inline\n"
+                        << STR_WRITEEVENT << "(event, value, " << STR_PREFIX << "_EVENT_TYPE_POINT );"
+                        << "}"
+
+
+                        << "void " << STR_INSTREND << "() {"
+                        << "#pragma HLS inline\n"
+                        << STR_WRITEEVENT << "(" << STR_PREFIX << "_EVENT_TYPE_LAST, " << STR_PREFIX << "_EVENT_VAL_OK, " << STR_PREFIX << "_EVENT_TYPE_POINT );"
+                        //<< "    _emit_xtasks_ins_event(EVENT_ID_LAST, EVENT_VAL_OK, XTASKS_EVENT_TYPE_LAST);"
+                        << "}"
+
+
+                    ;
+                }
+
+                if (creates_children_tasks)
+                {
+                    //NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
+                    func_aux_code
+                        << "void write_outstream(uint64_t data, unsigned short dest, unsigned char last) {"
+                        << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_OUTPORT << "\n"
+                        //NOTE: Using 72 to have the data shifted 8 positions. This way is easily shown in HEX
+                        << "/* Pack the axiData_t info: data(64bits) + dest(6bits) + last(2bit) */\n"
+                        << "\tap_uint<72> tmp = data;"
+                        << "\ttmp = (tmp << 8) | ((dest & 0x3F) << 2) | (last & 0x3);"
+                        << "\t" << STR_GLOB_OUTPORT << " = tmp;"
+                        << "}"
+                        << "void wait_tw_signal() {"
+                        << "\t#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_TWPORT << "\n"
+                        << "\tap_uint<2> sync = " << STR_GLOB_TWPORT << ";"
+                        << "}"
+                        << "void wait_children_task(ap_uint<32> components) {"
+                        << "\tconst unsigned short TM_TW = 0x13;"
+                        << "\tuint64_t tmp = " << STR_ACCID << ";"
+                        << "\ttmp = tmp << 48 /*ACC_ID info uses bits [48:55]*/;"
+                        << "\ttmp = 0x8000000100000000 | tmp | components;"
+                        << "\twrite_outstream(tmp /*TASKWAIT_DATA_BLOCK*/, TM_TW, 0 /*last*/);"
+                        << "\twrite_outstream(" << STR_TASKID << " /*data*/, TM_TW, 1 /*last*/);"
+                        << "\t{\n"
+                        << "\t\t#pragma HLS PROTOCOL fixed\n"
+                        << "\t\twait_tw_signal();"
+                        << "\t}\n"
+                        << "}"
+                        << "enum { ARGFLAG_DEP_IN  = 0x08, ARGFLAG_DEP_OUT  = 0x04,"
+                        << "       ARGFLAG_COPY_IN = 0x02, ARGFLAG_COPY_OUT = 0x01,"
+                        << "       ARGFLAG_NONE    = 0x00 };"
+                        << "void create_task(uint32_t archMask, uint64_t onto, uint16_t numArgs, uint64_t * args, uint8_t * argsFlags) {"
+                        << "\tconst unsigned short TM_NEW = 0x12;"
+                        << "\tuint64_t tmp = archMask;"
+                        << "\ttmp = ((tmp << 16) | numArgs) << 16;"
+                        << "\twrite_outstream(tmp, TM_NEW, 0);"
+                        << "\twrite_outstream(" << STR_TASKID << ", TM_NEW, 0);"
+                        << "\twrite_outstream(onto, TM_NEW, 0);"
+                        << "\tfor (uint16_t idx = 0; idx < numArgs; ++idx) {"
+                        << "\t\ttmp = argsFlags[idx];"
+                        << "\t\ttmp = (tmp << 56) | args[idx];"
+                        << "\t\twrite_outstream(tmp, TM_NEW, idx == (numArgs - 1));"
+                        << "\t}"
+                        << "}"
                     ;
                 }
 
                 Nodecl::NodeclBase fun_code = info._called_task.get_function_code();
                 outline_src
-                    << func_syn_output_code
-                    << func_read_profiling_code
-                    << func_write_profiling_code
+                    << wrapper_decls
+                    << func_aux_code
+                    << " "
                     << fun_code.prettyprint()
                     << " "
-                    << " "
-                    << instrument_before
-                    << called_source
-                    << instrument_after
+                    << wrapper_code
                 ;
 
                 _copied_fpga_functions.add_map(called_task, new_function_wrapper);
@@ -562,6 +652,10 @@ DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_gener
         _dataflow,
         "OFF");
 
+    register_parameter("fpga_task_creation",
+        "This is the parameter to add the task creation infrastructure in each FPGA accelerator:ON/OFF",
+        _fpga_task_creation_str,
+        "0").connect(std::bind(&DeviceFPGA::set_fpga_task_creation_from_str, this, std::placeholders::_1));
 }
 
 void DeviceFPGA::pre_run(DTO& dto) {
@@ -724,16 +818,20 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
             << comment("device argument type")
             << "static nanos_fpga_args_t " << args_name << ";"
             << args_name << ".outline = (void(*)(void*))" << extra_cast << "&" << qualified_name << ";"
-            << args_name << ".acc_num = " << _acc_type << ";"
         ;
 
-        Source ancillary_device_description_2;
-        ancillary_device_description_2
-            << comment("device argument type")
-            << "static nanos_fpga_args_t " << args_name << ";"
-            << args_name << ".outline = (void(*)(void*)) " << extra_cast << " &" << qualified_name << ";"
-            << args_name << ".acc_num = " << _acc_type << ";"
-        ;
+        if (Nanos::Version::interface_is_at_least("fpga", 4))
+        {
+            ancillary_device_description
+                << args_name << ".type = " << _acc_type << ";"
+            ;
+        }
+        else
+        {
+            ancillary_device_description
+                << args_name << ".acc_num = " << _acc_type << ";"
+            ;
+        }
 
         device_descriptor
             << "{"
@@ -834,7 +932,8 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
                      << "#include <ap_axi_sdata.h>\n"
                      << "\n"
                      << "\n"
-                     << "typedef ap_axis<64,1,1,5> axiData;\n"
+                     << "typedef ap_axis<64,1,1,5> axiData_t;\n"
+                     << "typedef hls::stream<axiData_t> axiStream_t;\n"
                      << "typedef uint64_t counter_t;\n"
                      << "\n"
                      << "\n"
@@ -1171,12 +1270,13 @@ static int num_parameters(const ObjectList<Symbol> param_list)
 
 }
 
-
 /*
  * Create wrapper function for HLS to unpack streamed arguments
  *
  */
-void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_symbol_original, const Symbol &func_symbol, ObjectList<OutlineDataItem*>& data_items, Source &wrapper_before, Source &called_source, Source &wrapper_after)
+void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_symbol_original,
+    const Symbol &func_symbol, ObjectList<OutlineDataItem*>& data_items,
+    Source &wrapper_decls, Source &wrapper_source)
 {
     //Check that we are calling a function task (this checking may be performed earlyer in the code)
 
@@ -1188,6 +1288,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     ObjectList<Symbol> param_list = called_task.get_function_parameters();
     int size = num_parameters(param_list);
     char function_parameters_passed[size];
+    bool creates_children_tasks = _fpga_task_creation;
 
     memset(function_parameters_passed, 0, size);
 
@@ -1204,10 +1305,19 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     std::string in_dec, out_dec;
     get_inout_decl(data_items, in_dec, out_dec);
     Source pragmas_src;
+    Source fun_params_wrapper;
 
-    Source args;
-    args
-        << "hls::stream<axiData> &" << STR_INPUTSTREAM << ", hls::stream<axiData> &" << STR_OUTPUTSTREAM << ", uint8_t accID"
+    wrapper_decls
+        << "extern const uint8_t " << STR_ACCID << ";"
+        << "static uint64_t " << STR_TASKID << ";"
+        << "static uint64_t " << STR_INSTRCOUNTER << ", " << STR_INSTRBUFFER << ";"
+        << "static unsigned int " << STR_INSTRSLOTS << ", " << STR_INSTRCURRENTSLOT << ";"
+        << "static int " << STR_INSTROVERFLOW << ";"
+    ;
+
+    fun_params_wrapper
+        << "axiStream_t& " << STR_INPUTSTREAM
+        << ", axiStream_t& " << STR_OUTPUTSTREAM
     ;
 
     pragmas_src
@@ -1218,12 +1328,41 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
     if (instrumentation_enabled())
     {
-        args
-            << ", counter_t *" << STR_DATA
+        //instrumentation declarations/definitions
+        wrapper_decls
+            << "extern volatile counter_t * " << STR_INSTRDATA << ";"
+
+            << "typedef struct {"
+            << "    uint64_t eventId;"
+            << "    uint64_t value;"
+            << "    uint64_t timestamp;"
+            << "}" << STR_EVENTSTRUCT << ";"
+
+            << "typedef enum {"
+            STR_PREFIX << "_EVENT_TYPE_BURST_OPEN = 0,\n"
+            STR_PREFIX << "_EVENT_TYPE_BURST_CLOSE = 1,\n"
+            STR_PREFIX << "_EVENT_TYPE_POINT = 2,\n"
+            STR_PREFIX << "_EVENT_TYPE_LAST = 0XFFFFFFFF\n"
+            << "} " << STR_EVENTTYPE << ";"
+            << "#define " << STR_PREFIX << "_EVENT_VAL_OK   0\n"
+            << "#define " << STR_PREFIX << "_EVENT_VAL_OVERFLOW   0xFFFFFFFF\n"
         ;
 
         pragmas_src
-            << "#pragma HLS INTERFACE m_axi port=" << STR_DATA << "\n"
+            << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRDATA << "\n"
+        ;
+    }
+
+    if (creates_children_tasks)
+    {
+        wrapper_decls
+            << "extern ap_uint<72> " << STR_GLOB_OUTPORT << ";"
+            << "extern volatile ap_uint<2> " << STR_GLOB_TWPORT << ";"
+        ;
+
+        pragmas_src
+            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_OUTPORT << "\n"
+            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_TWPORT << "\n"
         ;
     }
 
@@ -1231,7 +1370,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
      * Generate wrapper code
      * We are going to keep original parameter name for the original function
      *
-     * input/outlut parameters are received concatenated one after another.
+     * input/output parameters are received concatenated one after another.
      * The wrapper must create local variables for each input/output and unpack
      * streamed input/output data into that local variables.
      *
@@ -1240,13 +1379,13 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     Source in_copies, out_copies, out_copies_addr;
     Source in_copies_aux, out_copies_aux;
     Source fun_params;
-    Source fun_params_wrapper;
     Source local_decls;
     Source profiling_0;
     Source profiling_1;
     Source profiling_2;
     Source profiling_3;
-    Source sync_output_code;
+    Source sync_output_decl, sync_output_code;
+    Source end_instrumentation;
     Source generic_initial_code;
 
     in_copies_aux
@@ -1271,9 +1410,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     // Go through all the parameters. The iteration below goes through the copies.
     for (ObjectList<OutlineDataItem*>::iterator it = data_items.begin(); it != data_items.end(); it++)
     {
-
-        fun_params.append_with_separator((*it)->get_field_name(), ", ");
         const std::string &field_name = (*it)->get_field_name();
+        fun_params.append_with_separator(field_name, ", ");
 
 #if _DEBUG_AUTOMATIC_COMPILER_
         std::cerr << std::endl << std::endl;
@@ -1410,7 +1548,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                     << "\t\t\t\t\tmemcpy(" << field_name << ", (const " << type_basic_par_decl << " *)(" << field_port_name_i << " + __param/sizeof(" << type_basic_par_decl << ")), " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
                     << "\t\t\t\t__copyFlags_id_out[" << n_params_out << "] = __copyFlags_id;"
                     << "\t\t\t\t__param_out[" << n_params_out << "] = __param;"
-                    << "\t\t\t\tbreak;"
                 ;
 
                 out_copies_aux
@@ -1448,7 +1585,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                     << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
                     << "\t\t\t\tif(__copyFlags[4])\n"
                     << "\t\t\t\t\tmemcpy(" << field_name << ", (const " << type_basic_par_decl << " *)(" << field_port_name << " + __param/sizeof(" << type_basic_par_decl << ")), " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
-                    << "\t\t\t\tbreak;"
                 ;
 
                 n_params_in++;
@@ -1477,7 +1613,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                     << "\t\t\tcase " << param_id << ":\n"
                     << "\t\t\t\t__copyFlags_id_out[" << n_params_out << "] = __copyFlags_id;"
                     << "\t\t\t\t__param_out[" << n_params_out << "] = " << STR_INPUTSTREAM << ".read().data;"
-                    << "\t\t\t\tbreak;"
                 ;
 
                 out_copies_aux
@@ -1490,6 +1625,24 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                 n_params_out++;
                 n_params_id++;
             }
+            else {
+                internal_error("Copy type not valid", 0);
+            }
+
+            if (creates_children_tasks)
+            {
+                wrapper_decls
+                    << "static uintptr_t " << STR_REAL_PARAM_PREFIX << field_name << ";"
+                ;
+
+                in_copies_aux
+                    << "\t\t\t\t" << STR_REAL_PARAM_PREFIX << field_name << " = __param;"
+                ;
+            }
+
+            in_copies_aux
+                << "\t\t\t\tbreak;"
+            ;
         }
         else
         {
@@ -1582,6 +1735,20 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                     << "\t\t\tcase " << param_id << ":\n"
                     << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
                     << "\t\t\t\t" << field_name << " = (" << casting_pointer << ")(" << field_port_name << " + __param/sizeof(" << casting_sizeof << "));"
+                ;
+
+                if (creates_children_tasks)
+                {
+                    wrapper_decls
+                        << "static uintptr_t " << STR_REAL_PARAM_PREFIX << field_name << ";"
+                    ;
+
+                    in_copies_aux
+                        << "\t\t\t\t" << STR_REAL_PARAM_PREFIX << field_name << " = __param;"
+                    ;
+                }
+
+                in_copies_aux
                     << "\t\t\t\tbreak;"
                 ;
 
@@ -1617,6 +1784,10 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 n_params_in++;
                 n_params_id++;
+            }
+            else
+            {
+                internal_error("Unsupported field_type", 0);
             }
         }
     }
@@ -1714,6 +1885,20 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                 << "\t\t\tcase " << param_pos << ":\n"
                 << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
                 << "\t\t\t\t" << field_name << " = (" << type_basic_par_decl << " * " << dimensions_pointer_array << ")(" << field_port_name << " + __param/sizeof(" << type_basic_par_decl << "));"
+            ;
+
+            if (creates_children_tasks)
+            {
+                wrapper_decls
+                    << "static uintptr_t " << STR_REAL_PARAM_PREFIX << field_name << ";"
+                ;
+
+                in_copies_aux
+                    << "\t\t\t\t" << STR_REAL_PARAM_PREFIX << field_name << " = __param;"
+                ;
+            }
+
+            in_copies_aux
                 << "\t\t\t\tbreak;"
             ;
 
@@ -1743,14 +1928,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         ;
     }
 
-    Nodecl::NodeclBase fun_code = func_symbol_original.get_function_code();
-    Source wrapper_src;
-
-    // DJG ONE ONLY PORT - REMOVING PORTS PER ARGUMENT
-    wrapper_src
-        << "void " << func_symbol.get_name() << "(" << args << ", " << fun_params_wrapper << ") {"
-    ;
-
     if (instrumentation_enabled())
     {
         local_decls
@@ -1760,11 +1937,12 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
     local_decls
         << "\tunsigned int __i;"
-        << "\tuint64_t __addrRd, __addrWr, __accHeader;"
+        << "\tuint64_t __accHeader;"
         << "\tap_uint<8> __copyFlags, __destID;"
         << "\tuint32_t __comp_needed;"
         << "\tunsigned long long __param, __copyFlags_id;"
         << "\tunsigned int __param_id, __n_params_in, __n_params_out;"
+        << "\tuint64_t __bufferData;"
     ;
 
     if (n_params_out)
@@ -1777,43 +1955,70 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
     if (instrumentation_enabled())
     {
-        profiling_0
-            << "\t__counter_reg[0] = get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
+        profiling_0 //copy in begin
+            << "\tnanos_instrument_burst_begin(" << EV_DEVCOPYIN << ", " << STR_TASKID << ");"
         ;
 
-        profiling_1
-            << "\t__counter_reg[1] = get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
+        profiling_1 //copy in end, task exec begin
+            << "nanos_instrument_burst_end(" << EV_DEVCOPYIN << ", " << STR_TASKID << ");"
+            << "nanos_instrument_burst_begin(" << EV_DEVEXEC << ", " << STR_TASKID << ");"
         ;
 
-        profiling_2
-            << "\t__counter_reg[2] = get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
+        profiling_2 //task exec end, copy out end
+            << "nanos_instrument_burst_end(" << EV_DEVEXEC << ", " << STR_TASKID << ");"
+            << "nanos_instrument_burst_begin(" << EV_DEVCOPYOUT << ", " << STR_TASKID << ");"
         ;
 
-        profiling_3
-            << "\t__counter_reg[3] = get_time((const counter_t *)(" << STR_DATA << " + __addrRd/sizeof(counter_t))); "
-            << "\twrite_profiling_registers((counter_t *)(" << STR_DATA << " + __addrWr/sizeof(counter_t)), __counter_reg);"
+        profiling_3 //copy out end
+            << "nanos_instrument_burst_end(" << EV_DEVCOPYOUT << ", " << STR_TASKID << ");"
         ;
+
     }
 
     generic_initial_code
-        << "\t__addrRd = " << STR_INPUTSTREAM << ".read().data;"
-        << "\t__addrWr = " << STR_INPUTSTREAM << ".read().data;"
+        << "\t" << STR_TASKID << " = " << STR_INPUTSTREAM << ".read().data;"
+        << "\t" << STR_INSTRCOUNTER << " = " << STR_INPUTSTREAM << ".read().data;"
+        << "\t__bufferData = " << STR_INPUTSTREAM << ".read().data;"
+        //<< "\t" << STR_INSTRBUFFER << " = " << STR_INPUTSTREAM << ".read().data;"
         << "\t__accHeader = " << STR_INPUTSTREAM << ".read().data;"
         << "\t__comp_needed = __accHeader;"
         << "\t__destID = __accHeader>>32;"
     ;
 
+    if (instrumentation_enabled())
+    {
+        generic_initial_code
+            << "\t" << STR_INSTRBUFFER << " = __bufferData & ((1ULL<<48)-1);" //48 lower bits
+            << "\t" << STR_INSTRSLOTS << " =__bufferData >> 48;"
+            << "\t" << STR_INSTROVERFLOW << " = 0;"
+            << "\t" << STR_INSTRCURRENTSLOT << " = 0;"
+        ;
+
+    }
 
     sync_output_code
         << "\tend_task: {"
         << "\t#pragma HLS PROTOCOL fixed\n"
-        << "\t\tend_acc_task(" << STR_OUTPUTSTREAM << ", accID, __destID);"
+        << "\t\tend_acc_task(" << STR_OUTPUTSTREAM << ", __destID);"
         << "\t}"
         << " "
     ;
 
-    wrapper_before
-        << wrapper_src
+    if (instrumentation_enabled())
+        end_instrumentation << STR_INSTREND << "();" ;
+
+    sync_output_decl
+        << "void end_acc_task(axiStream_t& stream, uint32_t destId) {"
+        << end_instrumentation
+        << "\tuint64_t data = " << STR_ACCID << ";"
+        << "\tdata = (data << 56) | (" << STR_TASKID << " & 0x00FFFFFFFFFFFFFF);"
+        << "\twrite_stream(stream, data, destId, 1);"
+        << "}"
+    ;
+
+    wrapper_source
+        << sync_output_decl
+        << "void " << func_symbol.get_name() << "(" << fun_params_wrapper << ") {"
         << pragmas_src
         << "\n"
         << local_decls
@@ -1824,18 +2029,11 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         << "\n"
         << in_copies
         << "\n"
-        //<< out_copies_addr
         << profiling_1
         << "\n"
-    ;
-
-    called_source
-        << "\tif (__comp_needed)\n"
+        << "\tif (__comp_needed) {\n"
         << "\t\t" << func_symbol_original.get_name() << "(" << fun_params << ");"
-        << "\n"
-    ;
-
-    wrapper_after
+        << "\t}"
         << profiling_2
         << "\n"
         << out_copies
@@ -1964,6 +2162,11 @@ void DeviceFPGA::set_bitstream_generation_from_str(const std::string& in_str)
     // NOTE: Support "ON" as "1"
     std::string str = in_str == "ON" ? "1" : in_str;
     TL::parse_boolean_option("bitstream_generation", str, _bitstream_generation, "Assuming false.");
+}
+
+void DeviceFPGA::set_fpga_task_creation_from_str(const std::string& str)
+{
+    TL::parse_boolean_option("fpga_task_creation", str, _fpga_task_creation, "Assuming false.");
 }
 
 EXPORT_PHASE(TL::Nanox::DeviceFPGA);
