@@ -52,6 +52,11 @@
 #define STR_WRITEEVENT         "__mcxx_writeInstrEvent"
 #define STR_INSTREND           "__mcxx_instrEnd"
 
+//Default events
+#define EV_DEVCOPYIN            77
+#define EV_DEVCOPYOUT           78
+#define EV_DEVEXEC              79
+
 
 //#define _DEBUG_AUTOMATIC_COMPILER_ 1
 

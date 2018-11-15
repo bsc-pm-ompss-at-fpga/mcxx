@@ -818,16 +818,20 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
             << comment("device argument type")
             << "static nanos_fpga_args_t " << args_name << ";"
             << args_name << ".outline = (void(*)(void*))" << extra_cast << "&" << qualified_name << ";"
-            << args_name << ".acc_num = " << _acc_type << ";"
         ;
 
-        Source ancillary_device_description_2;
-        ancillary_device_description_2
-            << comment("device argument type")
-            << "static nanos_fpga_args_t " << args_name << ";"
-            << args_name << ".outline = (void(*)(void*)) " << extra_cast << " &" << qualified_name << ";"
-            << args_name << ".acc_num = " << _acc_type << ";"
-        ;
+        if (Nanos::Version::interface_is_at_least("fpga", 4))
+        {
+            ancillary_device_description
+                << args_name << ".type = " << _acc_type << ";"
+            ;
+        }
+        else
+        {
+            ancillary_device_description
+                << args_name << ".acc_num = " << _acc_type << ";"
+            ;
+        }
 
         device_descriptor
             << "{"
@@ -1949,25 +1953,26 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         ;
     }
 
-    //TODO: emit default instrumentation events
     if (instrumentation_enabled())
     {
-//        profiling_0
-//            << "\t__counter_reg[0] = get_time(); "
-//        ;
-//
-//        profiling_1
-//            << "\t__counter_reg[1] = get_time(); "
-//        ;
-//
-//        profiling_2
-//            << "\t__counter_reg[2] = get_time(); "
-//        ;
-//
-//        profiling_3
-//            << "\t__counter_reg[3] = get_time(); "
-//            << "\twrite_profiling_registers(__counter_reg);"
-//        ;
+        profiling_0 //copy in begin
+            << "\tnanos_instrument_burst_begin(" << EV_DEVCOPYIN << ", " << STR_TASKID << ");"
+        ;
+
+        profiling_1 //copy in end, task exec begin
+            << "nanos_instrument_burst_end(" << EV_DEVCOPYIN << ", " << STR_TASKID << ");"
+            << "nanos_instrument_burst_begin(" << EV_DEVEXEC << ", " << STR_TASKID << ");"
+        ;
+
+        profiling_2 //task exec end, copy out end
+            << "nanos_instrument_burst_end(" << EV_DEVEXEC << ", " << STR_TASKID << ");"
+            << "nanos_instrument_burst_begin(" << EV_DEVCOPYOUT << ", " << STR_TASKID << ");"
+        ;
+
+        profiling_3 //copy out end
+            << "nanos_instrument_burst_end(" << EV_DEVCOPYOUT << ", " << STR_TASKID << ");"
+        ;
+
     }
 
     generic_initial_code
