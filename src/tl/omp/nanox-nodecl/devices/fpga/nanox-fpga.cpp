@@ -1949,25 +1949,26 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         ;
     }
 
-    //TODO: emit default instrumentation events
     if (instrumentation_enabled())
     {
-//        profiling_0
-//            << "\t__counter_reg[0] = get_time(); "
-//        ;
-//
-//        profiling_1
-//            << "\t__counter_reg[1] = get_time(); "
-//        ;
-//
-//        profiling_2
-//            << "\t__counter_reg[2] = get_time(); "
-//        ;
-//
-//        profiling_3
-//            << "\t__counter_reg[3] = get_time(); "
-//            << "\twrite_profiling_registers(__counter_reg);"
-//        ;
+        profiling_0 //copy in begin
+            << "\tnanos_instrument_burst_begin(" << EV_DEVCOPYIN << ", " << STR_TASKID << ");"
+        ;
+
+        profiling_1 //copy in end, task exec begin
+            << "nanos_instrument_burst_end(" << EV_DEVCOPYIN << ", " << STR_TASKID << ");"
+            << "nanos_instrument_burst_begin(" << EV_DEVEXEC << ", " << STR_TASKID << ");"
+        ;
+
+        profiling_2 //task exec end, copy out end
+            << "nanos_instrument_burst_end(" << EV_DEVEXEC << ", " << STR_TASKID << ");"
+            << "nanos_instrument_burst_begin(" << EV_DEVCOPYOUT << ", " << STR_TASKID << ");"
+        ;
+
+        profiling_3 //copy out end
+            << "nanos_instrument_burst_end(" << EV_DEVCOPYOUT << ", " << STR_TASKID << ");"
+        ;
+
     }
 
     generic_initial_code
