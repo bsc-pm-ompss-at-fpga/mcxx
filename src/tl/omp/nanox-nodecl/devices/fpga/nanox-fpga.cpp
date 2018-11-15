@@ -818,16 +818,20 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
             << comment("device argument type")
             << "static nanos_fpga_args_t " << args_name << ";"
             << args_name << ".outline = (void(*)(void*))" << extra_cast << "&" << qualified_name << ";"
-            << args_name << ".acc_num = " << _acc_type << ";"
         ;
 
-        Source ancillary_device_description_2;
-        ancillary_device_description_2
-            << comment("device argument type")
-            << "static nanos_fpga_args_t " << args_name << ";"
-            << args_name << ".outline = (void(*)(void*)) " << extra_cast << " &" << qualified_name << ";"
-            << args_name << ".acc_num = " << _acc_type << ";"
-        ;
+        if (Nanos::Version::interface_is_at_least("fpga", 4))
+        {
+            ancillary_device_description
+                << args_name << ".type = " << _acc_type << ";"
+            ;
+        }
+        else
+        {
+            ancillary_device_description
+                << args_name << ".acc_num = " << _acc_type << ";"
+            ;
+        }
 
         device_descriptor
             << "{"
