@@ -265,6 +265,20 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
 
                     ;
                 }
+                else
+                {
+                    //Define empty instrument calls when instrumentation is not enabled
+                    func_aux_code
+                        << "void nanos_instrument_burst_begin(uint32_t event, uint64_t value) {"
+                        << "}"
+
+                        << "void nanos_instrument_burst_end(uint32_t event, uint64_t value) {"
+                        << "}"
+
+                        << "void nanos_instrument_point_event(uint32_t event, uint64_t value) {"
+                        << "}"
+                    ;
+                }
 
                 if (creates_children_tasks)
                 {
