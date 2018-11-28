@@ -1072,6 +1072,17 @@ void LoweringVisitor::visit_task_call_c(
     // Otherwise (the context is not known or it is a SMP task), proceed with the common code.
     if (inside_device_task)
     {
+        TL::Symbol structure_symbol = declare_argument_structure(arguments_outline_info, new_construct);
+        create_outlines(
+                new_construct,
+                called_sym,
+                statements,
+                task_environment.task_label,
+                arguments_outline_info,
+                structure_symbol,
+                task_environment.num_inner_tasks
+                );
+
         DeviceHandler device_handler = DeviceHandler::get_device_handler();
         const std::string parent_device_name = task_environment.creation_ctx.get_text();
         DeviceProvider* parent_device = device_handler.get_device(parent_device_name);
@@ -1103,6 +1114,7 @@ void LoweringVisitor::visit_task_call_c(
                 updated_final_condition,
                 task_environment.task_label,
                 task_environment.is_untied,
+                task_environment.num_inner_tasks,
                 arguments_outline_info,
                 &parameters_outline_info,
                 placeholder_task_expr_transformation);
@@ -1661,6 +1673,7 @@ void LoweringVisitor::visit_task_call_fortran(
             task_environment.final_condition,
             task_environment.task_label,
             task_environment.is_untied,
+            task_environment.num_inner_tasks,
             new_outline_info,
             /* parameter outline info */ NULL,
             placeholder_task_expr_transformation);

@@ -82,10 +82,11 @@ namespace TL { namespace Nanox {
                 private:
                     const Nodecl::OmpSs::TaskCall& _context;
                     std::string                    _contextDeviceName;
+                    size_t                         _count;
 
                 public:
                     SetTaskCreationContext(const Nodecl::OmpSs::TaskCall& ctx) :
-                            _context(ctx), _contextDeviceName("NULL")
+                            _context(ctx), _contextDeviceName("NULL"), _count(0)
                     {}
 
                     virtual void visit(const Nodecl::OmpSs::TaskCall& node)
@@ -100,19 +101,14 @@ namespace TL { namespace Nanox {
                                     "A child task cannot be created in a context with multiple targets.\n", 0);
                             _contextDeviceName = ctx_devices_visitor.get_device_names().at(0);
                         }
-                        // std::cout << "Detected task '" << node.get_call().as<Nodecl::FunctionCall>().get_called().prettyprint()
-                        //         << "' in the context: '" << _context.get_call().as<Nodecl::FunctionCall>().get_called().prettyprint()
-                        //         << "', device is: '" << _contextDeviceName << "'\n";
                         Nodecl::List task_environment = node.get_environment().as<Nodecl::List>();
                         task_environment.append(Nodecl::OmpSs::CreationCtx::make(_contextDeviceName));
                         node.get_environment().replace(task_environment);
+                        ++_count;
                     }
 
                     virtual void visit(const Nodecl::FunctionCall& node)
                     {
-                        // std::cout << "Detected call to '" << node.get_called().prettyprint()
-                        //     << "' in the context: '" << _context.get_call().as<Nodecl::FunctionCall>().get_called().prettyprint()
-                        //     << "'\n";
                         Nodecl::NodeclBase called = node.get_called();
                         if (!called.has_symbol() || called.get_symbol().get_function_code().is_null())
                         {
@@ -122,6 +118,11 @@ namespace TL { namespace Nanox {
                             called.get_symbol().get_function_code().as<Nodecl::FunctionCode>();
                         Nodecl::NodeclBase function_statements = function_code.get_statements();
                         walk(function_statements);
+                    }
+
+                    size_t get_num_inner_tasks() const
+                    {
+                        return _count;
                     }
             };
 
@@ -135,12 +136,21 @@ namespace TL { namespace Nanox {
                     //The task is not in the same translation unit?
                     return;
                 }
+
+                //Set the creation context of inner task calls based on current task call
                 Nodecl::FunctionCode function_code =
                     called.get_symbol().get_function_code().as<Nodecl::FunctionCode>();
                 Nodecl::NodeclBase function_statements = function_code.get_statements();//.as<Nodecl::List>();
                 // set_task_context_of_task_calls(function_statements);
                 SetTaskCreationContext setter_visitor = SetTaskCreationContext(node);
                 setter_visitor.walk(function_statements);
+
+                //Set the number of inner tasks for the current task call
+                std::stringstream tmp_str_num;
+                tmp_str_num << setter_visitor.get_num_inner_tasks();
+                Nodecl::List task_environment = node.get_environment().as<Nodecl::List>();
+                task_environment.append(Nodecl::OmpSs::NumInnerTasks::make(tmp_str_num.str()));
+                node.get_environment().replace(task_environment);
             }
     };
 

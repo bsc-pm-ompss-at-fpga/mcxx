@@ -108,6 +108,8 @@ namespace TL { namespace Nanox {
         // Note that the locus of a OmpSs::TaskCall is the locus of the function call.
         const locus_t* _instr_locus;
 
+        const size_t _num_inner_tasks;
+
         CreateOutlineInfo(
                 Lowering* lowering,
                 std::string& outline_name,
@@ -118,7 +120,8 @@ namespace TL { namespace Nanox {
                 Nodecl::NodeclBase task_label,
                 TL::Symbol& args_struct,
                 const TL::Symbol& called_task,
-                const locus_t* instr_locus)
+                const locus_t* instr_locus,
+                const size_t num_inner_tasks = 0)
             :
                 _lowering(lowering),
                 _outline_name(outline_name),
@@ -129,7 +132,8 @@ namespace TL { namespace Nanox {
                 _task_label(task_label),
                 _arguments_struct(args_struct),
                 _called_task(called_task),
-                _instr_locus(instr_locus)
+                _instr_locus(instr_locus),
+                _num_inner_tasks(num_inner_tasks)
         {
         }
     };

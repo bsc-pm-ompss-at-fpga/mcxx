@@ -50,13 +50,17 @@ struct TaskEnvironmentVisitor : public Nodecl::ExhaustiveVisitor<void>
         // This attribute is used to knwon the device context where the task is being created
         Nodecl::NodeclBase creation_ctx;
 
+        // This attribute is used to count the number of inner tasks created by the task environment (if known)
+        size_t num_inner_tasks;
+
         TaskEnvironmentVisitor()
             : is_untied(false),
             priority(),
             if_condition(),
             final_condition(),
             task_label(),
-            creation_ctx()
+            creation_ctx(),
+            num_inner_tasks(0)
         {
         }
 
@@ -93,6 +97,11 @@ struct TaskEnvironmentVisitor : public Nodecl::ExhaustiveVisitor<void>
         void visit(const Nodecl::OmpSs::CreationCtx& creation_ctx_)
         {
             this->creation_ctx = creation_ctx_;
+        }
+
+        void visit(const Nodecl::OmpSs::NumInnerTasks& num_inner_tasks_)
+        {
+            num_inner_tasks = std::stoul(num_inner_tasks_.get_text());
         }
 };
 
