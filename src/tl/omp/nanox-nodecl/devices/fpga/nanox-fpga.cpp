@@ -2349,6 +2349,9 @@ void DeviceFPGA::emit_async_device(
         ++num_args;
     }
 
+    if (!Nanos::Version::interface_is_at_least("fpga", 5))
+        fatal_error("Your Nanos version does not support task creation inside fpga devices. Please update your Nanos installation\n");
+
     spawn_code
         << "uint64_t mcxx_args[] = {"
         << args_list
