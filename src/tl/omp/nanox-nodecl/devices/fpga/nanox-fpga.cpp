@@ -92,18 +92,22 @@ Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectLis
         const ObjectList<OutlineDataItem::CopyItem> &copies = data_items[param_pos]->get_copies();
         bool in_type, out_type;
 
-        in_type = false;
-        out_type = false;
-        if (!copies.empty()) {
-            if (copies.front().directionality == OutlineDataItem::COPY_IN) {
-                in_type = true;
-            } else if (copies.front().directionality == OutlineDataItem::COPY_OUT) {
-                out_type = true;
-            } else if (copies.front().directionality == OutlineDataItem::COPY_INOUT) {
-                in_type = true;
-                out_type = true;
-            }
-        }
+        //in_type = false;
+        //out_type = false;
+        //if (!copies.empty()) {
+        //    if (copies.front().directionality == OutlineDataItem::COPY_IN) {
+        //        in_type = true;
+        //    } else if (copies.front().directionality == OutlineDataItem::COPY_OUT) {
+        //        out_type = true;
+        //    } else if (copies.front().directionality == OutlineDataItem::COPY_INOUT) {
+        //        in_type = true;
+        //        out_type = true;
+        //    }
+        //}
+        //NOTE: For now, always allow the wrapper to decide whether to do the copy or not.
+        //      This supports tasks without copies but with localmemwhether
+        in_type = true;
+        out_type = true;
 
         // Create union in order to reinterpret argument as a uint64_t
         fpga_outline
