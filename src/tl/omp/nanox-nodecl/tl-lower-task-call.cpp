@@ -870,8 +870,13 @@ void LoweringVisitor::visit_task_call_c(
         }
         else
         {
+            Nodecl::NodeclBase casting_argument =
+                Nodecl::Conversion::make(argument.shallow_copy().get_internal_nodecl(),
+                        new_symbol.get_type().no_ref());
+            casting_argument.set_text("C");
+
             // Direct initialization is enough
-            new_symbol.get_internal_symbol()->value = argument.shallow_copy().get_internal_nodecl();
+            new_symbol.get_internal_symbol()->value = casting_argument.get_internal_nodecl();
         }
 
         Nodecl::NodeclBase sym_ref = new_symbol.make_nodecl(/* set_ref_type */ true);
