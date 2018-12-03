@@ -302,6 +302,11 @@ void DeviceFPGA::create_outline(
                 {
                     //NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
                     func_aux_code
+                        << "typedef uint8_t nanos_err_t;"
+                        << "typedef nanos_wd_t nanos_wg_t;"
+                        << "enum {NANOS_OK};"
+                        << "nanos_wd_t nanos_current_wd() { return " << STR_TASKID << "; }"
+                        << "void nanos_handle_error(nanos_err_t err) {}"
                         << "void write_outstream(uint64_t data, unsigned short dest, unsigned char last) {"
                         << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_OUTPORT << "\n"
                         //NOTE: Using 72 to have the data shifted 8 positions. This way is easily shown in HEX
@@ -314,7 +319,7 @@ void DeviceFPGA::create_outline(
                         << "\t#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_TWPORT << "\n"
                         << "\tap_uint<2> sync = " << STR_GLOB_TWPORT << ";"
                         << "}"
-                        << "void " << STR_WAIT_TASKS << "() {"
+                        << "nanos_err_t " << STR_WAIT_TASKS << "(nanos_wg_t uwg, bool avoid_flush) {"
                         << "\tconst unsigned short TM_TW = 0x13;"
                         << "\tuint64_t tmp = " << STR_ACCID << ";"
                         << "\ttmp = tmp << 48 /*ACC_ID info uses bits [48:55]*/;"
@@ -325,6 +330,7 @@ void DeviceFPGA::create_outline(
                         << "\t\t#pragma HLS PROTOCOL fixed\n"
                         << "\t\twait_tw_signal();"
                         << "\t}\n"
+                        << "\treturn NANOS_OK;"
                         << "}"
                         << "enum { ARGFLAG_DEP_IN  = 0x08, ARGFLAG_DEP_OUT  = 0x04,"
                         << "       ARGFLAG_COPY_IN = 0x02, ARGFLAG_COPY_OUT = 0x01,"
@@ -1257,7 +1263,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
     wrapper_decls
         << "extern const uint8_t " << STR_ACCID << ";"
-        << "static uint64_t " << STR_TASKID << ";"
+        << "typedef uint64_t nanos_wd_t;"
+        << "static nanos_wd_t " << STR_TASKID << ";"
         << "static uint64_t " << STR_INSTRCOUNTER << ", " << STR_INSTRBUFFER << ";"
         << "static unsigned int " << STR_INSTRSLOTS << ", " << STR_INSTRCURRENTSLOT << ";"
         << "static int " << STR_INSTROVERFLOW << ";"

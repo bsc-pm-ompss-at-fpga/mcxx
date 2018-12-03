@@ -53,7 +53,7 @@
 #define STR_INSTREND           "__mcxx_instrEnd"
 #define STR_COMPONENTS_COUNT   "__mcxx_taskComponents"
 #define STR_CREATE_TASK        "nanos_fpga_create_wd_async"
-#define STR_WAIT_TASKS         "nanos_fpga_wg_wait_completion"
+#define STR_WAIT_TASKS         "nanos_wg_wait_completion"
 
 //Default events
 #define EV_DEVCOPYIN            77
