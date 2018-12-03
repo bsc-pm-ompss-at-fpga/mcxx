@@ -1379,6 +1379,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         std::cerr << std::endl << std::endl;
 #endif
 
+        TL::Symbol param_symbol = (*it)->get_field_symbol();
         const Scope &scope = (*it)->get_symbol().get_scope();
         const ObjectList<OutlineDataItem::CopyItem> &copies = (*it)->get_copies();
         const ObjectList<Nodecl::NodeclBase> &localmem = (*it)->get_localmem();
@@ -1476,7 +1477,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
             std::string type_par_decl = par_simple_decl.substr(0, position);
             std::string type_basic_par_decl = get_element_type_pointer_to(field_type, field_name, scope);
 
-            TL::Symbol param_symbol = (*it)->get_field_symbol();
             int param_id = find_parameter_position(param_list, param_symbol);
             function_parameters_passed[param_id] = 1;
             n_params_id++;
@@ -1586,7 +1586,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
             Type basic_elem_type;
             std::string basic_elem_type_name;
 
-            if (field_type.is_pointer() || field_type.is_array())
+            if ((field_type.is_pointer() || field_type.is_array()) && !creates_children_tasks)
             {
                 if (field_type.is_pointer())
                 {
@@ -1654,41 +1654,28 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                     << "\t" << declaration_local_wrapper << ";"
                 ;
 
-                TL::Symbol param_symbol = (*it)->get_field_symbol();
                 int param_id = find_parameter_position(param_list, param_symbol);
                 function_parameters_passed[param_id] = 1;
 
                 in_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
                     << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
-                ;
-
-                if (creates_children_tasks)
-                {
-                    wrapper_decls
-                        << "static " << casting_pointer << STR_REAL_PARAM_PREFIX << field_name << ";"
-                    ;
-
-                    in_copies_aux
-                        << "\t\t\t\t" << field_name << " = (uintptr_t)__param;"
-                        << "\t\t\t\t" << STR_REAL_PARAM_PREFIX << field_name << " = (uintptr_t)__param;"
-                    ;
-                }
-                else
-                {
-                    in_copies_aux
-                        << "\t\t\t\t" << field_name << " = (" << casting_pointer << ")("
-                        << field_port_name << " + __param/sizeof(" << casting_sizeof << "));"
-                    ;
-
-                }
-
-                in_copies_aux
+                    << "\t\t\t\t" << field_name << " = (" << casting_pointer << ")("
+                    << field_port_name << " + __param/sizeof(" << casting_sizeof << "));"
                     << "\t\t\t\tbreak;"
                 ;
 
                 n_params_in++;
                 n_params_id++;
+            }
+            else if (field_type.is_pointer() || field_type.is_array())
+            {
+                //It is creating children tasks
+                error_printf_at(param_symbol.get_locus(),
+                    "Non-scalar data type '%s' (parameter '%s') in fpga task that has the task creation mode enabled. \
+Pointers cannot be accessed when creation mode is enabled, change the parameter type to 'uintptr_t'.\n",
+                    print_declarator(field_type.get_internal_type()), field_name.c_str()
+                );
             }
             else if (field_type.is_scalar_type())
             {
@@ -1702,7 +1689,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                     << "\t" << basic_par_type_decl << " " << field_name << ";"
                 ;
 
-                TL::Symbol param_symbol = (*it)->get_field_symbol();
                 int param_id = find_parameter_position(param_list, param_symbol);
                 function_parameters_passed[param_id] = 1;
 
@@ -1722,6 +1708,10 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
             }
             else
             {
+                error_printf_at(param_symbol.get_locus(),
+                    "Unsupported data type '%s' in fpga task parameter '%s'\n",
+                    print_declarator(field_type.get_internal_type()), field_name.c_str()
+                );
                 internal_error("Unsupported field_type", 0);
             }
         }
@@ -2350,7 +2340,6 @@ void DeviceFPGA::emit_async_device(
                 }
         };
 
-        const std::string arg_name = STR_REAL_PARAM_PREFIX + (*it)->get_field_name();
         args_list.append_with_separator( arg_value, ", " );
         args_flags_list.append_with_separator( arg_flags, ", " );
         ++num_args;
