@@ -859,7 +859,6 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
 
 #if _DEBUG_AUTOMATIC_COMPILER_
         std::cerr << "Casting: qualified_name " << qualified_name << std::endl;
-        std::cerr << "Casting: ancillary " << ancillary_device_description_2.get_source()<< std::endl;
         std::cerr << "Casting: device_descriptor" << device_descriptor.get_source() << std::endl;
 #endif
     }
