@@ -42,27 +42,15 @@
 #include "cxx-cexpr.h"
 
 #include "nanox-fpga.hpp"
+#include "nanox-fpga-utils.hpp"
 
 #include "cxx-nodecl.h"
-#include "cxx-graphviz.h"
 
 #include "tl-nanos.hpp"
 #include "tl-symbol-utils.hpp"
 
 using namespace TL;
 using namespace TL::Nanox;
-
-static std::string fpga_outline_name(const std::string &name)
-{
-    return "fpga_" + name;
-}
-
-UNUSED_PARAMETER static void print_ast_dot(const Nodecl::NodeclBase &node)
-{
-    std::cerr << std::endl << std::endl;
-    ast_dump_graphviz(nodecl_get_ast(node.get_internal_nodecl()), stderr);
-    std::cerr << std::endl << std::endl;
-}
 
 Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectList<OutlineDataItem*> data_items) {
     unsigned param_pos = 0;
@@ -301,12 +289,12 @@ void DeviceFPGA::create_outline(
                 if (creates_children_tasks)
                 {
                     //NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
+                    //NOTE: structs and enums types cannot be declared using a typedef, they must be declared as they will be in a regular mcxx source
                     func_aux_code
-                        << "typedef uint8_t nanos_err_t;"
+                        << "enum nanos_err_t {NANOS_OK = 0};"
                         << "typedef nanos_wd_t nanos_wg_t;"
-                        << "enum {NANOS_OK};"
                         << "nanos_wd_t nanos_current_wd() { return " << STR_TASKID << "; }"
-                        << "void nanos_handle_error(nanos_err_t err) {}"
+                        << "void nanos_handle_error(enum nanos_err_t err) {}"
                         << "void write_outstream(uint64_t data, unsigned short dest, unsigned char last) {"
                         << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_OUTPORT << "\n"
                         //NOTE: Using 72 to have the data shifted 8 positions. This way is easily shown in HEX
@@ -319,7 +307,7 @@ void DeviceFPGA::create_outline(
                         << "\t#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_TWPORT << "\n"
                         << "\tap_uint<2> sync = " << STR_GLOB_TWPORT << ";"
                         << "}"
-                        << "nanos_err_t " << STR_WAIT_TASKS << "(nanos_wg_t uwg, bool avoid_flush) {"
+                        << "enum nanos_err_t " << STR_WAIT_TASKS << "(nanos_wg_t uwg, bool avoid_flush) {"
                         << "\tconst unsigned short TM_TW = 0x13;"
                         << "\tuint64_t tmp = " << STR_ACCID << ";"
                         << "\ttmp = tmp << 48 /*ACC_ID info uses bits [48:55]*/;"
@@ -335,18 +323,34 @@ void DeviceFPGA::create_outline(
                         << "enum { ARGFLAG_DEP_IN  = 0x08, ARGFLAG_DEP_OUT  = 0x04,"
                         << "       ARGFLAG_COPY_IN = 0x02, ARGFLAG_COPY_OUT = 0x01,"
                         << "       ARGFLAG_NONE    = 0x00 };"
-                        << "void " << STR_CREATE_TASK << "(uint32_t archMask, uint64_t onto, uint16_t numArgs, uint64_t * args, uint8_t * argsFlags) {"
+                        << "struct nanos_fpga_copyinfo_t {"
+                        << "    uint64_t address;"
+                        << "    uint32_t flags;"
+                        << "    uint32_t size;"
+                        << "    uint32_t offset;"
+                        << "    uint32_t accessed_length;"
+                        << "};"
+                        << "void " << STR_CREATE_TASK << "(uint32_t archMask, uint64_t onto, uint16_t numArgs,"
+                        <<                               " uint64_t * args, uint8_t * argsFlags,"
+                        <<                               " uint16_t numCopies, struct nanos_fpga_copyinfo_t * copies) {"
                         << "\t++" << STR_COMPONENTS_COUNT << ";"
                         << "\tconst unsigned short TM_NEW = 0x12;"
                         << "\tuint64_t tmp = archMask;"
-                        << "\ttmp = ((tmp << 16) | numArgs) << 16;"
+                        << "\ttmp = (tmp << 16) | numArgs;"
+                        << "\ttmp = (tmp << 16) | numCopies;"
                         << "\twrite_outstream(tmp, TM_NEW, 0);"
                         << "\twrite_outstream(" << STR_TASKID << ", TM_NEW, 0);"
                         << "\twrite_outstream(onto, TM_NEW, 0);"
                         << "\tfor (uint16_t idx = 0; idx < numArgs; ++idx) {"
                         << "\t\ttmp = argsFlags[idx];"
                         << "\t\ttmp = (tmp << 56) | args[idx];"
-                        << "\t\twrite_outstream(tmp, TM_NEW, idx == (numArgs - 1));"
+                        << "\t\twrite_outstream(tmp, TM_NEW, (idx == (numArgs - 1))&(numCopies == 0));"
+                        << "\t}"
+                        << "\tfor (uint16_t idx = 0; idx < numCopies; ++idx) {"
+                        << "\t\tuint64_t * data = (uint64_t *)&copies[idx];"
+                        << "\t\twrite_outstream(data[0], TM_NEW, 0);"
+                        << "\t\twrite_outstream(data[1], TM_NEW, 0);"
+                        << "\t\twrite_outstream(data[2], TM_NEW, idx == (numCopies - 1));"
                         << "\t}"
                         << "}"
                     ;
@@ -2239,8 +2243,8 @@ void DeviceFPGA::emit_async_device(
         }
     }
 
-    Source spawn_code, args_list, args_flags_list;
-    size_t num_args = 0;
+    Source spawn_code, args_list, args_flags_list, copies_list;
+    size_t num_args = 0, num_copies = 0;
 
     // Go through all the arguments and fill the arguments_list
     for (TL::ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
@@ -2288,8 +2292,12 @@ void DeviceFPGA::emit_async_device(
                                 else
                                 {
                                     // Plain assignment is enough
-                                    args_list.append_with_separator( as_symbol((*it)->get_symbol()), ", " );
-                                    args_flags_list.append_with_separator("0xC0", ", ");
+                                    arg_value
+                                        << "(uintptr_t)("
+                                        << as_symbol((*it)->get_symbol())
+                                        << ")";
+                                    arg_flags
+                                        << "0xC0";
                                 }
                             }
                             else
@@ -2343,6 +2351,87 @@ void DeviceFPGA::emit_async_device(
         args_list.append_with_separator( arg_value, ", " );
         args_flags_list.append_with_separator( arg_flags, ", " );
         ++num_args;
+
+        // Check if argument is also a copy
+        TL::ObjectList<OutlineDataItem::CopyItem> copies = (*it)->get_copies();
+        for (TL::ObjectList<OutlineDataItem::CopyItem>::iterator copy_it = copies.begin();
+                copy_it != copies.end();
+                copy_it++)
+        {
+            TL::DataReference copy_expr(copy_it->expression);
+            if (copy_expr.is_multireference())
+            {
+                error_printf_at((*it)->get_symbol().get_locus(),
+                        "Dynamic copies during task spawn are not supported in fpga context\n");
+            }
+
+            TL::Type copy_type = copy_expr.get_data_type();
+            int num_dimensions_of_copy = copy_type.get_num_dimensions();
+            TL::Type base_type;
+            ObjectList<Nodecl::NodeclBase> lower_bounds, upper_bounds, dims_sizes;
+            if (num_dimensions_of_copy == 0)
+            {
+                base_type = copy_type;
+                lower_bounds.append(const_value_to_nodecl(const_value_get_signed_int(0)));
+                upper_bounds.append(const_value_to_nodecl(const_value_get_signed_int(0)));
+                dims_sizes.append(const_value_to_nodecl(const_value_get_signed_int(1)));
+                num_dimensions_of_copy++;
+            }
+            else if (num_dimensions_of_copy == 1)
+            {
+                compute_array_info(construct, copy_expr, copy_type, base_type, lower_bounds, upper_bounds, dims_sizes);
+
+                // Sanity check
+                ERROR_CONDITION(num_dimensions_of_copy != (signed)lower_bounds.size()
+                        || num_dimensions_of_copy != (signed)upper_bounds.size()
+                        || num_dimensions_of_copy != (signed)dims_sizes.size(),
+                        "Mismatch between dimensions", 0);
+            }
+            else
+            {
+                error_printf_at((*it)->get_symbol().get_locus(),
+                        "Copies with multiple dimensions not supported in fpga context\n");
+            }
+
+            Nodecl::NodeclBase address_of_object = copy_expr.get_address_of_symbol();
+            int input = ((copy_it->directionality & OutlineDataItem::COPY_IN) == OutlineDataItem::COPY_IN);
+            int output = ((copy_it->directionality & OutlineDataItem::COPY_OUT) == OutlineDataItem::COPY_OUT);
+
+            Source copy_value;
+            copy_value << "{"
+                << "  .address = (uintptr_t)(" << as_expression(address_of_object) << ")"
+                << ", .flags = ";
+
+            if (input && output)
+            {
+                copy_value << "(ARGFLAG_COPY_IN | ARGFLAG_COPY_OUT)";
+            }
+            else if (input)
+            {
+                copy_value << "ARGFLAG_COPY_IN";
+            }
+            else if (output)
+            {
+                copy_value << "ARGFLAG_COPY_OUT";
+            }
+            else
+            {
+                copy_value << "ARGFLAG_NONE";
+            }
+
+            copy_value
+                << ", .size = "
+                << "(" << as_expression(dims_sizes[0].shallow_copy()) << ") * sizeof(" << as_type(base_type) << ")"
+                << ", .offset = "
+                << "(" << as_expression(lower_bounds[0].shallow_copy()) << ") * sizeof(" << as_type(base_type) << ")"
+                << ", .accessed_length = "
+                << "((" << as_expression(upper_bounds[0].shallow_copy()) << ") - ("
+                << as_expression(lower_bounds[0].shallow_copy()) << ") + 1) * sizeof(" << as_type(base_type) << ")"
+                << "}";
+
+            copies_list.append_with_separator( copy_value, ", " );
+            ++num_copies;
+        }
     }
 
     if (!Nanos::Version::interface_is_at_least("fpga", 5))
@@ -2354,8 +2443,16 @@ void DeviceFPGA::emit_async_device(
         << "};"
         << "uint8_t mcxx_args_flags[] = {"
         << args_flags_list
-        << "};"
-        << STR_CREATE_TASK << "(" << arch_mask << ", " << acc_type << ", " << num_args << ", mcxx_args, mcxx_args_flags);";
+        << "};";
+
+    spawn_code
+        << "struct nanos_fpga_copyinfo_t mcxx_copies[] = {"
+        << copies_list
+        << "};";
+
+    spawn_code
+        << STR_CREATE_TASK << "(" << arch_mask << ", " << acc_type << ", " << num_args << ", mcxx_args, mcxx_args_flags, "
+        <<                           num_copies << ", mcxx_copies);";
 
     Nodecl::NodeclBase spawn_code_tree = spawn_code.parse_statement(construct);
     construct.replace(spawn_code_tree);
