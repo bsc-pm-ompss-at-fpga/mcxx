@@ -2118,9 +2118,9 @@ void DeviceFPGA::copy_stuff_to_device_file_expand(const TL::ObjectList<Nodecl::N
                 its != symbol_stuff_to_be_copied.end(); ++its)
             {
                 TL::Symbol sym = its->get_symbol();
-                std::string original_filename = TL::CompilationProcess::get_current_file().get_filename();
+                std::string original_filename = TL::CompilationProcess::get_current_file().get_filename(/* fullpath */ true);
 
-                if (sym.is_function() && (sym.get_filename()==original_filename))
+                if (sym.is_function() && (sym.get_filename() == original_filename))
                 {
                     Nodecl::NodeclBase code = sym.get_function_code();
                     TL::ObjectList<Nodecl::NodeclBase> expand_code;
