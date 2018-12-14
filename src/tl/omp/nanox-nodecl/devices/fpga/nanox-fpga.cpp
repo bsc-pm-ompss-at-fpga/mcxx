@@ -772,7 +772,7 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
     current_function.set_name(original_name);
 
     // Generate a unique identifier for the accelerator type
-    std::string acc_type = get_acc_type(current_function, info._target_info);
+    std::string acc_type = get_acc_type(info._called_task, info._target_info);
 
     if (!IS_FORTRAN_LANGUAGE)
     {
@@ -2140,20 +2140,10 @@ std::string DeviceFPGA::get_acc_type(const TL::Symbol& task, const TargetInforma
     }
     else
     {
-        std::stringstream type_str;
-        Nodecl::NodeclBase code = task.get_function_code();
-        Nodecl::Context context = (code.is<Nodecl::TemplateFunctionCode>())
-            ? code.as<Nodecl::TemplateFunctionCode>().get_statements().as<Nodecl::Context>()
-            : code.as<Nodecl::FunctionCode>().get_statements().as<Nodecl::Context>();
-
-        bool without_template_args = !task.get_type().is_template_specialized_type()
-            || task.get_scope().get_template_parameters()->is_explicit_specialization;
-
         // Not using the line number to allow future modifications of source code without
         // afecting the accelerator hash
-        type_str
-            << task.get_filename()
-            << " " << task.get_qualified_name(context.retrieve_context(), without_template_args);
+        std::stringstream type_str;
+        type_str << task.get_filename() << " " << task.get_name();
         value = std::to_string(simple_hash_str(type_str.str().c_str()));
     }
     return value;
