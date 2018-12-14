@@ -335,22 +335,33 @@ void DeviceFPGA::create_outline(
                         <<                               " uint16_t numCopies, struct nanos_fpga_copyinfo_t * copies) {"
                         << "\t++" << STR_COMPONENTS_COUNT << ";"
                         << "\tconst unsigned short TM_NEW = 0x12;"
-                        << "\tuint64_t tmp = archMask;"
+                        //1st word: [ valid (8b) | arch_mask (24b) | num_args (16b) | num_copies (16b) ]
+                        << "\tuint64_t tmp = 0x80000000 | archMask;"
                         << "\ttmp = (tmp << 16) | numArgs;"
                         << "\ttmp = (tmp << 16) | numCopies;"
                         << "\twrite_outstream(tmp, TM_NEW, 0);"
+                        //2nd word: [ parent_task_id (64b) ]
                         << "\twrite_outstream(" << STR_TASKID << ", TM_NEW, 0);"
+                        //3rd word: [ onto_value (64b) ]
                         << "\twrite_outstream(onto, TM_NEW, 0);"
                         << "\tfor (uint16_t idx = 0; idx < numArgs; ++idx) {"
+                        //arg words: [ arg_flags (8b) | arg_value (56b) ]
                         << "\t\ttmp = argsFlags[idx];"
                         << "\t\ttmp = (tmp << 56) | args[idx];"
                         << "\t\twrite_outstream(tmp, TM_NEW, (idx == (numArgs - 1))&(numCopies == 0));"
                         << "\t}"
                         << "\tfor (uint16_t idx = 0; idx < numCopies; ++idx) {"
-                        << "\t\tuint64_t * data = (uint64_t *)&copies[idx];"
-                        << "\t\twrite_outstream(data[0], TM_NEW, 0);"
-                        << "\t\twrite_outstream(data[1], TM_NEW, 0);"
-                        << "\t\twrite_outstream(data[2], TM_NEW, idx == (numCopies - 1));"
+                        //1st copy word: [ address (64b) ]
+                        << "\t\ttmp = copies[idx].address;"
+                        << "\t\twrite_outstream(tmp, TM_NEW, 0);"
+                        //2nd copy word: [ size (32b) | not_used (24b) | flags (8b) ]
+                        << "\t\ttmp = copies[idx].size;"
+                        << "\t\ttmp = (tmp << 32) | copies[idx].flags;"
+                        << "\t\twrite_outstream(tmp, TM_NEW, 0);"
+                        //3rd copy word: [ accessed_length (32b) | offset (32b) ]
+                        << "\t\ttmp = copies[idx].accessed_length;"
+                        << "\t\ttmp = (tmp << 32) | copies[idx].offset;"
+                        << "\t\twrite_outstream(tmp, TM_NEW, idx == (numCopies - 1));"
                         << "\t}"
                         << "}"
                     ;
@@ -2226,14 +2237,17 @@ void DeviceFPGA::emit_async_device(
                 it2 != devices.end();
                 ++it2)
         {
+            //Architecture mask is a 24b bitmask where:
+            //  - 23th bit is set if task has SMP support
+            //  - 22th bit is set if task has FPGA support
             std::string device_name = *it2;
             if (device_name == "smp")
             {
-                arch_mask |= 0x80000000;
+                arch_mask |= 0x800000;
             }
             else if (device_name == "fpga")
             {
-                arch_mask |= 0x40000000;
+                arch_mask |= 0x400000;
                 acc_type = get_acc_type(called_task, target_info);
             }
             else
@@ -2296,6 +2310,7 @@ void DeviceFPGA::emit_async_device(
                                         << "(uintptr_t)("
                                         << as_symbol((*it)->get_symbol())
                                         << ")";
+                                    //TODO: Retrieve and fill the dependencies in/out/inout info
                                     arg_flags
                                         << "0xC0";
                                 }
