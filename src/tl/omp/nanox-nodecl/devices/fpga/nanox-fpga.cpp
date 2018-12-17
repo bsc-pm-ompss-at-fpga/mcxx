@@ -320,9 +320,11 @@ void DeviceFPGA::create_outline(
                         << "\t}\n"
                         << "\treturn NANOS_OK;"
                         << "}"
-                        << "enum { ARGFLAG_DEP_IN  = 0x08, ARGFLAG_DEP_OUT  = 0x04,"
-                        << "       ARGFLAG_COPY_IN = 0x02, ARGFLAG_COPY_OUT = 0x01,"
-                        << "       ARGFLAG_NONE    = 0x00 };"
+                        << "const uint32_t NANOS_FPGA_ARCH_SMP  = 0x800000;"
+                        << "const uint32_t NANOS_FPGA_ARCH_FPGA = 0x400000;"
+                        << "enum {NANOS_ARGFLAG_DEP_IN  = 0x08, NANOS_ARGFLAG_DEP_OUT  = 0x04,"
+                        << "      NANOS_ARGFLAG_COPY_IN = 0x02, NANOS_ARGFLAG_COPY_OUT = 0x01,"
+                        << "      NANOS_ARGFLAG_NONE    = 0x00};"
                         << "struct nanos_fpga_copyinfo_t {"
                         << "    uint64_t address;"
                         << "    uint32_t flags;"
@@ -330,9 +332,9 @@ void DeviceFPGA::create_outline(
                         << "    uint32_t offset;"
                         << "    uint32_t accessed_length;"
                         << "};"
-                        << "void " << STR_CREATE_TASK << "(uint32_t archMask, uint64_t onto, uint16_t numArgs,"
-                        <<                               " uint64_t * args, uint8_t * argsFlags,"
-                        <<                               " uint16_t numCopies, struct nanos_fpga_copyinfo_t * copies) {"
+                        << "void " << STR_CREATE_TASK << "(uint32_t archMask, uint64_t onto,"
+                        << "    uint16_t numArgs, uint64_t * args, uint8_t * argsFlags, uint16_t numCopies,"
+                        << "    struct nanos_fpga_copyinfo_t * copies) {"
                         << "\t++" << STR_COMPONENTS_COUNT << ";"
                         << "\tconst unsigned short TM_NEW = 0x12;"
                         //1st word: [ valid (8b) | arch_mask (24b) | num_args (16b) | num_copies (16b) ]
@@ -2204,16 +2206,13 @@ void DeviceFPGA::emit_async_device(
         /* this is non-NULL only for task expressions */
         Nodecl::NodeclBase* placeholder_task_expr_transformation)
 {
-    bool is_function_task = called_task.is_valid();
     TL::ObjectList<OutlineDataItem*> data_items = outline_info.get_data_items();
     DeviceHandler device_handler = DeviceHandler::get_device_handler();
     const OutlineInfo::implementation_table_t& implementation_table = outline_info.get_implementation_table();
 
-    // Declare argument structure
-    TL::Symbol structure_symbol = TL::Symbol::invalid();
+    std::string acc_type;
 
-    std::string acc_type = "0";
-    uint32_t arch_mask = 0;
+    Source arch_mask;
 
     // Check devices of all implementations
     for (OutlineInfo::implementation_table_t::const_iterator it = implementation_table.begin();
@@ -2221,6 +2220,7 @@ void DeviceFPGA::emit_async_device(
             ++it)
     {
         const TargetInformation& target_info = it->second;
+        acc_type = get_acc_type(called_task, target_info);
 
         const ObjectList<std::string>& devices = target_info.get_device_names();
         for (ObjectList<std::string>::const_iterator it2 = devices.begin();
@@ -2233,12 +2233,11 @@ void DeviceFPGA::emit_async_device(
             std::string device_name = *it2;
             if (device_name == "smp")
             {
-                arch_mask |= 0x800000;
+                arch_mask.append_with_separator("NANOS_FPGA_ARCH_SMP", " | ");
             }
             else if (device_name == "fpga")
             {
-                arch_mask |= 0x400000;
-                acc_type = get_acc_type(called_task, target_info);
+                arch_mask.append_with_separator("NANOS_FPGA_ARCH_FPGA", " | ");
             }
             else
             {
@@ -2409,19 +2408,19 @@ void DeviceFPGA::emit_async_device(
 
             if (input && output)
             {
-                copy_value << "(ARGFLAG_COPY_IN | ARGFLAG_COPY_OUT)";
+                copy_value << "(NANOS_ARGFLAG_COPY_IN | NANOS_ARGFLAG_COPY_OUT)";
             }
             else if (input)
             {
-                copy_value << "ARGFLAG_COPY_IN";
+                copy_value << "NANOS_ARGFLAG_COPY_IN";
             }
             else if (output)
             {
-                copy_value << "ARGFLAG_COPY_OUT";
+                copy_value << "NANOS_ARGFLAG_COPY_OUT";
             }
             else
             {
-                copy_value << "ARGFLAG_NONE";
+                fatal_error("Found copy that is not input nor output\n");
             }
 
             copy_value
@@ -2448,14 +2447,10 @@ void DeviceFPGA::emit_async_device(
         << "};"
         << "uint8_t mcxx_args_flags[] = {"
         << args_flags_list
-        << "};";
-
-    spawn_code
+        << "};"
         << "struct nanos_fpga_copyinfo_t mcxx_copies[] = {"
         << copies_list
-        << "};";
-
-    spawn_code
+        << "};"
         << STR_CREATE_TASK << "(" << arch_mask << ", " << acc_type << ", " << num_args << ", mcxx_args, mcxx_args_flags, "
         <<                           num_copies << ", mcxx_copies);";
 
