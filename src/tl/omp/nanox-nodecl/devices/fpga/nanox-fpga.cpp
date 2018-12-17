@@ -320,8 +320,7 @@ void DeviceFPGA::create_outline(
                         << "\t}\n"
                         << "\treturn NANOS_OK;"
                         << "}"
-                        << "const uint32_t NANOS_FPGA_ARCH_SMP  = 0x800000;"
-                        << "const uint32_t NANOS_FPGA_ARCH_FPGA = 0x400000;"
+                        << "enum {NANOS_FPGA_ARCH_SMP = 0x800000, NANOS_FPGA_ARCH_FPGA = 0x400000};"
                         << "enum {NANOS_ARGFLAG_DEP_IN  = 0x08, NANOS_ARGFLAG_DEP_OUT  = 0x04,"
                         << "      NANOS_ARGFLAG_COPY_IN = 0x02, NANOS_ARGFLAG_COPY_OUT = 0x01,"
                         << "      NANOS_ARGFLAG_NONE    = 0x00};"
@@ -2257,9 +2256,28 @@ void DeviceFPGA::emit_async_device(
         if (!(*it)->get_symbol().is_valid())
             continue;
 
-        Source arg_value;
         Source arg_flags;
+        TL::ObjectList<OutlineDataItem::DependencyItem> dependences = (*it)->get_dependences();
+        for (TL::ObjectList<OutlineDataItem::DependencyItem>::iterator dep_it = dependences.begin();
+                dep_it != dependences.end();
+                dep_it++)
+        {
+            if ((dep_it->directionality & OutlineDataItem::DEP_IN) == OutlineDataItem::DEP_IN)
+            {
+                arg_flags.append_with_separator("NANOS_ARGFLAG_DEP_IN", " | ");
+            }
+            if ((dep_it->directionality & OutlineDataItem::DEP_OUT) == OutlineDataItem::DEP_OUT)
+            {
+                arg_flags.append_with_separator("NANOS_ARGFLAG_DEP_OUT", " | ");
+            }
+            if ((dep_it->directionality & (~OutlineDataItem::DEP_INOUT)) != OutlineDataItem::DEP_NONE)
+            {
+                fatal_printf_at((*it)->get_base_address_expression().get_locus(),
+                    "Only in/out/inout dependences are suported when creating a task in a FPGA device\n");
+            }
+        }
 
+        Source arg_value;
         switch ((*it)->get_sharing())
         {
             case OutlineDataItem::SHARING_CAPTURE:
@@ -2299,9 +2317,6 @@ void DeviceFPGA::emit_async_device(
                                         << "(uintptr_t)("
                                         << as_symbol((*it)->get_symbol())
                                         << ")";
-                                    //TODO: Retrieve and fill the dependencies in/out/inout info
-                                    arg_flags
-                                        << "0xC0";
                                 }
                             }
                             else
@@ -2327,8 +2342,6 @@ void DeviceFPGA::emit_async_device(
                                         << "(uintptr_t)("
                                         << as_expression(captured.shallow_copy())
                                         << ")";
-                                    arg_flags
-                                        << "0xC0";
                                 }
                             }
                         }
