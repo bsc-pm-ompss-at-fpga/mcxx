@@ -66,7 +66,7 @@ Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectLis
         std::string arg_simple_decl = field_type.get_simple_declaration(scope, unpacked_argument.get_name());
 
         // If the outline data item has not a valid symbol, skip it
-        if (!outline_data_item_sym.is_valid() or field_type.get_size() > sizeof(uint64_t)) {
+        if (!outline_data_item_sym.is_valid() || field_type.get_size() > sizeof(uint64_t)) {
             #if _DEBUG_AUTOMATIC_COMPILER_
                 std::cerr << "Argument " << param_pos << ": " << arg_simple_decl << " is not valid" << std::endl << std::endl;
             #endif
@@ -90,7 +90,7 @@ Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectLis
         //    }
         //}
         //NOTE: For now, always allow the wrapper to decide whether to do the copy or not.
-        //      This supports tasks without copies but with localmemwhether
+        //      This supports tasks without copies but with localmem
         in_type = true;
         out_type = true;
 
@@ -2297,6 +2297,10 @@ void DeviceFPGA::emit_async_device(
                         if (sym_type.is_array())
                         {
                             fatal_error("Array argument not supported yet\n");
+                        }
+                        else if (sym_type.get_size() > sizeof(uintptr_t))
+                        {
+                            fatal_error("Task argument to wide when creating the task inside a FPGA device");
                         }
                         else
                         {
