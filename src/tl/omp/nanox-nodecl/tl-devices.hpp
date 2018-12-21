@@ -238,6 +238,7 @@ namespace TL { namespace Nanox {
                      Nodecl::NodeclBase construct,
                      TL::Symbol function_symbol,
                      TL::Symbol called_task,
+                     TL::Symbol structure_symbol,
                      Nodecl::NodeclBase statements,
                      Nodecl::NodeclBase priority_expr,
                      Nodecl::NodeclBase if_condition,

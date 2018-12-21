@@ -98,17 +98,6 @@ namespace TL
                         const TL::ObjectList<Nodecl::NodeclBase>& stuff_to_be_copied);
             private:
                 typedef std::set<std::string> str_set_t;
-                std::string _board_name;
-                std::string _device_name;
-                std::string _frequency;
-                std::string _bitstream_generation_str;
-                std::string _vivado_design_path;
-                std::string _vivado_project_name;
-                std::string _ip_cache_path;
-                std::string _dataflow;
-                std::string _force_fpga_task_creation_ports_str;
-                bool        _bitstream_generation;
-                str_set_t   _force_fpga_task_creation_ports;
 
                 struct FpgaOutlineInfo {
                     std::string _type;
@@ -126,7 +115,27 @@ namespace TL
                         return _name + "_hls_automatic_mcxx_wrapper";
                     }
                 };
-                TL::ObjectList< struct FpgaOutlineInfo > _outlines;
+
+                struct FpgaNanosPostInitInfo {
+                    std::string _function;
+                    std::string _argument;
+                };
+
+                std::string _board_name;
+                std::string _device_name;
+                std::string _frequency;
+                std::string _bitstream_generation_str;
+                std::string _vivado_design_path;
+                std::string _vivado_project_name;
+                std::string _ip_cache_path;
+                std::string _dataflow;
+                std::string _force_fpga_task_creation_ports_str;
+                bool        _bitstream_generation;
+                str_set_t   _force_fpga_task_creation_ports;
+                str_set_t   _registered_tasks;
+                Nodecl::NodeclBase _root;
+                TL::ObjectList< struct FpgaOutlineInfo >       _outlines;
+                TL::ObjectList< struct FpgaNanosPostInitInfo > _nanos_post_init_actions;
 
                 void set_bitstream_generation_from_str(const std::string& str);
                 void set_force_fpga_task_creation_ports_from_str(const std::string& str);
@@ -173,6 +182,7 @@ namespace TL
                         Nodecl::NodeclBase construct,
                         TL::Symbol function_symbol,
                         TL::Symbol called_task,
+                        TL::Symbol structure_symbol,
                         Nodecl::NodeclBase statements,
                         Nodecl::NodeclBase priority_expr,
                         Nodecl::NodeclBase if_condition,
@@ -182,6 +192,15 @@ namespace TL
                         OutlineInfo& outline_info,
                         OutlineInfo* parameter_outline_info,
                         Nodecl::NodeclBase* placeholder_task_expr_transformation);
+
+                void register_task_creation(
+                        Nodecl::NodeclBase construct,
+                        TL::Symbol current_function,
+                        TL::Symbol called_task,
+                        TL::Symbol structure_symbol,
+                        OutlineInfo& outline_info,
+                        std::string acc_type,
+                        size_t const num_copies);
         };
     }
 }

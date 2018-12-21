@@ -1092,6 +1092,7 @@ void LoweringVisitor::visit_task_call_c(
                 new_construct,
                 function_symbol,
                 called_sym,
+                structure_symbol,
                 statements,
                 updated_priority,
                 updated_if_condition,
