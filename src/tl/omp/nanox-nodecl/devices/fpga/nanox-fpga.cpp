@@ -2301,6 +2301,7 @@ void DeviceFPGA::emit_async_device(
             continue;
 
         Source arg_flags;
+        arg_flags.append_with_separator("NANOS_ARGFLAG_NONE", " | "); // Default argument flag
         TL::ObjectList<OutlineDataItem::DependencyItem> dependences = (*it)->get_dependences();
         for (TL::ObjectList<OutlineDataItem::DependencyItem>::iterator dep_it = dependences.begin();
                 dep_it != dependences.end();
