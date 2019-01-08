@@ -1443,7 +1443,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         const ObjectList<OutlineDataItem::CopyItem> &copies = (*it)->get_copies();
         const ObjectList<Nodecl::NodeclBase> &localmem = (*it)->get_localmem();
 
-        if (!localmem.empty() && !creates_children_tasks)
+        if (!localmem.empty())
         {
             TL::Symbol symbol_copy = (*it)->get_field_symbol();
             Nodecl::NodeclBase expr_base = (*it)->get_base_address_expression();
@@ -1645,7 +1645,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
             Type basic_elem_type;
             std::string basic_elem_type_name;
 
-            if ((field_type.is_pointer() || field_type.is_array()) && !creates_children_tasks)
+            if (field_type.is_pointer() || field_type.is_array())
             {
                 if (field_type.is_pointer())
                 {
@@ -1726,15 +1726,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
                 n_params_in++;
                 n_params_id++;
-            }
-            else if (field_type.is_pointer() || field_type.is_array())
-            {
-                //It is creating children tasks
-                error_printf_at(param_symbol.get_locus(),
-                    "Non-scalar data type '%s' (parameter '%s') in fpga task that has the task creation mode enabled. \
-Pointers cannot be accessed when creation mode is enabled, change the parameter type to 'uintptr_t'.\n",
-                    print_declarator(field_type.get_internal_type()), field_name.c_str()
-                );
             }
             else if (field_type.is_scalar_type())
             {
