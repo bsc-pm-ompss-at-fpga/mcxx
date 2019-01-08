@@ -2494,18 +2494,29 @@ void DeviceFPGA::emit_async_device(
     if (!Nanos::Version::interface_is_at_least("fpga", 5))
         fatal_error("Your Nanos version does not support task creation inside fpga devices. Please update your Nanos installation\n");
 
+    if (num_args > 0)
+    {
+        spawn_code
+            << "uint64_t mcxx_args[] = {"
+            << args_list
+            << "};"
+            << "uint8_t mcxx_args_flags[] = {"
+            << args_flags_list
+            << "};";
+    }
+
+    if (num_copies > 0)
+    {
+        spawn_code
+            << "struct nanos_fpga_copyinfo_t mcxx_copies[] = {"
+            << copies_list
+            << "};";
+    }
+
     spawn_code
-        << "uint64_t mcxx_args[] = {"
-        << args_list
-        << "};"
-        << "uint8_t mcxx_args_flags[] = {"
-        << args_flags_list
-        << "};"
-        << "struct nanos_fpga_copyinfo_t mcxx_copies[] = {"
-        << copies_list
-        << "};"
-        << STR_CREATE_TASK << "(" << arch_mask << ", " << acc_type << ", " << num_args << ", mcxx_args, mcxx_args_flags, "
-        <<                           num_copies << ", mcxx_copies);";
+        << STR_CREATE_TASK << "(" << arch_mask << ", " << acc_type << ", " << num_args << ", "
+        << (num_args > 0 ? "mcxx_args, mcxx_args_flags" : "(uint64_t *)0, (uint8_t *)0") << ", "
+        << num_copies << ", " << (num_copies > 0 ? "mcxx_copies" : "(struct nanos_fpga_copyinfo_t *)0") << ");";
 
     Nodecl::NodeclBase spawn_code_tree = spawn_code.parse_statement(construct);
     construct.replace(spawn_code_tree);
@@ -2641,12 +2652,6 @@ void DeviceFPGA::register_task_creation(
             Source ancillary_device_description, device_description, aux_fortran_init;
             int fortran_device_index = 0;
 
-            if (it != implementation_table.begin()
-                    || it2 != devices.begin())
-            {
-                device_descriptions <<  ", ";
-            }
-
             std::string device_name = *it2;
             DeviceProvider* device = device_handler.get_device(device_name);
             ERROR_CONDITION(device == NULL, " Device '%s' has not been loaded.", device_name.c_str());
@@ -2671,7 +2676,7 @@ void DeviceFPGA::register_task_creation(
             //FIXME: This should be get using the device
             const std::string& fpga_spawn_outline_name = device_name + "_" + implementor_outline_name + "_fpga_spawn";
 
-            device_descriptions << device_description;
+            device_descriptions.append_with_separator(device_description, ", ");
             ancillary_device_descriptions << ancillary_device_description
                 << device_name + "_" + implementor_outline_name << "_args.outline = (void(*)(void*))(void(*)(uint64_t *))&"
                 << fpga_spawn_outline_name << ";";
@@ -2849,11 +2854,16 @@ void DeviceFPGA::register_task_creation(
         fatal_error("Fortran support not implemeted yet");
     }
 
+    TL::Symbol devices_class = function_scope.get_symbol_from_name("nanos_device_t");
+    ERROR_CONDITION(!devices_class.is_valid(), "Invalid symbol", 0);
+
     register_task
         << "void __mcxx_fpga_register_" << acc_type << "(void* p __attribute__((unused)))"
         << "{"
         <<   ancillary_device_descriptions
-        <<   "struct nanos_device_t devices[] = " << device_descriptions << ";"
+        <<   devices_class.get_qualified_name(context.retrieve_context()) << " devices[] = {"
+        <<     device_descriptions
+        <<   "};"
         <<   "nanos_fpga_register_wd_info(" << acc_type << ", " << num_devices << ", devices, " << reference_to_xlate << ");"
         << "}"
         ;
