@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------
-  (C) Copyright 2006-2018 Barcelona Supercomputing Center
+  (C) Copyright 2006-2019 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
 
   This file is part of Mercurium C/C++ source-to-source compiler.
@@ -325,13 +325,13 @@ void DeviceFPGA::create_outline(
                         << "enum {NANOS_ARGFLAG_DEP_IN  = 0x08, NANOS_ARGFLAG_DEP_OUT  = 0x04,"
                         << "      NANOS_ARGFLAG_COPY_IN = 0x02, NANOS_ARGFLAG_COPY_OUT = 0x01,"
                         << "      NANOS_ARGFLAG_NONE    = 0x00};"
-                        << "struct nanos_fpga_copyinfo_t {"
+                        << "typedef struct nanos_fpga_copyinfo_t {"
                         << "    uint64_t address;"
                         << "    uint32_t flags;"
                         << "    uint32_t size;"
                         << "    uint32_t offset;"
                         << "    uint32_t accessed_length;"
-                        << "};"
+                        << "} nanos_fpga_copyinfo_t;"
                         << "void " << STR_CREATE_TASK << "(uint32_t archMask, uint64_t onto,"
                         << "    uint16_t numArgs, uint64_t * args, uint8_t * argsFlags, uint16_t numCopies,"
                         << "    struct nanos_fpga_copyinfo_t * copies) {"
@@ -2508,7 +2508,7 @@ void DeviceFPGA::emit_async_device(
     if (num_copies > 0)
     {
         spawn_code
-            << "struct nanos_fpga_copyinfo_t mcxx_copies[] = {"
+            << "nanos_fpga_copyinfo_t mcxx_copies[] = {"
             << copies_list
             << "};";
     }
@@ -2516,7 +2516,7 @@ void DeviceFPGA::emit_async_device(
     spawn_code
         << STR_CREATE_TASK << "(" << arch_mask << ", " << acc_type << ", " << num_args << ", "
         << (num_args > 0 ? "mcxx_args, mcxx_args_flags" : "(uint64_t *)0, (uint8_t *)0") << ", "
-        << num_copies << ", " << (num_copies > 0 ? "mcxx_copies" : "(struct nanos_fpga_copyinfo_t *)0") << ");";
+        << num_copies << ", " << (num_copies > 0 ? "mcxx_copies" : "(nanos_fpga_copyinfo_t *)0") << ");";
 
     Nodecl::NodeclBase spawn_code_tree = spawn_code.parse_statement(construct);
     construct.replace(spawn_code_tree);
