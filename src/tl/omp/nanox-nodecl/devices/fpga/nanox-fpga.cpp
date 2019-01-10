@@ -1632,255 +1632,71 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         }
         else
         {
-            Source dimensions_array; // = get_type_arrays(expr);
-            Source dimensions_pointer_array; // = get_type_arrays(expr);
-            Source n_elements_src;
-
-            const Type &field_type = (*it)->get_field_type();
-            std::string field_simple_decl = field_type.get_simple_declaration(scope, field_name);
-            std::string type_simple_decl = field_type.get_simple_declaration(scope, field_name);
-            size_t position = type_simple_decl.find("[");
-
-            Type elem_type;
-            Type basic_elem_type;
-            std::string basic_elem_type_name;
-
-            if (field_type.is_pointer() || field_type.is_array())
-            {
-                if (field_type.is_pointer())
-                {
-                    elem_type = field_type.points_to();
-                    basic_elem_type=field_type.basic_type();
-                    basic_elem_type_name= basic_elem_type.print_declarator();
-                }
-                else if (field_type.is_array())
-                {
-                    elem_type = field_type.array_element();
-                    basic_elem_type=field_type.basic_type();
-                    basic_elem_type_name= basic_elem_type.print_declarator();
-                }
-                else
-                {
-                    internal_error("Reference not valid", 0);
-                }
-
-                std::string par_simple_decl = elem_type.get_simple_declaration(scope, field_name);
-                TL::Type basic_par_type = field_type.basic_type();
-                std::string basic_par_type_decl = basic_par_type.print_declarator();
-                std::string par_decl = field_type.get_declaration(scope, field_name);
-
-                TL::Type field_type_points_to;
-
-                if (field_type.is_pointer())
-                {
-                    field_type_points_to = field_type.points_to();
-                }
-                else if (field_type.is_pointer_to_class())
-                {
-                    field_type_points_to = field_type.pointed_class();
-                }
-
-                std::string pointed_to_string = field_type_points_to.print_declarator();
-                std::string pointed_to_string_simple = field_type_points_to.get_simple_declaration(scope, field_name);
-                position = par_decl.rfind(field_name);
-                std::string type_par_decl = par_decl.substr(0, position);
-                std::string type_basic_par_decl = get_element_type_pointer_to(field_type, field_name, scope);
-                std::string type_mcxx_par_decl = get_type_pointer_to(field_type, field_name, scope);
-
-                position = type_mcxx_par_decl.find("TO_CHANGE_MCXX");
-                const std::string field_port_name = STR_PREFIX + field_name;
-                std::string name_parameter_dimension = "(*" + field_port_name + ")";
-                std::string declaration_param_wrapper = type_mcxx_par_decl;
-                declaration_param_wrapper.replace(position, 14, name_parameter_dimension);
-
-                std::string local_variable = "(*" + field_name + ")";
-                std::string declaration_local_wrapper = type_mcxx_par_decl;
-                declaration_local_wrapper.replace(position, 14, local_variable);
-
-                std::string casting_sizeof = type_mcxx_par_decl;
-                casting_sizeof.replace(position, 14, "");
-                std::string casting_pointer = type_mcxx_par_decl;
-                casting_pointer.replace(position, 14, "(*)");
-
-                const std::string field_name_param = declaration_param_wrapper;
-                fun_params_wrapper.append_with_separator(field_name_param, ", ");
-
-                pragmas_src
-                    << "#pragma HLS INTERFACE m_axi port=" << field_port_name << "\n"
-                ;
-
-                local_decls
-                    << "\t" << declaration_local_wrapper << ";"
-                ;
-
-                int param_id = find_parameter_position(param_list, param_symbol);
-                function_parameters_passed[param_id] = 1;
-
-                in_copies_aux
-                    << "\t\t\tcase " << param_id << ":\n"
-                    << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
-                    << "\t\t\t\t" << field_name << " = (" << casting_pointer << ")("
-                    << field_port_name << " + __param/sizeof(" << casting_sizeof << "));"
-                    << "\t\t\t\tbreak;"
-                ;
-
-                n_params_in++;
-                n_params_id++;
-            }
-            else if (field_type.is_scalar_type())
-            {
-                std::string basic_par_type_decl = get_element_type_pointer_to(field_type, field_name, scope);
-
-#if _DEBUG_AUTOMATIC_COMPILER_
-                std::cerr << "BASIC PAR TYPE DECL :" << basic_par_type_decl << std::endl;
-#endif
-
-                local_decls
-                    << "\t" << basic_par_type_decl << " " << field_name << ";"
-                ;
-
-                int param_id = find_parameter_position(param_list, param_symbol);
-                function_parameters_passed[param_id] = 1;
-
-                in_copies_aux
-                    << "\t\t\tcase " << param_id << ":\n"
-                    << "\t\t\t\tunion {"
-                    << "\t\t\t\t\t" << basic_par_type_decl << " " << field_name << ";"
-                    << "\t\t\t\t\tuint64_t "<< field_name << "_task_arg;"
-                    << "\t\t\t\t} mcc_arg_" << param_id << ";"
-                    << "\t\t\t\tmcc_arg_" << param_id << "." << field_name << "_task_arg = " << STR_INPUTSTREAM << ".read().data;"
-                    << "\t\t\t\t" << field_name << " = mcc_arg_" << param_id << "." << field_name << ";"
-                    << "\t\t\t\tbreak;"
-                ;
-
-                n_params_in++;
-                n_params_id++;
-            }
-            else
-            {
-                error_printf_at(param_symbol.get_locus(),
-                    "Unsupported data type '%s' in fpga task parameter '%s'\n",
-                    print_declarator(field_type.get_internal_type()), field_name.c_str()
-                );
-                internal_error("Unsupported field_type", 0);
-            }
+            //NOTE: It will be handled in the below loop
         }
     }
 
-    int param_pos = 0;
-    for (ObjectList<Symbol>::const_iterator it = param_list.begin(); it != param_list.end(); it++, param_pos++)
+    int param_id = 0;
+    for (ObjectList<Symbol>::const_iterator it = param_list.begin(); it != param_list.end(); it++, param_id++)
     {
-
-        if (function_parameters_passed[param_pos])
-        {
-            continue;
-        }
+        //Ignore already processed parameters
+        if (function_parameters_passed[param_id]) continue;
 
         const Scope &scope = it->get_scope();
-        Source dimensions_array; // = get_type_arrays(expr);
-        Source dimensions_pointer_array; // = get_type_arrays(expr);
-        Source n_elements_src;
+        const std::string &param_name = it->get_name();
+        TL::Type param_type = it->get_type().no_ref();
+        TL::Type unql_type = param_type.get_unqualified_type();
 
-        const Type &field_type = it->get_type();
-        Type elem_type;
-        Type basic_elem_type; //=field_type.basic_type();
-        std::string basic_elem_type_name; //= basic_elem_type.print_declarator();
-        const std::string &field_name = it->get_name();
-        std::string type_simple_decl = field_type.get_simple_declaration(scope, field_name);
-        size_t position = type_simple_decl.find("[");
-        bool is_only_pointer = (position == std::string::npos);
+        local_decls
+            << "\t" << unql_type.get_declaration(scope, param_name) << ";";
 
-        if (field_type.is_pointer() || field_type.is_array())
+        if (param_type.is_pointer() || param_type.is_array())
         {
-            n_elements_src = get_copy_elements_all_dimensions_src(field_type, field_type, is_only_pointer);
-            dimensions_array = get_type_arrays_src(field_type, field_type, is_only_pointer);
-            dimensions_pointer_array = get_type_pointer_to_arrays_src(field_type, field_type, is_only_pointer);
+            TL::Type elem_type = param_type.is_pointer() ? param_type.points_to() : param_type.array_element();
+            const std::string casting_pointer = unql_type.get_declaration(scope, "");
+            const std::string casting_sizeof = elem_type.get_declaration(scope, "");
+            const std::string port_name = STR_PREFIX + param_name;
+            const std::string port_declaration = unql_type.get_declaration(scope, port_name, TL::Type::PARAMETER_DECLARATION);
+
+            fun_params_wrapper.append_with_separator(port_declaration, ", ");
+
+            pragmas_src
+                << "#pragma HLS INTERFACE m_axi port=" << port_name << "\n"
+            ;
+
+            in_copies_aux
+                << "\t\t\tcase " << param_id << ":\n"
+                << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
+                << "\t\t\t\t" << param_name << " = (" << casting_pointer << ")"
+                << "\t\t\t\t(" << port_name << " + __param/sizeof(" << casting_sizeof << "));"
+                << "\t\t\t\tbreak;"
+            ;
+        }
+        else if (param_type.is_scalar_type())
+        {
+            in_copies_aux
+                << "\t\t\tcase " << param_id << ":\n"
+                << "\t\t\t\tunion {"
+                << "\t\t\t\t\t" << param_type.get_declaration(scope, param_name) << ";"
+                << "\t\t\t\t\tuint64_t "<< param_name << "_task_arg;"
+                << "\t\t\t\t} mcc_arg_" << param_id << ";"
+                << "\t\t\t\tmcc_arg_" << param_id << "." << param_name << "_task_arg = " << STR_INPUTSTREAM << ".read().data;"
+                << "\t\t\t\t" << param_name << " = mcc_arg_" << param_id << "." << param_name << ";"
+                << "\t\t\t\tbreak;"
+            ;
         }
         else
         {
             error_printf_at(it->get_locus(),
-                "Unsupported data type '%s' in fpga task parameter '%s' (only pointer parameters are supported)\n",
-                print_declarator(field_type.get_internal_type()), field_name.c_str()
+                "Unsupported data type '%s' in fpga task parameter '%s'\n",
+                print_declarator(param_type.get_internal_type()), param_name.c_str()
             );
+            internal_error("Unsupported parameter type for fpga task", 0);
         }
 
-        if (field_type.is_pointer() || field_type.is_array())
-        {
-            if (field_type.is_pointer())
-            {
-                elem_type = field_type.points_to();
-                basic_elem_type=field_type.basic_type();
-                basic_elem_type_name= basic_elem_type.print_declarator();
-            }
-            else
-            {
-                elem_type = field_type.array_element();
-                basic_elem_type=field_type.basic_type();
-                basic_elem_type_name= basic_elem_type.print_declarator();
-            }
-
-            std::string par_simple_decl = elem_type.get_simple_declaration(scope, field_name);
-            TL::Type basic_par_type= field_type.basic_type();
-            std::string basic_par_type_decl= basic_par_type.print_declarator();
-            std::string par_decl = field_type.get_declaration(scope, field_name);
-            TL::Type field_type_points_to;
-
-            if (field_type.is_pointer())
-            {
-                field_type_points_to = field_type.points_to();
-            }
-            else if (field_type.is_pointer_to_class())
-            {
-                field_type_points_to = field_type.pointed_class();
-            }
-
-            std::string pointed_to_string = field_type_points_to.print_declarator();
-            std::string pointed_to_string_simple = field_type_points_to.get_simple_declaration(scope, field_name);
-            position = par_decl.rfind(field_name);
-            std::string type_par_decl = par_decl.substr(0, position);
-            std::string type_basic_par_decl = get_element_type_pointer_to(field_type, field_name, scope);
-
-            const std::string field_port_name = STR_PREFIX + field_name;
-            //const std::string field_name_param = type_basic_par_decl+ "*" +field_port_name;
-            const std::string field_name_param = type_basic_par_decl + " *" + field_port_name;
-            // DJG ONE ONLY PORT - REMOVING PORTS PER ARGUMENT
-            fun_params_wrapper.append_with_separator(field_name_param, ", ");
-
-            pragmas_src
-                << "#pragma HLS INTERFACE m_axi port=" << field_port_name << "\n"
-            ;
-
-            local_decls
-                << "\tstatic " << type_basic_par_decl << " (* " << field_name << ")" << dimensions_pointer_array << ";"
-            ;
-
-            function_parameters_passed[param_pos] = 1;
-
-            in_copies_aux
-                << "\t\t\tcase " << param_pos << ":\n"
-                << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
-                << "\t\t\t\t" << field_name << " = (" << type_basic_par_decl << " * " << dimensions_pointer_array << ")(" << field_port_name << " + __param/sizeof(" << type_basic_par_decl << "));"
-            ;
-
-            if (creates_children_tasks)
-            {
-                wrapper_decls
-                    << "static " << type_basic_par_decl << " (* " << STR_REAL_PARAM_PREFIX << field_name << ")" << dimensions_pointer_array << ";"
-                ;
-
-                in_copies_aux
-                    << "\t\t\t\t" << STR_REAL_PARAM_PREFIX << field_name << " = (uintptr_t)__param;"
-                ;
-            }
-
-            in_copies_aux
-                << "\t\t\t\tbreak;"
-            ;
-
-            n_params_in++;
-            n_params_id++;
-
-        }
+        //function_parameters_passed[param_id] = 1;
+        n_params_in++;
+        n_params_id++;
     }
 
     in_copies
