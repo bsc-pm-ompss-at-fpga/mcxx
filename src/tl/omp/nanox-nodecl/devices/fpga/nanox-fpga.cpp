@@ -332,38 +332,39 @@ void DeviceFPGA::create_outline(
                         << "    uint32_t offset;"
                         << "    uint32_t accessed_length;"
                         << "} nanos_fpga_copyinfo_t;"
-                        << "void " << STR_CREATE_TASK << "(uint32_t archMask, uint64_t onto,"
+                        << "void " << STR_CREATE_TASK << "(uint32_t archMask, uint64_t type, uint16_t numDeps,"
                         << "    uint16_t numArgs, uint64_t * args, uint8_t * argsFlags, uint16_t numCopies,"
                         << "    struct nanos_fpga_copyinfo_t * copies) {"
                         << "\t++" << STR_COMPONENTS_COUNT << ";"
-                        << "\tconst unsigned short TM_NEW = 0x12;"
+                        //0x14 is the Scheduler TM, 0x12 is the New TM
+                        << "\tconst unsigned short DEST_ID = (numDeps == 0 && numCopies == 0) ? 0x14 : 0x12;"
                         //1st word: [ valid (8b) | arch_mask (24b) | num_args (16b) | num_copies (16b) ]
                         << "\tuint64_t tmp = 0x80000000 | archMask;"
                         << "\ttmp = (tmp << 16) | numArgs;"
                         << "\ttmp = (tmp << 16) | numCopies;"
-                        << "\twrite_outstream(tmp, TM_NEW, 0);"
+                        << "\twrite_outstream(tmp, DEST_ID, 0);"
                         //2nd word: [ parent_task_id (64b) ]
-                        << "\twrite_outstream(" << STR_TASKID << ", TM_NEW, 0);"
-                        //3rd word: [ onto_value (64b) ]
-                        << "\twrite_outstream(onto, TM_NEW, 0);"
+                        << "\twrite_outstream(" << STR_TASKID << ", DEST_ID, 0);"
+                        //3rd word: [ type_value (64b) ]
+                        << "\twrite_outstream(type, DEST_ID, 0);"
                         << "\tfor (uint16_t idx = 0; idx < numArgs; ++idx) {"
                         //arg words: [ arg_flags (8b) | arg_value (56b) ]
                         << "\t\ttmp = argsFlags[idx];"
                         << "\t\ttmp = (tmp << 56) | args[idx];"
-                        << "\t\twrite_outstream(tmp, TM_NEW, (idx == (numArgs - 1))&(numCopies == 0));"
+                        << "\t\twrite_outstream(tmp, DEST_ID, (idx == (numArgs - 1))&(numCopies == 0));"
                         << "\t}"
                         << "\tfor (uint16_t idx = 0; idx < numCopies; ++idx) {"
                         //1st copy word: [ address (64b) ]
                         << "\t\ttmp = copies[idx].address;"
-                        << "\t\twrite_outstream(tmp, TM_NEW, 0);"
+                        << "\t\twrite_outstream(tmp, DEST_ID, 0);"
                         //2nd copy word: [ size (32b) | not_used (24b) | flags (8b) ]
                         << "\t\ttmp = copies[idx].size;"
                         << "\t\ttmp = (tmp << 32) | copies[idx].flags;"
-                        << "\t\twrite_outstream(tmp, TM_NEW, 0);"
+                        << "\t\twrite_outstream(tmp, DEST_ID, 0);"
                         //3rd copy word: [ accessed_length (32b) | offset (32b) ]
                         << "\t\ttmp = copies[idx].accessed_length;"
                         << "\t\ttmp = (tmp << 32) | copies[idx].offset;"
-                        << "\t\twrite_outstream(tmp, TM_NEW, idx == (numCopies - 1));"
+                        << "\t\twrite_outstream(tmp, DEST_ID, idx == (numCopies - 1));"
                         << "\t}"
                         << "}"
                     ;
@@ -2097,7 +2098,7 @@ void DeviceFPGA::emit_async_device(
     }
 
     Source spawn_code, args_list, args_flags_list, copies_list;
-    size_t num_args = 0, num_copies = 0;
+    size_t num_args = 0, num_deps = 0, num_copies = 0;
 
     // Go through all the arguments and fill the arguments_list
     for (TL::ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
@@ -2107,6 +2108,7 @@ void DeviceFPGA::emit_async_device(
         if (!(*it)->get_symbol().is_valid())
             continue;
 
+        bool is_dep = false;
         Source arg_flags;
         arg_flags.append_with_separator("NANOS_ARGFLAG_NONE", " | "); // Default argument flag
         TL::ObjectList<OutlineDataItem::DependencyItem> dependences = (*it)->get_dependences();
@@ -2117,10 +2119,12 @@ void DeviceFPGA::emit_async_device(
             if ((dep_it->directionality & OutlineDataItem::DEP_IN) == OutlineDataItem::DEP_IN)
             {
                 arg_flags.append_with_separator("NANOS_ARGFLAG_DEP_IN", " | ");
+                is_dep = true;
             }
             if ((dep_it->directionality & OutlineDataItem::DEP_OUT) == OutlineDataItem::DEP_OUT)
             {
                 arg_flags.append_with_separator("NANOS_ARGFLAG_DEP_OUT", " | ");
+                is_dep = true;
             }
             if ((dep_it->directionality & (~OutlineDataItem::DEP_INOUT)) != OutlineDataItem::DEP_NONE)
             {
@@ -2128,6 +2132,7 @@ void DeviceFPGA::emit_async_device(
                     "Only in/out/inout dependences are suported when creating a task in a FPGA device\n");
             }
         }
+        num_deps += is_dep;
 
         Source arg_value;
         switch ((*it)->get_sharing())
@@ -2307,8 +2312,8 @@ void DeviceFPGA::emit_async_device(
         }
     }
 
-    if (!Nanos::Version::interface_is_at_least("fpga", 5))
-        fatal_error("Your Nanos version does not support task creation inside fpga devices. Please update your Nanos installation\n");
+    if (!Nanos::Version::interface_is_at_least("fpga", 6))
+        fatal_error("Your Nanos version is not supported for cration of tasks inside the FPGA. Please update your Nanos installation\n");
 
     if (num_args > 0)
     {
@@ -2330,7 +2335,7 @@ void DeviceFPGA::emit_async_device(
     }
 
     spawn_code
-        << STR_CREATE_TASK << "(" << arch_mask << ", " << acc_type << ", " << num_args << ", "
+        << STR_CREATE_TASK << "(" << arch_mask << ", " << acc_type << ", " << num_deps << ", " << num_args << ", "
         << (num_args > 0 ? "mcxx_args, mcxx_args_flags" : "(uint64_t *)0, (uint8_t *)0") << ", "
         << num_copies << ", " << (num_copies > 0 ? "mcxx_copies" : "(nanos_fpga_copyinfo_t *)0") << ");";
 
