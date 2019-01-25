@@ -4595,8 +4595,13 @@ static void link_files(const char** file_list, int num_files,
     const char* linker_args[num_arguments];
     memset(linker_args, 0, sizeof(linker_args));
 
-    // NULL
-    int num_arguments_fpga = num_args_linker_options_fpga + 1;
+    /* TODO: Get Nanos FPGA version
+    // Nanos FPGA API version / Mercurium version / NULL
+    int num_arguments_fpga = num_args_linker_options_fpga + 3;
+    */
+
+    // Mercurium version / NULL
+    int num_arguments_fpga = num_args_linker_options_fpga + 2;
 
     const char* linker_args_fpga[num_arguments_fpga];
     memset(linker_args_fpga, 0, sizeof(linker_args_fpga));
@@ -4680,6 +4685,14 @@ static void link_files(const char** file_list, int num_files,
         if (!linker_args_fpga_contain_name)
             linker_args_fpga_contain_name = (strstr(linker_args_fpga[j], "-n") != NULL);
     }
+
+    // TODO: Get nanox version
+    //linker_args_fpga[j++] = "--nanox_version=1.2.3"; //Nanos FPGA API version
+    linker_args_fpga[j++] = strappend("--mcxx_version=",
+                            strappend("\"",
+                            strappend(VERSION,
+                            strappend(" ",
+                            strappend(MCXX_BUILD_VERSION, "\""))))); //Mercurium version
     linker_args_fpga[j] = NULL;
 
     timing_t timing_link;
