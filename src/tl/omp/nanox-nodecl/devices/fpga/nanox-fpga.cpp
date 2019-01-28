@@ -335,6 +335,7 @@ void DeviceFPGA::create_outline(
                         << "void " << STR_CREATE_TASK << "(uint32_t archMask, uint64_t type, uint16_t numDeps,"
                         << "    uint16_t numArgs, uint64_t * args, uint8_t * argsFlags, uint16_t numCopies,"
                         << "    struct nanos_fpga_copyinfo_t * copies) {"
+                        << "#pragma HLS inline\n"
                         << "\t++" << STR_COMPONENTS_COUNT << ";"
                         //0x14 is the Scheduler TM, 0x12 is the New TM
                         << "\tconst unsigned short DEST_ID = (numDeps == 0 && numCopies == 0) ? 0x14 : 0x12;"
