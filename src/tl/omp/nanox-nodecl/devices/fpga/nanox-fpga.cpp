@@ -338,7 +338,10 @@ void DeviceFPGA::create_outline(
                         << "#pragma HLS inline\n"
                         << "\t++" << STR_COMPONENTS_COUNT << ";"
                         //0x14 is the Scheduler TM, 0x12 is the New TM
-                        << "\tconst unsigned short DEST_ID = (numDeps == 0 && numCopies == 0) ? 0x14 : 0x12;"
+                        << "\tconst unsigned short TM_NEW = 0x12;"
+                        << "\tconst unsigned short TM_SCHED = 0x14;"
+                        << "\tconst unsigned char hasSmpArch = (archMask & NANOS_FPGA_ARCH_SMP) != 0;"
+                        << "\tconst unsigned short DEST_ID = (numDeps == 0 && numCopies == 0 && !hasSmpArch) ? TM_SCHED : TM_NEW;"
                         //1st word: [ valid (8b) | arch_mask (24b) | num_args (16b) | num_copies (16b) ]
                         << "\tuint64_t tmp = 0x80000000 | archMask;"
                         << "\ttmp = (tmp << 16) | numArgs;"
