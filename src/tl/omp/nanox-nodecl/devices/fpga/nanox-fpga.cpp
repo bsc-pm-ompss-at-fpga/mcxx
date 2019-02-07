@@ -1682,7 +1682,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
             in_copies_aux
                 << "\t\t\tcase " << param_id << ":\n"
                 << "\t\t\t\tunion {"
-                << "\t\t\t\t\t" << param_type.get_declaration(scope, param_name) << ";"
+                << "\t\t\t\t\t" << unql_type.get_declaration(scope, param_name) << ";"
                 << "\t\t\t\t\tuint64_t "<< param_name << "_task_arg;"
                 << "\t\t\t\t} mcc_arg_" << param_id << ";"
                 << "\t\t\t\tmcc_arg_" << param_id << "." << param_name << "_task_arg = " << STR_INPUTSTREAM << ".read().data;"
