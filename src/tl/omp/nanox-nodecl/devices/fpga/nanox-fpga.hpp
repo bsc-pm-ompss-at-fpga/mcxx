@@ -109,7 +109,6 @@ namespace TL
                 void set_bitstream_generation_from_str(const std::string& str);
                 void set_fpga_task_creation_from_str(const std::string& str);
 
-                std::string _acc_type;
                 std::string _num_acc_instances;
                 int         _current_base_acc_num;
 
@@ -128,6 +127,8 @@ namespace TL
                         Nodecl::Utils::SymbolMap *,
                         TL::Scope
                         );
+
+                std::string get_acc_type(const TL::Symbol& task, const TargetInformation& target_info);
 
                 void add_hls_pragmas(
                         Nodecl::NodeclBase &,

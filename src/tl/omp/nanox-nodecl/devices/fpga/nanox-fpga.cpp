@@ -181,6 +181,7 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
             if (_copied_fpga_functions.map(called_task) == called_task)
             {
                 //new task-> add it to the list
+                const std::string acc_type = get_acc_type(called_task, info._target_info);
                 TL::Symbol new_function = SymbolUtils::new_function_symbol_for_deep_copy(called_task, called_task.get_name());
 
                 TL::Symbol new_function_wrapper = SymbolUtils::new_function_symbol_for_deep_copy(called_task, called_task.get_name() + "_hls_automatic_mcxx_wrapper");
@@ -369,7 +370,7 @@ void DeviceFPGA::create_outline(CreateOutlineInfo &info, Nodecl::NodeclBase &out
                 preappend_list_sources_and_reset(outline_src, full_src, scope);
 
                 _fpga_source_codes.append(full_src);
-                _fpga_source_name.append(_acc_type + ":" + _num_acc_instances + ":" +  called_task.get_name() + "_hls_automatic_mcxx");
+                _fpga_source_name.append(acc_type + ":" + _num_acc_instances + ":" +  called_task.get_name() + "_hls_automatic_mcxx");
             }
         }
         else if (IS_FORTRAN_LANGUAGE)
@@ -734,47 +735,7 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
     current_function.set_name(original_name);
 
     // Generate a unique identifier for the accelerator type
-    // NOTE: Not using the line number to allow future modifications of source code without afecting the accelerator hash
-    std::stringstream type_str;
-    type_str << current_function.get_filename() << /*" " << current_function.get_line() <<*/ " " << qualified_name;
-    _acc_type = std::to_string(simple_hash_str(type_str.str().c_str()));
-
-    //get onto information
-    ObjectList<Nodecl::NodeclBase> onto_clause = info._target_info.get_onto();
-    Nodecl::Utils::SimpleSymbolMap param_to_args_map = info._target_info.get_param_arg_map();
-    if (onto_clause.size() >= 1)
-    {
-        Nodecl::NodeclBase onto_acc = onto_clause[0];
-        warn_printf_at(onto_acc.get_locus(),
-            "The use of onto clause is no longer needed unless you have a collision between two FPGA tasks that yeld the same type hash\n");
-        if (onto_clause.size() > 1)
-        {
-            error_printf_at(onto_acc.get_locus(),
-                "The syntax 'onto(type, count)' is no longer supported. Use 'onto(type) num_instances(count)' instead\n");
-        }
-
-        if (onto_clause[0].is_constant())
-        {
-            const_value_t *ct_val = onto_acc.get_constant();
-            if (!const_value_is_integer(ct_val))
-            {
-                error_printf_at(onto_acc.get_locus(), "Constant is not integer type in onto clause\n");
-            }
-            else
-            {
-                int acc = const_value_cast_to_signed_int(ct_val);
-                _acc_type = std::to_string(acc);
-            }
-        }
-        else
-        {
-            if (onto_acc.get_symbol().is_valid())
-            {
-                _acc_type = as_symbol(onto_acc.get_symbol());
-                //as_symbol(param_to_args_map.map(onto_acc.get_symbol()));
-            }
-        }
-    }
+    std::string acc_type = get_acc_type(info._called_task, info._target_info);
 
     //get num_instances information
     ObjectList<Nodecl::NodeclBase> numins_clause = info._target_info.get_num_instances();
@@ -841,13 +802,13 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
         if (Nanos::Version::interface_is_at_least("fpga", 4))
         {
             ancillary_device_description
-                << args_name << ".type = " << _acc_type << ";"
+                << args_name << ".type = " << acc_type << ";"
             ;
         }
         else
         {
             ancillary_device_description
-                << args_name << ".acc_num = " << _acc_type << ";"
+                << args_name << ".acc_num = " << acc_type << ";"
             ;
         }
 
@@ -868,6 +829,57 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
         internal_error("Fortran is not supperted in fpga devices", 0);
     }
 
+}
+
+std::string DeviceFPGA::get_acc_type(const TL::Symbol& task, const TargetInformation& target_info)
+{
+    std::string value = "INVALID_ONTO_VALUE";
+
+    // Check onto information
+    ObjectList<Nodecl::NodeclBase> onto_clause = target_info.get_onto();
+    if (onto_clause.size() >= 1)
+    {
+        Nodecl::NodeclBase onto_val = onto_clause[0];
+        warn_printf_at(onto_val.get_locus(),
+            "The use of onto clause is no longer needed unless you have a collision between two FPGA tasks that yeld the same type hash\n");
+        if (onto_clause.size() > 1)
+        {
+            error_printf_at(onto_val.get_locus(),
+                "The syntax 'onto(type, count)' is no longer supported. Use 'onto(type) num_instances(count)' instead\n");
+        }
+
+        if (onto_clause[0].is_constant())
+        {
+            const_value_t *ct_val = onto_val.get_constant();
+            if (!const_value_is_integer(ct_val))
+            {
+                error_printf_at(onto_val.get_locus(), "Constant is not integer type in onto clause\n");
+            }
+            else
+            {
+                int acc = const_value_cast_to_signed_int(ct_val);
+                value = std::to_string(acc);
+            }
+        }
+        else
+        {
+            if (onto_val.get_symbol().is_valid())
+            {
+                value = as_symbol(onto_val.get_symbol());
+                //Nodecl::Utils::SimpleSymbolMap param_to_args_map = info._target_info.get_param_arg_map();
+                //as_symbol(param_to_args_map.map(onto_val.get_symbol()));
+            }
+        }
+    }
+    else
+    {
+        // Not using the line number to allow future modifications of source code without
+        // afecting the accelerator hash
+        std::stringstream type_str;
+        type_str << task.get_filename() << " " << task.get_name();
+        value = std::to_string(simple_hash_str(type_str.str().c_str()));
+    }
+    return value;
 }
 
 bool DeviceFPGA::remove_function_task_from_original_source() const
@@ -938,9 +950,9 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
             }
 
             hls_file << "/////////////////// Automatic IP Generated by OmpSs@FPGA compiler\n"
-                     << "///////////////////\n"
-                     << "// Top IP Function: "<< (*it2) << "_wrapper AccID: " << _acc_type << " #Instances: "<<_num_acc_instances << "\n"
-                     << "///////////////////\n"
+                     //:wf<< "///////////////////\n"
+                     //<< "// Top IP Function: "<< (*it2) << "_wrapper AccID: " << acc_type << " #Instances: "<<_num_acc_instances << "\n"
+                     //<< "///////////////////\n"
                      << "\n"
                      << "#include <stdint.h>\n"
                      << "#include <iostream>\n"
