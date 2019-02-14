@@ -425,7 +425,9 @@ void DeviceFPGA::create_outline(
         }
         else
         {
-            fatal_error("Inline tasks not supported yet\n");
+            //The task code is not available at this point. It may be in a diferent TU
+            //If there is not a call to the fpga task in the TU, the fpga task will not be emmited
+            fatal_error("Calls to a FPGA task defined in a different TU not supported yet\n");
         }
     }
 
