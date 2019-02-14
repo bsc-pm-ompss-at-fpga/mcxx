@@ -1,23 +1,23 @@
 /*--------------------------------------------------------------------
   (C) Copyright 2006-2014 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
-  
+
   This file is part of Mercurium C/C++ source-to-source compiler.
-  
+
   See AUTHORS file in the top level directory for information
   regarding developers and contributors.
-  
+
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
   version 3 of the License, or (at your option) any later version.
-  
+
   Mercurium C/C++ source-to-source compiler is distributed in the hope
   that it will be useful, but WITHOUT ANY WARRANTY; without even the
   implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
   PURPOSE.  See the GNU Lesser General Public License for more
   details.
-  
+
   You should have received a copy of the GNU Lesser General Public
   License along with Mercurium C/C++ source-to-source compiler; if
   not, write to the Free Software Foundation, Inc., 675 Mass Ave,
@@ -108,6 +108,8 @@ namespace TL { namespace Nanox {
         // Note that the locus of a OmpSs::TaskCall is the locus of the function call.
         const locus_t* _instr_locus;
 
+        const size_t _num_inner_tasks;
+
         CreateOutlineInfo(
                 Lowering* lowering,
                 std::string& outline_name,
@@ -118,7 +120,8 @@ namespace TL { namespace Nanox {
                 Nodecl::NodeclBase task_label,
                 TL::Symbol& args_struct,
                 const TL::Symbol& called_task,
-                const locus_t* instr_locus)
+                const locus_t* instr_locus,
+                const size_t num_inner_tasks = 0)
             :
                 _lowering(lowering),
                 _outline_name(outline_name),
@@ -129,7 +132,8 @@ namespace TL { namespace Nanox {
                 _task_label(task_label),
                 _arguments_struct(args_struct),
                 _called_task(called_task),
-                _instr_locus(instr_locus)
+                _instr_locus(instr_locus),
+                _num_inner_tasks(num_inner_tasks)
         {
         }
     };
@@ -229,6 +233,21 @@ namespace TL { namespace Nanox {
              {
                  return false;
              }
+
+             virtual void emit_async_device(
+                     Nodecl::NodeclBase construct,
+                     TL::Symbol function_symbol,
+                     TL::Symbol called_task,
+                     TL::Symbol structure_symbol,
+                     Nodecl::NodeclBase statements,
+                     Nodecl::NodeclBase priority_expr,
+                     Nodecl::NodeclBase if_condition,
+                     Nodecl::NodeclBase final_condition,
+                     Nodecl::NodeclBase task_label,
+                     bool is_untied,
+                     OutlineInfo& outline_info,
+                     OutlineInfo* parameter_outline_info,
+                     Nodecl::NodeclBase* placeholder_task_expr_transformation);
 
              TL::Symbol new_function_symbol_forward(
                      TL::Symbol current_function,

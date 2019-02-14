@@ -740,6 +740,26 @@ namespace TL { namespace Nanox {
         _extra_c_code = Nodecl::List();
     }
 
+    void DeviceSMP::emit_async_device(
+            Nodecl::NodeclBase construct,
+            TL::Symbol current_function,
+            TL::Symbol called_task,
+            TL::Symbol structure_symbol,
+            Nodecl::NodeclBase statements,
+            Nodecl::NodeclBase priority_expr,
+            Nodecl::NodeclBase if_condition,
+            Nodecl::NodeclBase final_condition,
+            Nodecl::NodeclBase task_label,
+            bool is_untied,
+            OutlineInfo& outline_info,
+            /* this is non-NULL only for function tasks */
+            OutlineInfo* parameter_outline_info,
+            /* this is non-NULL only for task expressions */
+            Nodecl::NodeclBase* placeholder_task_expr_transformation)
+    {
+        // The SMP code is handled by LoweringVisitor::emit_async_common
+        fatal_error("DeviceSMP::emit_async_device should never be called\n");
+    }
 } }
 
 EXPORT_PHASE(TL::Nanox::DeviceSMP);

@@ -1,23 +1,23 @@
 /*--------------------------------------------------------------------
   (C) Copyright 2006-2015 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
-  
+
   This file is part of Mercurium C/C++ source-to-source compiler.
-  
+
   See AUTHORS file in the top level directory for information
   regarding developers and contributors.
-  
+
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
   version 3 of the License, or (at your option) any later version.
-  
+
   Mercurium C/C++ source-to-source compiler is distributed in the hope
   that it will be useful, but WITHOUT ANY WARRANTY; without even the
   implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
   PURPOSE.  See the GNU Lesser General Public License for more
   details.
-  
+
   You should have received a copy of the GNU Lesser General Public
   License along with Mercurium C/C++ source-to-source compiler; if
   not, write to the Free Software Foundation, Inc., 675 Mass Ave,
@@ -98,6 +98,15 @@ class LoweringVisitor : public Nodecl::ExhaustiveVisitor<void>
         TL::Symbol declare_argument_structure(OutlineInfo& outline_info, Nodecl::NodeclBase construct);
         bool c_type_needs_vla_handling(TL::Type t);
 
+        void create_outlines(
+                Nodecl::NodeclBase construct,
+                TL::Symbol& called_task,
+                Nodecl::NodeclBase statements,
+                Nodecl::NodeclBase task_label,
+                OutlineInfo& outline_info,
+                TL::Symbol& arguments_struct,
+                const size_t num_inner_tasks);
+
         void emit_async_common(
                 Nodecl::NodeclBase construct,
                 TL::Symbol function_symbol,
@@ -108,6 +117,7 @@ class LoweringVisitor : public Nodecl::ExhaustiveVisitor<void>
                 Nodecl::NodeclBase final_condition,
                 Nodecl::NodeclBase task_label,
                 bool is_untied,
+                const size_t num_inner_tasks,
                 OutlineInfo& outline_info,
                 OutlineInfo* parameter_outline_info,
                 Nodecl::NodeclBase* placeholder_task_expr_transformation);
@@ -438,7 +448,7 @@ class LoweringVisitor : public Nodecl::ExhaustiveVisitor<void>
                 Nodecl::NodeclBase construct,
                 Nodecl::NodeclBase statements);
 
-        Source emit_allocate_statement(TL::Symbol sym, 
+        Source emit_allocate_statement(TL::Symbol sym,
                 int &lower_bound_index, int &upper_bound_index);
 
         Source update_lastprivates(OutlineInfo& outline_info, const std::string& loop_descriptor_name);
@@ -449,7 +459,7 @@ class LoweringVisitor : public Nodecl::ExhaustiveVisitor<void>
                 TL::Scope original_scope);
 
 
-        void add_field(OutlineDataItem& outline_data_item, 
+        void add_field(OutlineDataItem& outline_data_item,
                 TL::Type new_class_type,
                 TL::Scope class_scope,
                 TL::Symbol new_class_symbol,

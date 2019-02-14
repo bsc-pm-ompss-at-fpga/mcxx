@@ -41,6 +41,119 @@
 
 namespace TL { namespace Nanox {
 
+    class TaskCreationContextVisitor : public Nodecl::ExhaustiveVisitor<void>
+    {
+        private:
+            class TargetDevicesVisitor : public Nodecl::ExhaustiveVisitor<void>
+            {
+                private:
+                    ObjectList<std::string> _devices;
+
+                public:
+                    TargetDevicesVisitor() : _devices()
+                    {}
+
+                    void visit(const Nodecl::OmpSs::Implements& implements)
+                    {
+                        //TODO: Check if something has to be done here
+                    }
+
+                    void visit(const Nodecl::OmpSs::Target& target)
+                    {
+                        Nodecl::List devices = target.get_devices().as<Nodecl::List>();
+
+                        for (Nodecl::List::iterator it = devices.begin();
+                                it != devices.end();
+                                it++)
+                        {
+                            std::string current_device = it->as<Nodecl::Text>().get_text();
+                            _devices.append(current_device);
+                        }
+                    }
+
+                    const ObjectList<std::string>& get_device_names() const
+                    {
+                        return _devices;
+                    }
+            };
+
+            class SetTaskCreationContext : public Nodecl::ExhaustiveVisitor<void>
+            {
+                private:
+                    const Nodecl::OmpSs::TaskCall& _context;
+                    std::string                    _contextDeviceName;
+                    size_t                         _count;
+
+                public:
+                    SetTaskCreationContext(const Nodecl::OmpSs::TaskCall& ctx) :
+                            _context(ctx), _contextDeviceName("NULL"), _count(0)
+                    {}
+
+                    virtual void visit(const Nodecl::OmpSs::TaskCall& node)
+                    {
+                        if (_contextDeviceName == "NULL")
+                        {
+                            Nodecl::OpenMP::Task ctx_task = _context.as<Nodecl::OpenMP::Task>();
+                            TargetDevicesVisitor ctx_devices_visitor;
+                            ctx_devices_visitor.walk(ctx_task.get_environment());
+
+                            ERROR_CONDITION(ctx_devices_visitor.get_device_names().size() > 1,
+                                    "A child task cannot be created in a context with multiple targets.\n", 0);
+                            _contextDeviceName = ctx_devices_visitor.get_device_names().at(0);
+                        }
+                        Nodecl::List task_environment = node.get_environment().as<Nodecl::List>();
+                        task_environment.append(Nodecl::OmpSs::CreationCtx::make(_contextDeviceName));
+                        node.get_environment().replace(task_environment);
+                        ++_count;
+                    }
+
+                    virtual void visit(const Nodecl::FunctionCall& node)
+                    {
+                        Nodecl::NodeclBase called = node.get_called();
+                        if (!called.has_symbol() || called.get_symbol().get_function_code().is_null())
+                        {
+                            return;
+                        }
+                        Nodecl::FunctionCode function_code =
+                            called.get_symbol().get_function_code().as<Nodecl::FunctionCode>();
+                        Nodecl::NodeclBase function_statements = function_code.get_statements();
+                        walk(function_statements);
+                    }
+
+                    size_t get_num_inner_tasks() const
+                    {
+                        return _count;
+                    }
+            };
+
+        public:
+
+            virtual void visit(const Nodecl::OmpSs::TaskCall& node)
+            {
+                Nodecl::NodeclBase called = node.get_call().as<Nodecl::FunctionCall>().get_called();
+                if (!called.has_symbol() || called.get_symbol().get_function_code().is_null())
+                {
+                    //The task is not in the same translation unit?
+                    return;
+                }
+
+                //Set the creation context of inner task calls based on current task call
+                Nodecl::FunctionCode function_code =
+                    called.get_symbol().get_function_code().as<Nodecl::FunctionCode>();
+                Nodecl::NodeclBase function_statements = function_code.get_statements();//.as<Nodecl::List>();
+                // set_task_context_of_task_calls(function_statements);
+                SetTaskCreationContext setter_visitor = SetTaskCreationContext(node);
+                setter_visitor.walk(function_statements);
+
+                //Set the number of inner tasks for the current task call
+                std::stringstream tmp_str_num;
+                tmp_str_num << setter_visitor.get_num_inner_tasks();
+                Nodecl::List task_environment = node.get_environment().as<Nodecl::List>();
+                task_environment.append(Nodecl::OmpSs::NumInnerTasks::make(tmp_str_num.str()));
+                node.get_environment().replace(task_environment);
+            }
+    };
+
     Lowering::Lowering()
         : _ancillary_file(NULL),
         _static_weak_symbols(false),
@@ -102,6 +215,9 @@ namespace TL { namespace Nanox {
         this->load_headers(dto);
 
         Nodecl::NodeclBase n = *std::static_pointer_cast<Nodecl::NodeclBase>(dto["nodecl"]);
+
+        TaskCreationContextVisitor task_context_visitor;
+        task_context_visitor.walk(n);
 
         TL::OpenMP::Lowering::FinalStmtsGenerator final_generator(_ompss_mode, "omp_in_final");
         // If the final clause transformation is disabled we shouldn't generate the final stmts

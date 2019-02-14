@@ -1,23 +1,23 @@
 /*--------------------------------------------------------------------
   (C) Copyright 2006-2015 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
-  
+
   This file is part of Mercurium C/C++ source-to-source compiler.
-  
+
   See AUTHORS file in the top level directory for information
   regarding developers and contributors.
-  
+
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
   version 3 of the License, or (at your option) any later version.
-  
+
   Mercurium C/C++ source-to-source compiler is distributed in the hope
   that it will be useful, but WITHOUT ANY WARRANTY; without even the
   implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
   PURPOSE.  See the GNU Lesser General Public License for more
   details.
-  
+
   You should have received a copy of the GNU Lesser General Public
   License along with Mercurium C/C++ source-to-source compiler; if
   not, write to the Free Software Foundation, Inc., 675 Mass Ave,
@@ -111,7 +111,7 @@ TL::Symbol LoweringVisitor::declare_const_wd_type(int num_implementations, Nodec
 
             field.get_internal_symbol()->locus = make_locus("", 0, 0);
 
-            field.get_internal_symbol()->type_information = 
+            field.get_internal_symbol()->type_information =
                 ::get_array_type(
                         ::get_user_defined_type(devices_class.get_internal_symbol()),
                         const_value_to_nodecl( const_value_get_signed_int(num_implementations)),
@@ -124,9 +124,9 @@ TL::Symbol LoweringVisitor::declare_const_wd_type(int num_implementations, Nodec
         }
 
         nodecl_t nodecl_output = nodecl_null();
-        finish_class_type(new_class_type, 
+        finish_class_type(new_class_type,
                 ::get_user_defined_type(new_class_symbol.get_internal_symbol()),
-                sc.get_decl_context(), 
+                sc.get_decl_context(),
                 make_locus("", 0, 0),
                 // construct.get_filename().c_str(),
                 // construct.get_line(),
@@ -136,7 +136,7 @@ TL::Symbol LoweringVisitor::declare_const_wd_type(int num_implementations, Nodec
 
         if (!nodecl_is_null(nodecl_output))
         {
-            std::cerr << "FIXME: finished class issues nonempty nodecl" << std::endl; 
+            std::cerr << "FIXME: finished class issues nonempty nodecl" << std::endl;
         }
 
         if (IS_CXX_LANGUAGE)
@@ -439,7 +439,7 @@ void LoweringVisitor::allocate_immediate_structure(
                 it != data_items.end();
                 it++)
         {
-            if (((*it)->get_allocation_policy() & OutlineDataItem::ALLOCATION_POLICY_OVERALLOCATED) 
+            if (((*it)->get_allocation_policy() & OutlineDataItem::ALLOCATION_POLICY_OVERALLOCATED)
                     == OutlineDataItem::ALLOCATION_POLICY_OVERALLOCATED)
             {
                 dynamic_size << "+ " << overallocation_alignment << " + sizeof(" << as_symbol((*it)->get_symbol()) << ")";
@@ -475,6 +475,92 @@ void LoweringVisitor::allocate_immediate_structure(
     }
 }
 
+void LoweringVisitor::create_outlines(
+        Nodecl::NodeclBase construct,
+        TL::Symbol& called_task,
+        Nodecl::NodeclBase statements,
+        Nodecl::NodeclBase task_label,
+        OutlineInfo& outline_info,
+        TL::Symbol& arguments_struct,
+        const size_t num_inner_tasks)
+{
+    bool is_function_task = called_task.is_valid();
+    DeviceHandler device_handler = DeviceHandler::get_device_handler();
+
+     // Map with every implementation of the current function task
+    const OutlineInfo::implementation_table_t& implementation_table = outline_info.get_implementation_table();
+
+    // For every existant implementation (including the one which defines the task),
+    // we should create its outline function.
+    for (OutlineInfo::implementation_table_t::const_iterator it = implementation_table.begin();
+            it != implementation_table.end();
+            ++it)
+    {
+        TL::Symbol implementor_symbol = it->first;
+        const TargetInformation& target_info = it->second;
+        std::string implementor_outline_name = target_info.get_outline_name();
+
+        // The symbol 'real_called_task' will be invalid if the current task is
+        // a inline task. Otherwise, It will be the implementor symbol
+        TL::Symbol real_called_task =
+            (is_function_task) ?
+            implementor_symbol : TL::Symbol::invalid();
+
+        Nodecl::NodeclBase task_statements = statements;
+        if (is_function_task
+                && called_task != implementor_symbol)
+        {
+            // We cannot use the original statements because they contain a
+            // function call to the original function task instead of a call to
+            // the function specified in the 'implements' clause.
+            Nodecl::Utils::SimpleSymbolMap symbol_map_copy_statements;
+            symbol_map_copy_statements.add_map(called_task, implementor_symbol);
+
+            task_statements = Nodecl::Utils::deep_copy(
+                    statements,
+                    implementor_symbol.get_related_scope(),
+                    symbol_map_copy_statements);
+        }
+
+        const ObjectList<std::string>& devices = target_info.get_device_names();
+        for (ObjectList<std::string>::const_iterator it2 = devices.begin();
+                it2 != devices.end();
+                ++it2)
+        {
+            const std::string& device_name = *it2;
+
+            DeviceProvider* device = device_handler.get_device(device_name);
+            ERROR_CONDITION(device == NULL, " Device '%s' has not been loaded.", device_name.c_str());
+
+            CreateOutlineInfo info_implementor(
+                    _lowering,
+                    implementor_outline_name,
+                    outline_info.get_data_items(),
+                    target_info,
+                    statements,
+                    task_statements,
+                    task_label,
+                    arguments_struct,
+                    real_called_task,
+                    construct.get_locus(),
+                    num_inner_tasks);
+
+            Nodecl::NodeclBase outline_placeholder, output_statements;
+            Nodecl::Utils::SimpleSymbolMap* symbol_map = NULL;
+            device->create_outline(info_implementor, outline_placeholder, output_statements, symbol_map);
+
+            Nodecl::Utils::LabelSymbolMap label_symbol_map(symbol_map, output_statements, outline_placeholder);
+
+            Nodecl::NodeclBase outline_statements_code =
+                    Nodecl::Utils::deep_copy(output_statements, outline_placeholder, label_symbol_map);
+
+            outline_placeholder.replace(outline_statements_code);
+
+            delete symbol_map;
+        }
+    }
+}
+
 void LoweringVisitor::emit_async_common(
         Nodecl::NodeclBase construct,
         TL::Symbol current_function,
@@ -485,6 +571,7 @@ void LoweringVisitor::emit_async_common(
         Nodecl::NodeclBase final_condition,
         Nodecl::NodeclBase task_label,
         bool is_untied,
+        const size_t num_inner_tasks,
 
         OutlineInfo& outline_info,
 
@@ -612,74 +699,14 @@ void LoweringVisitor::emit_async_common(
             immediate_decl,
             dynamic_size);
 
-    // For every existant implementation (including the one which defines the task),
-    // we should create its outline function.
-    for (OutlineInfo::implementation_table_t::const_iterator it = implementation_table.begin();
-            it != implementation_table.end();
-            ++it)
-    {
-        TL::Symbol implementor_symbol = it->first;
-        const TargetInformation& target_info = it->second;
-        std::string implementor_outline_name = target_info.get_outline_name();
-
-        // The symbol 'real_called_task' will be invalid if the current task is
-        // a inline task. Otherwise, It will be the implementor symbol
-        TL::Symbol real_called_task =
-            (is_function_task) ?
-            implementor_symbol : TL::Symbol::invalid();
-
-        Nodecl::NodeclBase task_statements = statements;
-        if (is_function_task
-                && called_task != implementor_symbol)
-        {
-            // We cannot use the original statements because they contain a
-            // function call to the original function task instead of a call to
-            // the function specified in the 'implements' clause.
-            Nodecl::Utils::SimpleSymbolMap symbol_map_copy_statements;
-            symbol_map_copy_statements.add_map(called_task, implementor_symbol);
-
-            task_statements = Nodecl::Utils::deep_copy(
-                    statements,
-                    implementor_symbol.get_related_scope(),
-                    symbol_map_copy_statements);
-        }
-
-        const ObjectList<std::string>& devices = target_info.get_device_names();
-        for (ObjectList<std::string>::const_iterator it2 = devices.begin();
-                it2 != devices.end();
-                ++it2)
-        {
-            const std::string& device_name = *it2;
-
-            DeviceProvider* device = device_handler.get_device(device_name);
-            ERROR_CONDITION(device == NULL, " Device '%s' has not been loaded.", device_name.c_str());
-
-            CreateOutlineInfo info_implementor(
-                    _lowering,
-                    implementor_outline_name,
-                    outline_info.get_data_items(),
-                    target_info,
-                    statements,
-                    task_statements,
-                    task_label,
-                    structure_symbol,
-                    real_called_task,
-                    construct.get_locus());
-
-            Nodecl::NodeclBase outline_placeholder, output_statements;
-            Nodecl::Utils::SimpleSymbolMap* symbol_map = NULL;
-            device->create_outline(info_implementor, outline_placeholder, output_statements, symbol_map);
-
-            Nodecl::Utils::LabelSymbolMap label_symbol_map(symbol_map, output_statements, outline_placeholder);
-
-            Nodecl::NodeclBase outline_statements_code =
-                    Nodecl::Utils::deep_copy(output_statements, outline_placeholder, label_symbol_map);
-
-            outline_placeholder.replace(outline_statements_code);
-
-            delete symbol_map;
-        }
-    }
+    create_outlines(
+      construct,
+      called_task,
+      statements,
+      task_label,
+      outline_info,
+      structure_symbol,
+      num_inner_tasks);
 
     // In Fortran we don't need to remove the function task from the original source because:
     //  - The function task is a smp task, or
@@ -817,7 +844,7 @@ void LoweringVisitor::emit_async_common(
 #if _DEBUG_FPGA_AUTO_
     fprintf(stderr, "Filling Source LoweringVisitor::fill_const_wd_info( num_copies_static:%d num_copies_dynamic:%d\n",num_static_copies, num_dynamic_copies);
 #endif
-    
+
 
     Source num_copies;
     fill_copies(construct,
@@ -1041,6 +1068,7 @@ void LoweringVisitor::visit_task(
             task_environment.final_condition,
             task_environment.task_label,
             is_untied,
+            task_environment.num_inner_tasks,
 
             outline_info,
             /* parameter_outline_info */ NULL,
@@ -1269,15 +1297,15 @@ void LoweringVisitor::fill_arguments(
     if (IS_C_LANGUAGE
             || IS_CXX_LANGUAGE)
     {
-        Source overallocation_base_offset; 
+        Source overallocation_base_offset;
         // We round up to the alignment
-        overallocation_base_offset << "(void*)(((" 
-            << intptr_type << ")(char*)(ol_args + 1) + " 
+        overallocation_base_offset << "(void*)((("
+            << intptr_type << ")(char*)(ol_args + 1) + "
             << overallocation_mask << ") & (~" << overallocation_mask << "))";
 
         Source imm_overallocation_base_offset;
-        imm_overallocation_base_offset << "(void*)(((" 
-            << intptr_type << ")(char*)(&imm_args + 1) + " 
+        imm_overallocation_base_offset << "(void*)((("
+            << intptr_type << ")(char*)(&imm_args + 1) + "
             << overallocation_mask << ") & (~" << overallocation_mask << "))";
 
         for (TL::ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
@@ -1301,22 +1329,22 @@ void LoweringVisitor::fill_arguments(
                             ERROR_CONDITION(!sym_type.is_array(), "Only arrays can be overallocated", 0);
 
                             // Overallocated
-                            fill_outline_arguments << 
+                            fill_outline_arguments <<
                                 "ol_args->" << (*it)->get_field_name() << " = " << Source(overallocation_base_offset) << ";"
                                 ;
 
                             // Overwrite source
-                            overallocation_base_offset = Source() << "(void*)((" 
-                                << intptr_type << ")((char*)(ol_args->" << 
-                                (*it)->get_field_name() << ") + sizeof(" << as_symbol((*it)->get_symbol()) << ") + " 
+                            overallocation_base_offset = Source() << "(void*)(("
+                                << intptr_type << ")((char*)(ol_args->" <<
+                                (*it)->get_field_name() << ") + sizeof(" << as_symbol((*it)->get_symbol()) << ") + "
                                 << overallocation_mask << ") & (~" << overallocation_mask << "))"
                                 ;
-                            fill_immediate_arguments << 
+                            fill_immediate_arguments <<
                                 "imm_args." << (*it)->get_field_name() << " = " << Source(imm_overallocation_base_offset) << ";";
                             ;
                             // Overwrite source
-                            imm_overallocation_base_offset = Source() << "(void*)((" 
-                                << intptr_type << ")((char*)(imm_args." << 
+                            imm_overallocation_base_offset = Source() << "(void*)(("
+                                << intptr_type << ")((char*)(imm_args." <<
                                 (*it)->get_field_name() << ") + sizeof(" << as_symbol((*it)->get_symbol()) << ") + "
                                 << overallocation_mask << ") & (~" << overallocation_mask << "))"
                                 ;
@@ -1359,13 +1387,13 @@ void LoweringVisitor::fill_arguments(
                             else
                             {
                                 fill_outline_arguments
-                                    << "__builtin_memcpy(ol_args->" << (*it)->get_field_name() 
-                                    << ", &" << as_symbol((*it)->get_symbol()) 
+                                    << "__builtin_memcpy(ol_args->" << (*it)->get_field_name()
+                                    << ", &" << as_symbol((*it)->get_symbol())
                                     << ", sizeof(" << as_symbol((*it)->get_symbol()) << "));"
                                     ;
                                 fill_immediate_arguments
-                                    << "__builtin_memcpy(imm_args." << (*it)->get_field_name() 
-                                    << ", &" << as_symbol((*it)->get_symbol()) 
+                                    << "__builtin_memcpy(imm_args." << (*it)->get_field_name()
+                                    << ", &" << as_symbol((*it)->get_symbol())
                                     << ", sizeof(" << as_symbol((*it)->get_symbol()) << "));"
                                     ;
                             }
@@ -1417,12 +1445,12 @@ void LoweringVisitor::fill_arguments(
                                 else
                                 {
                                     fill_outline_arguments
-                                        << "__builtin_memcpy(&ol_args->" << (*it)->get_field_name() 
+                                        << "__builtin_memcpy(&ol_args->" << (*it)->get_field_name()
                                         << ", &" << as_symbol((*it)->get_symbol())
                                         << ", sizeof(" << as_symbol((*it)->get_symbol()) << "));"
                                         ;
                                     fill_immediate_arguments
-                                        << "__builtin_memcpy(&imm_args." << (*it)->get_field_name() 
+                                        << "__builtin_memcpy(&imm_args." << (*it)->get_field_name()
                                         << ", &" << as_symbol((*it)->get_symbol())
                                         << ", sizeof(" << as_symbol((*it)->get_symbol()) << "));"
                                         ;
@@ -1700,12 +1728,12 @@ void LoweringVisitor::fill_arguments(
                             TL::Symbol ptr_of_sym = get_function_ptr_of((*it)->get_symbol(),
                                     ctr.retrieve_context());
 
-                            fill_outline_arguments << 
-                                "ol_args %" << (*it)->get_field_name() << " => " 
+                            fill_outline_arguments <<
+                                "ol_args %" << (*it)->get_field_name() << " => "
                                 << ptr_of_sym.get_name() << "( " << (*it)->get_symbol().get_name() << ") \n"
                                 ;
-                            fill_immediate_arguments << 
-                                "imm_args % " << (*it)->get_field_name() << " => " 
+                            fill_immediate_arguments <<
+                                "imm_args % " << (*it)->get_field_name() << " => "
                                 << ptr_of_sym.get_name() << "( " << (*it)->get_symbol().get_name() << ") \n"
                                 ;
                         }
@@ -2135,33 +2163,33 @@ void LoweringVisitor::handle_copy_item(
 #if _DEBUG_FPGA_AUTO_
                 std::cerr << std::endl << std::endl;
                 std::cerr << sym.get_name() << std::endl;
-                std::cerr << "value:" << dir << std::endl; 
+                std::cerr << "value:" << dir << std::endl;
                 if (dir==OutlineDataItem::COPY_IN)
-                    std::cerr << "HAND COPY_IN" << std::endl; 
+                    std::cerr << "HAND COPY_IN" << std::endl;
 //                if (dir==OutlineDataItem::COPY_IN_ADDR)
-//                    std::cerr << "HAND COPY_IN_ADDR" << std::endl; 
+//                    std::cerr << "HAND COPY_IN_ADDR" << std::endl;
 //                if (dir==OutlineDataItem::COPY_OUT_ADDR)
-//                    std::cerr << "HAND COPY_OUT_ADDR" << std::endl; 
+//                    std::cerr << "HAND COPY_OUT_ADDR" << std::endl;
 //                if (dir==OutlineDataItem::COPY_INOUT_ADDR)
-//                    std::cerr << "HAND COPY_INOUT_ADDR" << std::endl; 
+//                    std::cerr << "HAND COPY_INOUT_ADDR" << std::endl;
                 if (dir==OutlineDataItem::COPY_OUT)
-                    std::cerr << "HAND COPY_OUT" << std::endl; 
+                    std::cerr << "HAND COPY_OUT" << std::endl;
 
                 if ((dir & OutlineDataItem::COPY_IN )==OutlineDataItem::COPY_IN)
-                    std::cerr << "AND COPY_IN" << std::endl; 
+                    std::cerr << "AND COPY_IN" << std::endl;
 //                if ((dir & OutlineDataItem::COPY_IN_ADDR)==OutlineDataItem::COPY_IN_ADDR)
-//                    std::cerr << "AND COPY_IN_ADDR" << std::endl; 
+//                    std::cerr << "AND COPY_IN_ADDR" << std::endl;
 //                if ((dir & OutlineDataItem::COPY_OUT_ADDR) ==OutlineDataItem::COPY_OUT_ADDR)
-//                    std::cerr << "AND COPY_OUT_ADDR" << std::endl; 
+//                    std::cerr << "AND COPY_OUT_ADDR" << std::endl;
 //                if ((dir & OutlineDataItem::COPY_INOUT_ADDR) ==OutlineDataItem::COPY_INOUT_ADDR)
-//                    std::cerr << "AND COPY_INOUT_ADDR" << std::endl; 
+//                    std::cerr << "AND COPY_INOUT_ADDR" << std::endl;
                 if ((dir & OutlineDataItem::COPY_OUT) ==OutlineDataItem::COPY_OUT)
-                    std::cerr << "AND COPY_OUT" << std::endl; 
+                    std::cerr << "AND COPY_OUT" << std::endl;
                 std::cerr << std::endl << std::endl;
 #endif
 
     //int input = ((dir & OutlineDataItem::COPY_IN) == OutlineDataItem::COPY_IN) || ((dir & OutlineDataItem::COPY_IN_ADDR) == OutlineDataItem::COPY_IN_ADDR);
-    int input = ((dir & OutlineDataItem::COPY_IN) == OutlineDataItem::COPY_IN); 
+    int input = ((dir & OutlineDataItem::COPY_IN) == OutlineDataItem::COPY_IN);
     //int output = ((dir & OutlineDataItem::COPY_OUT) == OutlineDataItem::COPY_OUT) || ((dir & OutlineDataItem::COPY_OUT_ADDR) == OutlineDataItem::COPY_OUT_ADDR);
     int output = ((dir & OutlineDataItem::COPY_OUT) == OutlineDataItem::COPY_OUT);
 

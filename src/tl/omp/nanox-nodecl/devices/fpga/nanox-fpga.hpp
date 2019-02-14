@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------
-  (C) Copyright 2006-2013 Barcelona Supercomputing Center
+  (C) Copyright 2006-2018 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
 
   This file is part of Mercurium C/C++ source-to-source compiler.
@@ -51,6 +51,9 @@
 #define STR_EVENTSTRUCT        "__mcxx_event_t"
 #define STR_WRITEEVENT         "__mcxx_writeInstrEvent"
 #define STR_INSTREND           "__mcxx_instrEnd"
+#define STR_COMPONENTS_COUNT   "__mcxx_taskComponents"
+#define STR_CREATE_TASK        "nanos_fpga_create_wd_async"
+#define STR_WAIT_TASKS         "nanos_wg_wait_completion"
 
 //Default events
 #define EV_DEVCOPYIN            77
@@ -91,9 +94,33 @@ namespace TL
 
                 virtual bool remove_function_task_from_original_source() const;
 
-                 virtual void copy_stuff_to_device_file(
-                         const TL::ObjectList<Nodecl::NodeclBase>& stuff_to_be_copied);
+                virtual void copy_stuff_to_device_file(
+                        const TL::ObjectList<Nodecl::NodeclBase>& stuff_to_be_copied);
             private:
+                typedef std::set<std::string> str_set_t;
+
+                struct FpgaOutlineInfo {
+                    std::string _type;
+                    std::string _num_instances;
+                    std::string _name;
+                    Source      _source_code;
+
+                    std::string get_filename()
+                    {
+                        return _type + ":" + _num_instances + ":" + _name + "_hls_automatic_mcxx.cpp";
+                    }
+
+                    std::string get_wrapper_name()
+                    {
+                        return _name + "_hls_automatic_mcxx_wrapper";
+                    }
+                };
+
+                struct FpgaNanosPostInitInfo {
+                    std::string _function;
+                    std::string _argument;
+                };
+
                 std::string _board_name;
                 std::string _device_name;
                 std::string _frequency;
@@ -102,26 +129,21 @@ namespace TL
                 std::string _vivado_project_name;
                 std::string _ip_cache_path;
                 std::string _dataflow;
-                std::string _fpga_task_creation_str;
+                std::string _force_fpga_task_creation_ports_str;
                 bool        _bitstream_generation;
-                bool        _fpga_task_creation;
+                str_set_t   _force_fpga_task_creation_ports;
+                str_set_t   _registered_tasks;
+                Nodecl::NodeclBase _root;
+                TL::ObjectList< struct FpgaOutlineInfo >       _outlines;
+                TL::ObjectList< struct FpgaNanosPostInitInfo > _nanos_post_init_actions;
 
                 void set_bitstream_generation_from_str(const std::string& str);
-                void set_fpga_task_creation_from_str(const std::string& str);
+                void set_force_fpga_task_creation_ports_from_str(const std::string& str);
 
-                std::string _acc_type;
-                std::string _num_acc_instances;
-                int         _current_base_acc_num;
-
-                Nodecl::List _fpga_file_code;
-                TL::ObjectList<Source> _fpga_source_codes;
-                TL::ObjectList<Source> _expand_fpga_source_codes;
+                Nodecl::List _fpga_file_code; //TODO: Check the usage of this variable
+                TL::ObjectList<Source> _expand_fpga_source_codes; //TODO: Check the usage of this variable
                 unsigned int __number_of_calls;
-                TL::ObjectList<std::string> _fpga_source_name;
                 Nodecl::Utils::SimpleSymbolMap _copied_fpga_functions;
-                TL::ObjectList<TL::Nanox::OutlineDataItem*> _internal_data_items;
-                TL::Symbol _internal_new_function;
-                Nodecl::Utils::SimpleSymbolMap _internal_symbol_map;
 
                 TL::Source fpga_param_code(
                         TL::ObjectList<OutlineDataItem*> &data_items,
@@ -142,7 +164,8 @@ namespace TL
                         const TL::Symbol& func_symbol,
                         TL::ObjectList<TL::Nanox::OutlineDataItem*>&,
                         Source& wrapper_decls,
-                        Source& wrapper_source
+                        Source& wrapper_source,
+                        const bool creates_children_tasks
                         );
                 Source gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectList<OutlineDataItem*> data_items);
                 bool task_has_scalars(TL::ObjectList<OutlineDataItem*> &);
@@ -151,6 +174,33 @@ namespace TL
                 void preappend_list_sources_and_reset(Source outline_src, Source& full_src, TL::Scope scope);
 
                 void add_included_fpga_files(std::ostream &hls_file);
+
+                std::string get_acc_type(const TL::Symbol& task, const TargetInformation& target_info);
+                std::string get_num_instances(const TargetInformation& target_info);
+
+                virtual void emit_async_device(
+                        Nodecl::NodeclBase construct,
+                        TL::Symbol function_symbol,
+                        TL::Symbol called_task,
+                        TL::Symbol structure_symbol,
+                        Nodecl::NodeclBase statements,
+                        Nodecl::NodeclBase priority_expr,
+                        Nodecl::NodeclBase if_condition,
+                        Nodecl::NodeclBase final_condition,
+                        Nodecl::NodeclBase task_label,
+                        bool is_untied,
+                        OutlineInfo& outline_info,
+                        OutlineInfo* parameter_outline_info,
+                        Nodecl::NodeclBase* placeholder_task_expr_transformation);
+
+                void register_task_creation(
+                        Nodecl::NodeclBase construct,
+                        TL::Symbol current_function,
+                        TL::Symbol called_task,
+                        TL::Symbol structure_symbol,
+                        OutlineInfo& outline_info,
+                        std::string acc_type,
+                        size_t const num_copies);
         };
     }
 }
