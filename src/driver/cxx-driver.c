@@ -4566,6 +4566,9 @@ static void link_files(const char** file_list, int num_files,
         const char* linked_output_filename,
         compilation_configuration_t* compilation_configuration)
 {
+    int i = 0;
+    int j = 0;
+
     int num_args_linker =
         count_null_ended_array((void**)compilation_configuration->linker_options);
     int num_args_linker_options_pre =
@@ -4595,19 +4598,22 @@ static void link_files(const char** file_list, int num_files,
     const char* linker_args[num_arguments];
     memset(linker_args, 0, sizeof(linker_args));
 
-    /* TODO: Get Nanos FPGA version
-    // Nanos FPGA API version / Mercurium version / NULL
-    int num_arguments_fpga = num_args_linker_options_fpga + 3;
-    */
-
-    // Mercurium version / NULL
-    int num_arguments_fpga = num_args_linker_options_fpga + 2;
+    unsigned char linker_args_fpga_contain_board = 0;
+    unsigned char linker_args_fpga_contain_name = 0;
+    for(j = 0; j < num_args_linker_options_fpga; j++)
+    {
+        const char* arg = compilation_configuration->linker_options_fpga[j];
+        linker_args_fpga_contain_board |= (strstr(arg, "-b") != NULL);
+        linker_args_fpga_contain_name |= (strstr(arg, "-n") != NULL);
+    }
+    int num_arguments_fpga = num_args_linker_options_fpga
+        + 1 //< Mercurium version
+        //+ 1 //< Nanos FPGA API version
+        + (!linker_args_fpga_contain_name) //< Auto-added -board option
+        + 1; //< NULL
 
     const char* linker_args_fpga[num_arguments_fpga];
     memset(linker_args_fpga, 0, sizeof(linker_args_fpga));
-
-    int i = 0;
-    int j = 0;
 
     if (linked_output_filename != NULL)
     {
@@ -4673,17 +4679,10 @@ static void link_files(const char** file_list, int num_files,
         linker_args[i] = compilation_configuration->linker_options_post[j];
     }
 
-    unsigned char linker_args_fpga_contain_board = 0;
-    unsigned char linker_args_fpga_contain_name = 0;
-
     //Adding linker options fpga
     for(j = 0; j < num_args_linker_options_fpga; j++)
     {
         linker_args_fpga[j] = compilation_configuration->linker_options_fpga[j];
-        if (!linker_args_fpga_contain_board)
-            linker_args_fpga_contain_board = (strstr(linker_args_fpga[j], "-b") != NULL);
-        if (!linker_args_fpga_contain_name)
-            linker_args_fpga_contain_name = (strstr(linker_args_fpga[j], "-n") != NULL);
     }
 
     // TODO: Get nanox version
@@ -4693,6 +4692,15 @@ static void link_files(const char** file_list, int num_files,
                             strappend(VERSION,
                             strappend(" ",
                             strappend(MCXX_BUILD_VERSION, "\""))))); //Mercurium version
+    if (!linker_args_fpga_contain_name)
+    {
+        //Auto-add the name option
+        //NOTE: Remove the path part of linked_output_filename
+        const char* name_option = rindex(linked_output_filename, '/');
+        name_option = name_option != NULL ? (name_option + 1) : linked_output_filename;
+        linker_args_fpga[j++] = strappend("-n=\"",
+                                strappend(name_option, "\""));
+    }
     linker_args_fpga[j] = NULL;
 
     timing_t timing_link;
@@ -4710,7 +4718,7 @@ static void link_files(const char** file_list, int num_files,
     }
 
     //FPGA linker only must be launched if board and name options exist in the flags
-    if (linker_args_fpga_contain_board & linker_args_fpga_contain_name)
+    if (linker_args_fpga_contain_board)
     {
         // FPGA linker
         timing_t timing_link_automatic;
