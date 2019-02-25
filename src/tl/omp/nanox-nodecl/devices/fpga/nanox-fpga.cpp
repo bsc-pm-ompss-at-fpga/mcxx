@@ -477,7 +477,8 @@ void DeviceFPGA::create_outline(
     }
 }
 
-DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_generation(false), _force_fpga_task_creation_ports()
+DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_generation(false),
+    _force_fpga_task_creation_ports(), _onto_warn_shown(false)
 {
     set_phase_name("Nanox FPGA support");
     set_phase_description("This phase is used by Nanox phases to implement FPGA device support");
@@ -751,6 +752,8 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
         Nodecl::NodeclBase nanos_post_init_tree = nanos_post_init.parse_global(_root);
         Nodecl::Utils::append_to_top_level_nodecl(nanos_post_init_tree);
     }
+
+    _onto_warn_shown = false;
 }
 
 void DeviceFPGA::add_included_fpga_files(std::ostream &hls_file)
@@ -1842,8 +1845,12 @@ std::string DeviceFPGA::get_acc_type(const TL::Symbol& task, const TargetInforma
     if (onto_clause.size() >= 1)
     {
         Nodecl::NodeclBase onto_val = onto_clause[0];
-        warn_printf_at(onto_val.get_locus(),
-            "The use of onto clause is no longer needed unless you have a collision between two FPGA tasks that yeld the same type hash\n");
+        if (!_onto_warn_shown)
+        {
+            warn_printf_at(onto_val.get_locus(),
+                "The use of onto clause is no longer needed unless you have a collision between two FPGA tasks that yeld the same type hash\n");
+            _onto_warn_shown = true;
+        }
         if (onto_clause.size() > 1)
         {
             error_printf_at(onto_val.get_locus(),

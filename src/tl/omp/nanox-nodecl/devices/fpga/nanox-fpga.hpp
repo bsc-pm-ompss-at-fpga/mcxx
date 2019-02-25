@@ -152,6 +152,7 @@ namespace TL
                 unsigned int                                   __number_of_calls;
                 Nodecl::Utils::SimpleSymbolMap                 _copied_fpga_functions;
                 TL::ObjectList<Nodecl::NodeclBase>             _stuff_to_copy;
+                bool                                           _onto_warn_shown;
 
                 TL::Source fpga_param_code(
                         TL::ObjectList<OutlineDataItem*> &data_items,
