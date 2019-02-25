@@ -119,6 +119,11 @@ static void compute_array_info(
     base_type = t;
 }
 
+std::string fpga_wrapper_name(const std::string &name)
+{
+    return name + "_hls_automatic_mcxx_wrapper";
+}
+
 } // namespace Nanox
 } // namespace TL
 

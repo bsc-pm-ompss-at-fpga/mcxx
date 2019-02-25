@@ -96,24 +96,33 @@ namespace TL
 
                 virtual void copy_stuff_to_device_file(
                         const TL::ObjectList<Nodecl::NodeclBase>& stuff_to_be_copied);
+
+                virtual void emit_async_device(
+                        Nodecl::NodeclBase construct,
+                        TL::Symbol function_symbol,
+                        TL::Symbol called_task,
+                        TL::Symbol structure_symbol,
+                        Nodecl::NodeclBase statements,
+                        Nodecl::NodeclBase priority_expr,
+                        Nodecl::NodeclBase if_condition,
+                        Nodecl::NodeclBase final_condition,
+                        Nodecl::NodeclBase task_label,
+                        bool is_untied,
+                        OutlineInfo& outline_info,
+                        OutlineInfo* parameter_outline_info,
+                        Nodecl::NodeclBase* placeholder_task_expr_transformation);
+
             private:
                 typedef std::set<std::string> str_set_t;
 
                 struct FpgaOutlineInfo {
-                    std::string _type;
-                    std::string _num_instances;
                     std::string _name;
+                    std::string _num_instances;
                     Source      _source_code;
+                    std::string _type;
 
-                    std::string get_filename()
-                    {
-                        return _type + ":" + _num_instances + ":" + _name + "_hls_automatic_mcxx.cpp";
-                    }
-
-                    std::string get_wrapper_name()
-                    {
-                        return _name + "_hls_automatic_mcxx_wrapper";
-                    }
+                    std::string get_filename() const;
+                    std::string get_wrapper_name() const;
                 };
 
                 struct FpgaNanosPostInitInfo {
@@ -140,10 +149,9 @@ namespace TL
                 void set_bitstream_generation_from_str(const std::string& str);
                 void set_force_fpga_task_creation_ports_from_str(const std::string& str);
 
-                Nodecl::List _fpga_file_code; //TODO: Check the usage of this variable
-                TL::ObjectList<Source> _expand_fpga_source_codes; //TODO: Check the usage of this variable
-                unsigned int __number_of_calls;
-                Nodecl::Utils::SimpleSymbolMap _copied_fpga_functions;
+                unsigned int                                   __number_of_calls;
+                Nodecl::Utils::SimpleSymbolMap                 _copied_fpga_functions;
+                TL::ObjectList<Nodecl::NodeclBase>             _stuff_to_copy;
 
                 TL::Source fpga_param_code(
                         TL::ObjectList<OutlineDataItem*> &data_items,
@@ -156,42 +164,24 @@ namespace TL
                         TL::ObjectList<TL::Nanox::OutlineDataItem*>&
                         );
 
-                //Nodecl::NodeclBase gen_hls_wrapper(
-                //DJG instrumented Source gen_hls_wrapper(
                 void gen_hls_wrapper(
-                        const TL::Symbol& called_task,
-                        const TL::Symbol& func_symbol_original,
                         const TL::Symbol& func_symbol,
                         TL::ObjectList<TL::Nanox::OutlineDataItem*>&,
-                        Source& wrapper_decls,
-                        Source& wrapper_source,
-                        const bool creates_children_tasks
+                        const bool creates_children_tasks,
+                        const std::string wrapper_func_name,
+                        Source& wrapper_decls, //< out
+                        Source& wrapper_source //< out
                         );
+
                 Source gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectList<OutlineDataItem*> data_items);
                 bool task_has_scalars(TL::ObjectList<OutlineDataItem*> &);
-//                void copy_symbols_to_device_file( const TL::ObjectList<Nodecl::NodeclBase>& stuff_to_be_copied);
-                void copy_stuff_to_device_file_expand( const TL::ObjectList<Nodecl::NodeclBase> stuff_to_be_copied);
-                void preappend_list_sources_and_reset(Source outline_src, Source& full_src, TL::Scope scope);
+                ObjectList<Source> get_called_functions_sources(const TL::ObjectList<Nodecl::NodeclBase>& function_code);
 
                 void add_included_fpga_files(std::ostream &hls_file);
+                void add_stuff_to_copy(std::ostream &hls_file);
 
                 std::string get_acc_type(const TL::Symbol& task, const TargetInformation& target_info);
                 std::string get_num_instances(const TargetInformation& target_info);
-
-                virtual void emit_async_device(
-                        Nodecl::NodeclBase construct,
-                        TL::Symbol function_symbol,
-                        TL::Symbol called_task,
-                        TL::Symbol structure_symbol,
-                        Nodecl::NodeclBase statements,
-                        Nodecl::NodeclBase priority_expr,
-                        Nodecl::NodeclBase if_condition,
-                        Nodecl::NodeclBase final_condition,
-                        Nodecl::NodeclBase task_label,
-                        bool is_untied,
-                        OutlineInfo& outline_info,
-                        OutlineInfo* parameter_outline_info,
-                        Nodecl::NodeclBase* placeholder_task_expr_transformation);
 
                 void register_task_creation(
                         Nodecl::NodeclBase construct,

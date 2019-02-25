@@ -75,7 +75,7 @@ Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectLis
             fatal_error("Non-valid argument in FPGA task. Data type must be at most 64-bit wide\n");
         }
 
-        const ObjectList<OutlineDataItem::CopyItem> &copies = data_items[param_pos]->get_copies();
+        //const ObjectList<OutlineDataItem::CopyItem> &copies = data_items[param_pos]->get_copies();
         bool in_type, out_type;
 
         //in_type = false;
@@ -174,256 +174,76 @@ void DeviceFPGA::create_outline(
                 const bool creates_children_tasks =
                     (info._num_inner_tasks > 0) ||
                     (_force_fpga_task_creation_ports.find(acc_type) != _force_fpga_task_creation_ports.end());
+                const std::string wrapper_name = fpga_wrapper_name(called_task.get_name());
 
                 TL::Symbol new_function = SymbolUtils::new_function_symbol_for_deep_copy(
-                    called_task, called_task.get_name());
+                    called_task, called_task.get_name() + "_moved");
+                _copied_fpga_functions.add_map(called_task, new_function);
 
-                TL::Symbol new_function_wrapper = SymbolUtils::new_function_symbol_for_deep_copy(
-                    called_task, called_task.get_name() + "_hls_automatic_mcxx_wrapper");
+                Nodecl::NodeclBase fun_code = Nodecl::Utils::deep_copy(
+                    called_task.get_function_code(),
+                    called_task.get_scope(),
+                    *symbol_map);
+                new_function.set_value(fun_code);
 
                 Source wrapper_decls, wrapper_code;
-
                 DeviceFPGA::gen_hls_wrapper(
-                    called_task,
                     new_function,
-                    new_function_wrapper,
                     info._data_items,
+                    creates_children_tasks,
+                    wrapper_name,
                     wrapper_decls,
-                    wrapper_code,
-                    creates_children_tasks);
+                    wrapper_code);
+
+#if _DEBUG_AUTOMATIC_COMPILER_
+                std::cerr << std::endl << std::endl;
+                std::cerr << " ===================================================================0\n";
+                std::cerr << "First call to called_functions_sources_list... going through:\n";
+                std::cerr << " ===================================================================0\n";
+                __number_of_calls=1;
+#endif
+
+                TL::ObjectList<Nodecl::NodeclBase> expand_code;
+                expand_code.append(fun_code);
+
+                TL::ObjectList<Source> called_functions_sources_list;
+                called_functions_sources_list = get_called_functions_sources(expand_code);
+
+#if _DEBUG_AUTOMATIC_COMPILER_
+                std::cerr << " ===================================================================0\n";
+                std::cerr << "End First call to called_functions_sources_list... \n";
+                std::cerr << " ===================================================================0\n";
+                std::cerr << std::endl << std::endl;
+#endif
 
                 Source outline_src;
-                Source full_src;
-                Source func_aux_code;
 
-                func_aux_code
-                    << "void write_stream(axiStream_t &stream, uint64_t data, unsigned short dest, unsigned char last) {"
-                    << "#pragma HLS INTERFACE axis port=stream\n"
-                    << "\taxiData_t __data = {0, 0, 0, 0, 0, 0, 0};"
-                    << "\t__data.keep = 0xFF;"
-                    << "\t__data.dest = dest;"
-                    << "\t__data.last = last;"
-                    << "\t__data.data = data;"
-                    << "\tstream.write(__data);"
-                    << "}"
-                    //<< "uint64_t read_stream(axiStream_t &stream) {"
-                    //<< "#pragma HLS INTERFACE axis port=stream\n"
-                    //<< "\treturn stream.read().data;"
-                    //<< "}"
-                ;
-
-                if (instrumentation_enabled())
+                //1st: Definition of called functions
+                for (TL::ObjectList<Source>::iterator it = called_functions_sources_list.begin();
+                        it != called_functions_sources_list.end();
+                        it++)
                 {
-                    //NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
-                    func_aux_code
-                        << "counter_t get_time() {"
-                        << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRDATA << "\n"
-                        << "#pragma HLS inline off\n"
-                        << "return *(" STR_INSTRDATA " + ( " STR_INSTRCOUNTER "/sizeof(counter_t)));"
-                        << "}"
-                        //write events
-
-                        << "void " << STR_WRITEEVENT << "(uint32_t event, uint64_t val, uint32_t type) {"
-                        << "#pragma HLS inline off\n"
-                        << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRDATA << "\n"
-
-                        << "\t" << STR_EVENTSTRUCT << " fpga_event;"
-                        //Save last slot for end status
-                        //In case of instrumentation buffer size = 0, do not emit events
-                        << "\tif (" << STR_INSTRCURRENTSLOT << "< (int)" << STR_INSTRSLOTS << "-1) {"
-                        << "\t\tfpga_event.eventId = ((uint64_t)type<<32) | event;"
-                        << "\t\tfpga_event.value = val;"
-                        << "\t\tfpga_event.timestamp = get_time();"
-                        << "\t\tmemcpy((void*)(mcxx_data + ((" << STR_INSTRBUFFER " + " << STR_INSTRCURRENTSLOT
-                        << " * " "sizeof(" << STR_EVENTSTRUCT << "))/sizeof(uint64_t))),"
-                        << "&fpga_event, sizeof(" << STR_EVENTSTRUCT << "));"
-                        << STR_INSTRCURRENTSLOT << "++;"
-                        << "\t} else if (" << STR_INSTRCURRENTSLOT << " == " STR_INSTRSLOTS "  -1) {" //last event overflow
-                        << "\t\t" << STR_INSTROVERFLOW << "++;"   //First time overflow=1
-                        << "\t\tfpga_event.eventId = ((uint64_t) " << STR_PREFIX << "_EVENT_TYPE_LAST << 32) | " << STR_INSTROVERFLOW << ";"
-                        << "\t\tfpga_event.value = " << STR_INSTROVERFLOW << ";"
-                        << "\t\tmemcpy((void *)(" << STR_INSTRDATA " + ((" << STR_INSTRBUFFER << " + " << STR_INSTRCURRENTSLOT << " * sizeof(" << STR_EVENTSTRUCT << "))/sizeof(uint64_t))),"
-                        << "&fpga_event, sizeof(" << STR_EVENTSTRUCT << "));"
-                        << "\t}"
-                        << "}"
-
-                        << "void nanos_instrument_burst_begin(uint32_t event, uint64_t value) {"
-                        << "#pragma HLS inline\n"
-                        << STR_WRITEEVENT << "(event, value, " << STR_PREFIX << "_EVENT_TYPE_BURST_OPEN );"
-                        << "}"
-
-                        << "void nanos_instrument_burst_end(uint32_t event, uint64_t value) {"
-                        << "#pragma HLS inline\n"
-                        << STR_WRITEEVENT << "(event, value, " << STR_PREFIX << "_EVENT_TYPE_BURST_CLOSE );"
-                        << "}"
-
-                        << "void nanos_instrument_point_event(uint32_t event, uint64_t value) {"
-                        << "#pragma HLS inline\n"
-                        << STR_WRITEEVENT << "(event, value, " << STR_PREFIX << "_EVENT_TYPE_POINT );"
-                        << "}"
-
-
-                        << "void " << STR_INSTREND << "() {"
-                        << "#pragma HLS inline\n"
-                        << STR_WRITEEVENT << "(" << STR_PREFIX << "_EVENT_TYPE_LAST, " << STR_PREFIX << "_EVENT_VAL_OK, " << STR_PREFIX << "_EVENT_TYPE_LAST );"
-                        //<< "    _emit_xtasks_ins_event(EVENT_ID_LAST, EVENT_VAL_OK, XTASKS_EVENT_TYPE_LAST);"
-                        << "}"
-
-
-                    ;
-                }
-                else
-                {
-                    //Define empty instrument calls when instrumentation is not enabled
-                    func_aux_code
-                        << "void nanos_instrument_burst_begin(uint32_t event, uint64_t value) {"
-                        << "}"
-
-                        << "void nanos_instrument_burst_end(uint32_t event, uint64_t value) {"
-                        << "}"
-
-                        << "void nanos_instrument_point_event(uint32_t event, uint64_t value) {"
-                        << "}"
-                    ;
+                    outline_src << *it;
                 }
 
-                if (creates_children_tasks)
-                {
-                    //NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
-                    //NOTE: structs and enums types cannot be declared using a typedef, they must be declared as they will be in a regular mcxx source
-                    func_aux_code
-                        << "enum nanos_err_t {NANOS_OK = 0};"
-                        << "typedef nanos_wd_t nanos_wg_t;"
-                        << "nanos_wd_t nanos_current_wd() { return " << STR_TASKID << "; }"
-                        << "void nanos_handle_error(enum nanos_err_t err) {}"
-                        << "void write_outstream(uint64_t data, unsigned short dest, unsigned char last) {"
-                        << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_OUTPORT << "\n"
-                        //NOTE: Using 72 to have the data shifted 8 positions. This way is easily shown in HEX
-                        << "/* Pack the axiData_t info: data(64bits) + dest(6bits) + last(2bit) */\n"
-                        << "\tap_uint<72> tmp = data;"
-                        << "\ttmp = (tmp << 8) | ((dest & 0x3F) << 2) | (last & 0x3);"
-                        << "\t" << STR_GLOB_OUTPORT << " = tmp;"
-                        << "}"
-                        << "void wait_tw_signal() {"
-                        << "\t#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_TWPORT << "\n"
-                        << "\tap_uint<2> sync = " << STR_GLOB_TWPORT << ";"
-                        << "}"
-                        << "enum nanos_err_t " << STR_WAIT_TASKS << "(nanos_wg_t uwg, bool avoid_flush) {"
-                        << "\tif (" << STR_COMPONENTS_COUNT << " == 0) { return NANOS_OK; }"
-                        << "\tconst unsigned short TM_TW = 0x13;"
-                        << "\tuint64_t tmp = " << STR_ACCID << ";"
-                        << "\ttmp = tmp << 48 /*ACC_ID info uses bits [48:55]*/;"
-                        << "\ttmp = 0x8000000100000000 | tmp | " << STR_COMPONENTS_COUNT << ";"
-                        << "\twrite_outstream(tmp /*TASKWAIT_DATA_BLOCK*/, TM_TW, 0 /*last*/);"
-                        << "\twrite_outstream(" << STR_TASKID << " /*data*/, TM_TW, 1 /*last*/);"
-                        << "\t{\n"
-                        << "\t\t#pragma HLS PROTOCOL fixed\n"
-                        << "\t\twait_tw_signal();"
-                        << "\t}\n"
-                        << "\t" << STR_COMPONENTS_COUNT << " = 0;"
-                        << "\treturn NANOS_OK;"
-                        << "}"
-                        << "enum {NANOS_FPGA_ARCH_SMP = 0x800000, NANOS_FPGA_ARCH_FPGA = 0x400000};"
-                        << "enum {NANOS_ARGFLAG_DEP_OUT  = 0x08, NANOS_ARGFLAG_DEP_IN  = 0x04,"
-                        << "      NANOS_ARGFLAG_COPY_OUT = 0x02, NANOS_ARGFLAG_COPY_IN = 0x01,"
-                        << "      NANOS_ARGFLAG_NONE    = 0x00};"
-                        << "typedef struct nanos_fpga_copyinfo_t {"
-                        << "    uint64_t address;"
-                        << "    uint32_t flags;"
-                        << "    uint32_t size;"
-                        << "    uint32_t offset;"
-                        << "    uint32_t accessed_length;"
-                        << "} nanos_fpga_copyinfo_t;"
-                        << "void " << STR_CREATE_TASK << "(uint32_t archMask, uint64_t type, uint16_t numDeps,"
-                        << "    uint16_t numArgs, uint64_t * args, uint8_t * argsFlags, uint16_t numCopies,"
-                        << "    struct nanos_fpga_copyinfo_t * copies) {"
-                        << "#pragma HLS inline\n"
-                        << "\t++" << STR_COMPONENTS_COUNT << ";"
-                        //0x14 is the Scheduler TM, 0x12 is the New TM
-                        << "\tconst unsigned short TM_NEW = 0x12;"
-                        << "\tconst unsigned short TM_SCHED = 0x14;"
-                        << "\tconst unsigned char hasSmpArch = (archMask & NANOS_FPGA_ARCH_SMP) != 0;"
-                        << "\tconst unsigned short DEST_ID = (numDeps == 0 && numCopies == 0 && !hasSmpArch) ? TM_SCHED : TM_NEW;"
-                        //1st word: [ valid (8b) | arch_mask (24b) | num_args (16b) | num_copies (16b) ]
-                        << "\tuint64_t tmp = 0x80000000 | archMask;"
-                        << "\ttmp = (tmp << 16) | numArgs;"
-                        << "\ttmp = (tmp << 16) | numCopies;"
-                        << "\twrite_outstream(tmp, DEST_ID, 0);"
-                        //2nd word: [ parent_task_id (64b) ]
-                        << "\twrite_outstream(" << STR_TASKID << ", DEST_ID, 0);"
-                        //3rd word: [ type_value (64b) ]
-                        << "\twrite_outstream(type, DEST_ID, 0);"
-                        << "\tfor (uint16_t idx = 0; idx < numArgs; ++idx) {"
-                        //arg words: [ arg_flags (8b) | arg_value (56b) ]
-                        << "\t\ttmp = argsFlags[idx];"
-                        << "\t\ttmp = (tmp << 56) | args[idx];"
-                        << "\t\twrite_outstream(tmp, DEST_ID, (idx == (numArgs - 1))&(numCopies == 0));"
-                        << "\t}"
-                        << "\tfor (uint16_t idx = 0; idx < numCopies; ++idx) {"
-                        //1st copy word: [ address (64b) ]
-                        << "\t\ttmp = copies[idx].address;"
-                        << "\t\twrite_outstream(tmp, DEST_ID, 0);"
-                        //2nd copy word: [ size (32b) | not_used (24b) | flags (8b) ]
-                        << "\t\ttmp = copies[idx].size;"
-                        << "\t\ttmp = (tmp << 32) | copies[idx].flags;"
-                        << "\t\twrite_outstream(tmp, DEST_ID, 0);"
-                        //3rd copy word: [ accessed_length (32b) | offset (32b) ]
-                        << "\t\ttmp = copies[idx].accessed_length;"
-                        << "\t\ttmp = (tmp << 32) | copies[idx].offset;"
-                        << "\t\twrite_outstream(tmp, DEST_ID, idx == (numCopies - 1));"
-                        << "\t}"
-                        << "}"
-                    ;
-                }
-
-                Nodecl::NodeclBase fun_code = called_task.get_function_code();
-
+                //Then: wrapper declarations, function code and wrapper definition
+                std::string const fun_code_str = fun_code.prettyprint();
                 outline_src
                     << wrapper_decls
-                    << func_aux_code
-                    << " "
-                    << fun_code.prettyprint()
-                    << " "
+                    << "\n"
+                    << fun_code_str
+                    << "\n"
                     << wrapper_code
                 ;
 
-                _copied_fpga_functions.add_map(called_task, new_function_wrapper);
-                TL::ObjectList<Nodecl::NodeclBase> expand_code;
-                TL::Symbol expand_function = original_statements.retrieve_context().get_related_symbol();
-
-                expand_code.append(fun_code);
-
-#if _DEBUG_AUTOMATIC_COMPILER_
-                std::cerr << std::endl << std::endl;
-                std::cerr << " ===================================================================0\n";
-                std::cerr << "First call to copy_stuff_to_device... going through:\n";
-                std::cerr << " ===================================================================0\n";
-                std::cerr << fun_code.prettyprint(); __number_of_calls=1;
-#endif
-
-                copy_stuff_to_device_file_expand(expand_code);
-
-#if _DEBUG_AUTOMATIC_COMPILER_
-                std::cerr << " ===================================================================0\n";
-                std::cerr << "End First call to copy_stuff_to_device... \n";
-                std::cerr << " ===================================================================0\n";
-                std::cerr << std::endl << std::endl;
-#endif
-
-                TL::Scope scope = fun_code.retrieve_context();
-                preappend_list_sources_and_reset(outline_src, full_src, scope);
 
                 FpgaOutlineInfo to_outline_info;
                 to_outline_info._type = acc_type;
                 to_outline_info._num_instances = get_num_instances(info._target_info);
                 to_outline_info._name = called_task.get_name();
-                to_outline_info._source_code = full_src;
+                to_outline_info._source_code = outline_src;
                 _outlines.append(to_outline_info);
             }
-        }
-        else if (IS_FORTRAN_LANGUAGE)
-        {
-            fatal_error("There is no fortran support for FPGA devices\n");
         }
         else
         {
@@ -553,10 +373,6 @@ void DeviceFPGA::create_outline(
     // Add a declaration of the unpacked function symbol in the original source
     if (IS_CXX_LANGUAGE)
     {
-#if _DEBUG_AUTOMATIC_COMPILER_
-        std::cerr << "unpacked function:" << unpacked_function.get_function_code().prettyprint() << std::endl;
-#endif
-
         //DJG TO remove???
         if (!unpacked_function.is_member())
         {
@@ -632,11 +448,6 @@ void DeviceFPGA::create_outline(
         << "}"
     ;
 
-#if _DEBUG_AUTOMATIC_COMPILER_
-    std::cerr << "outline function:" << outline_function.get_function_code().prettyprint() << std::endl;
-    std::cerr << "outline source code:" << outline_src.get_source() << std::endl;
-#endif
-
     Nodecl::NodeclBase new_outline_body = outline_src.parse_statement(outline_function_body);
     outline_function_body.replace(new_outline_body);
 
@@ -661,17 +472,7 @@ void DeviceFPGA::create_outline(
                 original_statements.get_locus()
             );
 
-#if _DEBUG_AUTOMATIC_COMPILER_
-            std::cerr << "Before inserting prettyprint:" << original_statements.prettyprint() << std::endl;
-            std::cerr << "Before inserting get text:" << original_statements.get_text() << std::endl;
-#endif
-
             Nodecl::Utils::prepend_to_enclosing_top_level_location(original_statements, nodecl_decl);
-
-#if _DEBUG_AUTOMATIC_COMPILER_
-            std::cerr << "After inserting prettyprint:" << original_statements.prettyprint() << std::endl;
-            std::cerr << "After inserting get text:" << original_statements.get_text() << std::endl;
-#endif
         }
     }
 }
@@ -838,30 +639,6 @@ bool DeviceFPGA::remove_function_task_from_original_source() const
     return true;
 }
 
-
-void DeviceFPGA::preappend_list_sources_and_reset(Source outline_src, Source& full_src, TL::Scope scope)
-{
-
-    Source each;
-
-    for (ObjectList<Source>::iterator it4 = _expand_fpga_source_codes.begin(); it4 != _expand_fpga_source_codes.end(); it4++)
-    {
-        full_src << *it4;
-        each << *it4;
-#if _DEBUG_AUTOMATIC_COMPILER_
-        std::cerr << std::endl << std::endl;
-        std::cerr << each.get_source() << "preappend new function called and expanded \n";
-        std::cerr << std::endl << std::endl;
-#endif
-
-        each = TL::Source();
-    }
-
-    full_src << outline_src;
-    _expand_fpga_source_codes = TL::ObjectList<Source>();
-
-}
-
 //write/close intermediate files, free temporal nodes, etc.
 void DeviceFPGA::phase_cleanup(DTO& data_flow)
 {
@@ -913,16 +690,10 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
                      << "#include <strings.h>\n"
                      << "#include <hls_stream.h>\n"
                      << "#include <ap_axi_sdata.h>\n"
-                     << "\n"
-                     << "\n"
-                     << "typedef ap_axis<64,1,1,5> axiData_t;\n"
-                     << "typedef hls::stream<axiData_t> axiStream_t;\n"
-                     << "typedef uint64_t counter_t;\n"
-                     << "\n"
-                     << "\n"
-                     << std::endl;
+                     << "\n";
 
             add_included_fpga_files(hls_file);
+            add_stuff_to_copy(hls_file);
 
             hls_file << it->_source_code.get_source(true);
 
@@ -938,6 +709,7 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
         // Do not forget the clear the outlines list
         _outlines.clear();
     }
+    _stuff_to_copy.clear();
 
     if (!_nanos_post_init_actions.empty())
     {
@@ -986,7 +758,9 @@ void DeviceFPGA::add_included_fpga_files(std::ostream &hls_file)
     ObjectList<IncludeLine> lines = CurrentFile::get_included_files();
     std::string fpga_header_exts[] = {".fpga\"", ".fpga.h\"", ".fpga.hpp\""};
 
-    for (ObjectList<IncludeLine>::iterator it = lines.begin(); it != lines.end(); it++)
+    for (TL::ObjectList<IncludeLine>::iterator it = lines.begin();
+        it != lines.end();
+        it++)
     {
         std::string line = (*it).get_preprocessor_line();
         for (size_t idx = 0; idx < sizeof(fpga_header_exts)/sizeof(std::string); ++idx)
@@ -1000,11 +774,21 @@ void DeviceFPGA::add_included_fpga_files(std::ostream &hls_file)
     }
 }
 
+void DeviceFPGA::add_stuff_to_copy(std::ostream &hls_file)
+{
+    for (TL::ObjectList<Nodecl::NodeclBase>::iterator it = _stuff_to_copy.begin();
+        it != _stuff_to_copy.end();
+        it++)
+    {
+        hls_file << it->prettyprint();
+    }
+}
+
 static void get_inout_decl(ObjectList<OutlineDataItem*>& data_items, std::string &in_type, std::string &out_type)
 {
     in_type = "";
     out_type = "";
-    for (ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
+    for (TL::ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
         it != data_items.end();
         it++)
     {
@@ -1030,29 +814,6 @@ static void get_inout_decl(ObjectList<OutlineDataItem*>& data_items, std::string
         }
     }
 }
-
-
-static std::string get_type_pointer_to(TL::Type type, std::string field_name, TL::Scope scope)
-{
-    TL::Type points_to = type;
-    size_t position;
-
-    if (points_to.is_pointer())
-    {
-        points_to = points_to.points_to();
-    }
-    else if (points_to.is_pointer_to_class())
-    {
-        points_to = points_to.pointed_class();
-    }
-
-    std::string pointed_to_string_simple = points_to.get_simple_declaration(scope,field_name);
-    position = pointed_to_string_simple.rfind(field_name);
-    std::string reference_type = pointed_to_string_simple.replace(position,field_name.length(),"TO_CHANGE_MCXX");
-
-    return reference_type;
-}
-
 
 static std::string get_element_type_pointer_to(TL::Type type, std::string field_name, TL::Scope scope)
 {
@@ -1213,16 +974,11 @@ static Source get_copy_elements_all_dimensions_src(TL::Type copy_type, TL::Type 
     else if (copy_type.is_array()) //it's a shape
     {
 #if _DEBUG_AUTOMATIC_COMPILER_
-        fprintf(stderr, "Type declaration  is array, num dimensions\n");
         fprintf(stderr, "Type declaration  is array, num dimensions %d\n" , copy_type.get_num_dimensions());
 #endif
         int total_dimensions = copy_type.get_num_dimensions();
         int n_dimensions=0;
         Nodecl::NodeclBase array_get_expr;
-#if _DEBUG_AUTOMATIC_COMPILER_
-        std::cerr << "Type declaration  is array, num dimensions " << copy_type.array_get_size().prettyprint() << std::endl;
-        std::cerr << "Type declaration  is array, num dimensions " << copy_type.array_get_size().prettyprint() << std::endl;
-#endif
         array_get_expr = copy_type.array_get_size();
         dimension_str = "(" + array_get_expr.prettyprint() + ")";
         ArrayExpression << dimension_str;
@@ -1296,18 +1052,17 @@ static int num_parameters(const ObjectList<Symbol> param_list)
  * Create wrapper function for HLS to unpack streamed arguments
  *
  */
-void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_symbol_original,
-    const Symbol &func_symbol, ObjectList<OutlineDataItem*>& data_items,
-    Source &wrapper_decls, Source &wrapper_source, const bool creates_children_tasks)
+void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDataItem*>& data_items,
+    const bool creates_children_tasks, const std::string wrapper_func_name,
+    Source &wrapper_decls, Source &wrapper_source)
 {
     //Check that we are calling a function task (this checking may be performed earlyer in the code)
-
-    if (!func_symbol_original.is_function()) {
+    if (!func_symbol.is_function()) {
         fatal_error("Only function-tasks are supported at this moment");
     }
 
-    Scope func_scope = func_symbol_original.get_scope();
-    ObjectList<Symbol> param_list = called_task.get_function_parameters();
+    Scope func_scope = func_symbol.get_scope();
+    ObjectList<Symbol> param_list = func_symbol.get_function_parameters();
     int size = num_parameters(param_list);
     char function_parameters_passed[size];
 
@@ -1325,20 +1080,37 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     //Source wrapper_params;
     std::string in_dec, out_dec;
     get_inout_decl(data_items, in_dec, out_dec);
-    Source pragmas_src;
-    Source fun_params_wrapper;
-    Source clear_components_count;
+    Source pragmas_src, params_src, clear_components_count, var_decls_src, aux_decls_src;
 
-    wrapper_decls
-        << "extern const uint8_t " << STR_ACCID << ";"
+    var_decls_src
+        << "typedef ap_axis<64,1,1,5> axiData_t;"
+        << "typedef hls::stream<axiData_t> axiStream_t;"
+        << "typedef uint64_t counter_t;"
         << "typedef uint64_t nanos_wd_t;"
+        << "extern const uint8_t " << STR_ACCID << ";"
         << "static nanos_wd_t " << STR_TASKID << ";"
         << "static uint64_t " << STR_INSTRCOUNTER << ", " << STR_INSTRBUFFER << ";"
         << "static unsigned int " << STR_INSTRSLOTS << ", " << STR_INSTRCURRENTSLOT << ";"
         << "static int " << STR_INSTROVERFLOW << ";"
     ;
 
-    fun_params_wrapper
+    aux_decls_src
+        << "void write_stream(axiStream_t &stream, uint64_t data, unsigned short dest, unsigned char last) {"
+        << "#pragma HLS INTERFACE axis port=stream\n"
+        << "\taxiData_t __data = {0, 0, 0, 0, 0, 0, 0};"
+        << "\t__data.keep = 0xFF;"
+        << "\t__data.dest = dest;"
+        << "\t__data.last = last;"
+        << "\t__data.data = data;"
+        << "\tstream.write(__data);"
+        << "}"
+        //<< "uint64_t read_stream(axiStream_t &stream) {"
+        //<< "#pragma HLS INTERFACE axis port=stream\n"
+        //<< "\treturn stream.read().data;"
+        //<< "}"
+    ;
+
+    params_src
         << "axiStream_t& " << STR_INPUTSTREAM
         << ", axiStream_t& " << STR_OUTPUTSTREAM
     ;
@@ -1352,7 +1124,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     if (instrumentation_enabled())
     {
         //instrumentation declarations/definitions
-        wrapper_decls
+        var_decls_src
             << "extern volatile counter_t * " << STR_INSTRDATA << ";"
 
             << "typedef struct {"
@@ -1371,17 +1143,173 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
             << "#define " << STR_PREFIX << "_EVENT_VAL_OVERFLOW   0xFFFFFFFF\n"
         ;
 
+        //NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
+        aux_decls_src
+            << "counter_t get_time() {"
+            << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRDATA << "\n"
+            << "#pragma HLS inline off\n"
+            << "return *(" STR_INSTRDATA " + ( " STR_INSTRCOUNTER "/sizeof(counter_t)));"
+            << "}"
+            //write events
+
+            << "void " << STR_WRITEEVENT << "(uint32_t event, uint64_t val, uint32_t type) {"
+            << "#pragma HLS inline off\n"
+            << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRDATA << "\n"
+
+            << "\t" << STR_EVENTSTRUCT << " fpga_event;"
+            //Save last slot for end status
+            //In case of instrumentation buffer size = 0, do not emit events
+            << "\tif (" << STR_INSTRCURRENTSLOT << "< (int)" << STR_INSTRSLOTS << "-1) {"
+            << "\t\tfpga_event.eventId = ((uint64_t)type<<32) | event;"
+            << "\t\tfpga_event.value = val;"
+            << "\t\tfpga_event.timestamp = get_time();"
+            << "\t\tmemcpy((void*)(mcxx_data + ((" << STR_INSTRBUFFER " + " << STR_INSTRCURRENTSLOT
+            << " * " "sizeof(" << STR_EVENTSTRUCT << "))/sizeof(uint64_t))),"
+            << "&fpga_event, sizeof(" << STR_EVENTSTRUCT << "));"
+            << STR_INSTRCURRENTSLOT << "++;"
+            << "\t} else if (" << STR_INSTRCURRENTSLOT << " == " STR_INSTRSLOTS "  -1) {" //last event overflow
+            << "\t\t" << STR_INSTROVERFLOW << "++;"   //First time overflow=1
+            << "\t\tfpga_event.eventId = ((uint64_t) " << STR_PREFIX << "_EVENT_TYPE_LAST << 32) | " << STR_INSTROVERFLOW << ";"
+            << "\t\tfpga_event.value = " << STR_INSTROVERFLOW << ";"
+            << "\t\tmemcpy((void *)(" << STR_INSTRDATA " + ((" << STR_INSTRBUFFER << " + " << STR_INSTRCURRENTSLOT << " * sizeof(" << STR_EVENTSTRUCT << "))/sizeof(uint64_t))),"
+            << "&fpga_event, sizeof(" << STR_EVENTSTRUCT << "));"
+            << "\t}"
+            << "}"
+
+            << "void nanos_instrument_burst_begin(uint32_t event, uint64_t value) {"
+            << "#pragma HLS inline\n"
+            << STR_WRITEEVENT << "(event, value, " << STR_PREFIX << "_EVENT_TYPE_BURST_OPEN );"
+            << "}"
+
+            << "void nanos_instrument_burst_end(uint32_t event, uint64_t value) {"
+            << "#pragma HLS inline\n"
+            << STR_WRITEEVENT << "(event, value, " << STR_PREFIX << "_EVENT_TYPE_BURST_CLOSE );"
+            << "}"
+
+            << "void nanos_instrument_point_event(uint32_t event, uint64_t value) {"
+            << "#pragma HLS inline\n"
+            << STR_WRITEEVENT << "(event, value, " << STR_PREFIX << "_EVENT_TYPE_POINT );"
+            << "}"
+
+
+            << "void " << STR_INSTREND << "() {"
+            << "#pragma HLS inline\n"
+            << STR_WRITEEVENT << "(" << STR_PREFIX << "_EVENT_TYPE_LAST, " << STR_PREFIX << "_EVENT_VAL_OK, " << STR_PREFIX << "_EVENT_TYPE_LAST );"
+            //<< "    _emit_xtasks_ins_event(EVENT_ID_LAST, EVENT_VAL_OK, XTASKS_EVENT_TYPE_LAST);"
+            << "}"
+        ;
+
         pragmas_src
             << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRDATA << "\n"
+        ;
+    }
+    else
+    {
+        //Define empty instrument calls when instrumentation is not enabled
+        aux_decls_src
+            << "void nanos_instrument_burst_begin(uint32_t event, uint64_t value) {"
+            << "}"
+
+            << "void nanos_instrument_burst_end(uint32_t event, uint64_t value) {"
+            << "}"
+
+            << "void nanos_instrument_point_event(uint32_t event, uint64_t value) {"
+            << "}"
         ;
     }
 
     if (creates_children_tasks)
     {
-        wrapper_decls
+        var_decls_src
             << "extern ap_uint<72> " << STR_GLOB_OUTPORT << ";"
             << "extern volatile ap_uint<2> " << STR_GLOB_TWPORT << ";"
             << "static ap_uint<32> " << STR_COMPONENTS_COUNT << ";"
+        ;
+
+        //NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
+        //NOTE: structs and enums types cannot be declared using a typedef, they must be declared as they will be in a regular mcxx source
+        aux_decls_src
+            << "enum nanos_err_t {NANOS_OK = 0};"
+            << "typedef nanos_wd_t nanos_wg_t;"
+            << "nanos_wd_t nanos_current_wd() { return " << STR_TASKID << "; }"
+            << "void nanos_handle_error(enum nanos_err_t err) {}"
+            << "void write_outstream(uint64_t data, unsigned short dest, unsigned char last) {"
+            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_OUTPORT << "\n"
+            //NOTE: Using 72 bits to have the data shifted 8 positions. This way is readable in HEX
+            << "/* Pack the axiData_t info: data(64bits) + dest(6bits) + last(2bit) */\n"
+            << "\tap_uint<72> tmp = data;"
+            << "\ttmp = (tmp << 8) | ((dest & 0x3F) << 2) | (last & 0x3);"
+            << "\t" << STR_GLOB_OUTPORT << " = tmp;"
+            << "}"
+            << "void wait_tw_signal() {"
+            << "\t#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_TWPORT << "\n"
+            << "\tap_uint<2> sync = " << STR_GLOB_TWPORT << ";"
+            << "}"
+            << "enum nanos_err_t " << STR_WAIT_TASKS << "(nanos_wg_t uwg, bool avoid_flush) {"
+            << "\tif (" << STR_COMPONENTS_COUNT << " == 0) { return NANOS_OK; }"
+            << "\tconst unsigned short TM_TW = 0x13;"
+            << "\tuint64_t tmp = " << STR_ACCID << ";"
+            << "\ttmp = tmp << 48 /*ACC_ID info uses bits [48:55]*/;"
+            << "\ttmp = 0x8000000100000000 | tmp | " << STR_COMPONENTS_COUNT << ";"
+            << "\twrite_outstream(tmp /*TASKWAIT_DATA_BLOCK*/, TM_TW, 0 /*last*/);"
+            << "\twrite_outstream(" << STR_TASKID << " /*data*/, TM_TW, 1 /*last*/);"
+            << "\t{\n"
+            << "\t\t#pragma HLS PROTOCOL fixed\n"
+            << "\t\twait_tw_signal();"
+            << "\t}\n"
+            << "\t" << STR_COMPONENTS_COUNT << " = 0;"
+            << "\treturn NANOS_OK;"
+            << "}"
+            << "enum {NANOS_FPGA_ARCH_SMP = 0x800000, NANOS_FPGA_ARCH_FPGA = 0x400000};"
+            << "enum {NANOS_ARGFLAG_DEP_OUT  = 0x08, NANOS_ARGFLAG_DEP_IN  = 0x04,"
+            << "      NANOS_ARGFLAG_COPY_OUT = 0x02, NANOS_ARGFLAG_COPY_IN = 0x01,"
+            << "      NANOS_ARGFLAG_NONE    = 0x00};"
+            << "typedef struct nanos_fpga_copyinfo_t {"
+            << "    uint64_t address;"
+            << "    uint32_t flags;"
+            << "    uint32_t size;"
+            << "    uint32_t offset;"
+            << "    uint32_t accessed_length;"
+            << "} nanos_fpga_copyinfo_t;"
+            << "void " << STR_CREATE_TASK << "(uint32_t archMask, uint64_t type, uint16_t numDeps,"
+            << "    uint16_t numArgs, uint64_t * args, uint8_t * argsFlags, uint16_t numCopies,"
+            << "    struct nanos_fpga_copyinfo_t * copies) {"
+            << "#pragma HLS inline\n"
+            << "\t++" << STR_COMPONENTS_COUNT << ";"
+            //0x14 is the Scheduler TM, 0x12 is the New TM
+            << "\tconst unsigned short TM_NEW = 0x12;"
+            << "\tconst unsigned short TM_SCHED = 0x14;"
+            << "\tconst unsigned char hasSmpArch = (archMask & NANOS_FPGA_ARCH_SMP) != 0;"
+            << "\tconst unsigned short DEST_ID = (numDeps == 0 && numCopies == 0 && !hasSmpArch) ? TM_SCHED : TM_NEW;"
+            //1st word: [ valid (8b) | arch_mask (24b) | num_args (16b) | num_copies (16b) ]
+            << "\tuint64_t tmp = 0x80000000 | archMask;"
+            << "\ttmp = (tmp << 16) | numArgs;"
+            << "\ttmp = (tmp << 16) | numCopies;"
+            << "\twrite_outstream(tmp, DEST_ID, 0);"
+            //2nd word: [ parent_task_id (64b) ]
+            << "\twrite_outstream(" << STR_TASKID << ", DEST_ID, 0);"
+            //3rd word: [ type_value (64b) ]
+            << "\twrite_outstream(type, DEST_ID, 0);"
+            << "\tfor (uint16_t idx = 0; idx < numArgs; ++idx) {"
+            //arg words: [ arg_flags (8b) | arg_value (56b) ]
+            << "\t\ttmp = argsFlags[idx];"
+            << "\t\ttmp = (tmp << 56) | args[idx];"
+            << "\t\twrite_outstream(tmp, DEST_ID, (idx == (numArgs - 1))&(numCopies == 0));"
+            << "\t}"
+            << "\tfor (uint16_t idx = 0; idx < numCopies; ++idx) {"
+            //1st copy word: [ address (64b) ]
+            << "\t\ttmp = copies[idx].address;"
+            << "\t\twrite_outstream(tmp, DEST_ID, 0);"
+            //2nd copy word: [ size (32b) | not_used (24b) | flags (8b) ]
+            << "\t\ttmp = copies[idx].size;"
+            << "\t\ttmp = (tmp << 32) | copies[idx].flags;"
+            << "\t\twrite_outstream(tmp, DEST_ID, 0);"
+            //3rd copy word: [ accessed_length (32b) | offset (32b) ]
+            << "\t\ttmp = copies[idx].accessed_length;"
+            << "\t\ttmp = (tmp << 32) | copies[idx].offset;"
+            << "\t\twrite_outstream(tmp, DEST_ID, idx == (numCopies - 1));"
+            << "\t}"
+            << "}"
         ;
 
         pragmas_src
@@ -1412,7 +1340,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     Source profiling_1;
     Source profiling_2;
     Source profiling_3;
-    Source sync_output_decl, sync_output_code;
+    Source sync_output_code;
     Source end_instrumentation;
     Source generic_initial_code;
 
@@ -1477,8 +1405,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
 
 #if _DEBUG_AUTOMATIC_COMPILER_
             std::cerr << "type declaration: " << type_simple_decl << " position: " << position << std::endl;
-            std::cerr << std::endl << std::endl;
-            std::cerr << "expresion of copies.front " << localmem.front().prettyprint() << std::endl;
             std::cerr << std::endl << std::endl;
 #endif
 
@@ -1564,8 +1490,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
                 const std::string field_name_param_i = field_name_param + "_i";
                 const std::string field_name_param_o = field_name_param + "_o";
 
-                fun_params_wrapper.append_with_separator(field_name_param_i, ", ");
-                fun_params_wrapper.append_with_separator(field_name_param_o, ", ");
+                params_src.append_with_separator(field_name_param_i, ", ");
+                params_src.append_with_separator(field_name_param_o, ", ");
 
                 pragmas_src
                     << "#pragma HLS INTERFACE m_axi port=" << field_port_name_i << "\n"
@@ -1593,7 +1519,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
             }
             else if (copies.front().directionality == OutlineDataItem::COPY_IN)
             {
-                fun_params_wrapper.append_with_separator(field_name_param, ", ");
+                params_src.append_with_separator(field_name_param, ", ");
 
                 pragmas_src
                     << "#pragma HLS INTERFACE m_axi port=" << field_port_name << "\n"
@@ -1610,7 +1536,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
             }
             else if (copies.front().directionality == OutlineDataItem::COPY_OUT)
             {
-                fun_params_wrapper.append_with_separator(field_name_param, ", ");
+                params_src.append_with_separator(field_name_param, ", ");
 
                 pragmas_src
                     << "#pragma HLS INTERFACE m_axi port=" << field_port_name << "\n"
@@ -1667,7 +1593,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
             const std::string port_name = STR_PREFIX + param_name;
             const std::string port_declaration = unql_type.get_declaration(scope, port_name, TL::Type::PARAMETER_DECLARATION);
 
-            fun_params_wrapper.append_with_separator(port_declaration, ", ");
+            params_src.append_with_separator(port_declaration, ", ");
 
             pragmas_src
                 << "#pragma HLS INTERFACE m_axi port=" << port_name << "\n"
@@ -1807,7 +1733,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     if (instrumentation_enabled())
         end_instrumentation << STR_INSTREND << "();" ;
 
-    sync_output_decl
+    aux_decls_src
         << "void end_acc_task(axiStream_t& stream, uint32_t destId) {"
         << end_instrumentation
         << "\tuint64_t data = " << STR_ACCID << ";"
@@ -1817,8 +1743,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
     ;
 
     wrapper_source
-        << sync_output_decl
-        << "void " << func_symbol.get_name() << "(" << fun_params_wrapper << ") {"
+        << "void " << wrapper_func_name << "(" << params_src << ") {"
         << pragmas_src
         << "\n"
         << local_decls
@@ -1833,7 +1758,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         << "\n"
         << "\tif (__comp_needed) {\n"
         << clear_components_count
-        << "\t\t" << func_symbol_original.get_name() << "(" << fun_params << ");"
+        << "\t\t" << func_symbol.get_name() << "(" << fun_params << ");"
         << "\t}"
         << profiling_2
         << "\n"
@@ -1845,61 +1770,33 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &called_task, const Symbol &func_s
         << "}"
     ;
 
+    wrapper_decls
+        << var_decls_src
+        << aux_decls_src
+    ;
 }
 
 void DeviceFPGA::copy_stuff_to_device_file(const TL::ObjectList<Nodecl::NodeclBase>& stuff_to_be_copied)
 {
-
-    for (TL::ObjectList<Nodecl::NodeclBase>::const_iterator it = stuff_to_be_copied.begin(); it != stuff_to_be_copied.end(); ++it)
-    {
-        if (it->is<Nodecl::FunctionCode>() || it->is<Nodecl::TemplateFunctionCode>())
-        {
-            TL::Symbol function = it->get_symbol();
-            TL::Symbol new_function = SymbolUtils::new_function_symbol(function, function.get_name());
-
-            _copied_fpga_functions.add_map(function, new_function);
-            _fpga_file_code.append(Nodecl::Utils::deep_copy(*it, *it, _copied_fpga_functions));
-
-            TL::ObjectList<Nodecl::Symbol> symbol_stuff_to_be_copied= Nodecl::Utils::get_nonlocal_symbols_first_occurrence(*it);
-
-            for (TL::ObjectList<Nodecl::Symbol>::const_iterator its = symbol_stuff_to_be_copied.begin(); its != symbol_stuff_to_be_copied.end(); ++its)
-            {
-                TL::Symbol sym = its->get_symbol();
-                if (sym.is_function())
-                {
-                    Nodecl::NodeclBase code = sym.get_function_code();
-                    TL::ObjectList<Nodecl::NodeclBase> expand_code;
-                    expand_code.append(code);
-                    copy_stuff_to_device_file(expand_code);
-                }
-            }
-        }
-        else
-        {
-            _fpga_file_code.append(Nodecl::Utils::deep_copy(*it, *it));
-        }
-    }
+    _stuff_to_copy.insert(stuff_to_be_copied);
 }
 
-void DeviceFPGA::copy_stuff_to_device_file_expand(const TL::ObjectList<Nodecl::NodeclBase> stuff_to_be_copied)
+ObjectList<Source> DeviceFPGA::get_called_functions_sources(const TL::ObjectList<Nodecl::NodeclBase>& function_code)
 {
+#if _DEBUG_AUTOMATIC_COMPILER_
     __number_of_calls++;
+#endif
+    ObjectList<Source> result;
 
-    for (TL::ObjectList<Nodecl::NodeclBase>::const_iterator it = stuff_to_be_copied.begin();
-        it != stuff_to_be_copied.end(); ++it)
+    for (TL::ObjectList<Nodecl::NodeclBase>::const_iterator it = function_code.begin();
+        it != function_code.end(); ++it)
     {
         if (it->is<Nodecl::FunctionCode>() || it->is<Nodecl::TemplateFunctionCode>())
         {
-            TL::Symbol function = it->get_symbol();
-            Nodecl::NodeclBase code_function = function.get_function_code();
-            Source outline_src_function_caller;
-            outline_src_function_caller << code_function.prettyprint();
-
-            TL::ObjectList<Nodecl::Symbol> symbol_stuff_to_be_copied =
+            TL::ObjectList<Nodecl::Symbol> called_function_code =
                 Nodecl::Utils::get_nonlocal_symbols_first_occurrence(*it);
-
-            for (TL::ObjectList<Nodecl::Symbol>::const_iterator its = symbol_stuff_to_be_copied.begin();
-                its != symbol_stuff_to_be_copied.end(); ++its)
+            for (TL::ObjectList<Nodecl::Symbol>::const_iterator its = called_function_code.begin();
+                its != called_function_code.end(); ++its)
             {
                 TL::Symbol sym = its->get_symbol();
                 std::string original_filename = TL::CompilationProcess::get_current_file().get_filename(/* fullpath */ true);
@@ -1907,55 +1804,33 @@ void DeviceFPGA::copy_stuff_to_device_file_expand(const TL::ObjectList<Nodecl::N
                 if (sym.is_function() && (sym.get_filename() == original_filename))
                 {
                     Nodecl::NodeclBase code = sym.get_function_code();
-                    TL::ObjectList<Nodecl::NodeclBase> expand_code;
-                    ObjectList<Source> outline_code;
-                    TL::Source outline_src_function_1l;
 
-                    if (code.is_null())
+                    if (!code.is_null())
                     {
+                        TL::ObjectList<Nodecl::NodeclBase> called_function_code_list;
+                        called_function_code_list.insert(code);
 
-#if _DEBUG_AUTOMATIC_COMPILER_
-                        std::cerr << "NOT VALID!!!!!\n" << std::endl << std::endl;
-                        std::cerr << "Name: " << sym.get_name() << std::endl << std::endl;
-#endif
+                        result = get_called_functions_sources(called_function_code_list);
 
-                    }
-                    else
-                    {
-                        outline_src_function_1l << code.prettyprint();
+                        Source called_function_code_src;
+                        called_function_code_src << code.prettyprint();
+                        result.insert(called_function_code_src);
 
 #if _DEBUG_AUTOMATIC_COMPILER_
                         std::cerr << std::endl << std::endl;
                         std::cerr << " ===================================================================0\n";
-                        std::cerr << "call " << __number_of_calls << ": Adding function to expand_fpga_source_codes:"
-                            + sym.get_name() + " new function called and expanded\n";
+                        std::cerr << "call " << __number_of_calls << ": " + sym.get_name() + " new function called and expanded\n";
                         std::cerr << " ===================================================================0\n";
 #endif
-
-                        //outline_code.insert(outline_src_function_1l);
-                        ObjectList<Source> result;
-
-                        result.insert(outline_src_function_1l);
-
-                        for (ObjectList<Source>::const_iterator it_expand =_expand_fpga_source_codes.begin();
-                            it_expand !=_expand_fpga_source_codes.end(); it_expand++)
-                        {
-                            if (!((it_expand->get_source()) == outline_src_function_1l.get_source()))
-                            {
-                                result.append(*it_expand);
-                            }
-                        }
-
-                        _expand_fpga_source_codes = result;
-
-                        expand_code.insert(code);
-                        copy_stuff_to_device_file_expand(expand_code);
                     }
                 }
             }
         }
     }
+#if _DEBUG_AUTOMATIC_COMPILER_
     __number_of_calls--;
+#endif
+    return result;
 }
 
 std::string DeviceFPGA::get_acc_type(const TL::Symbol& task, const TargetInformation& target_info)
@@ -2726,6 +2601,16 @@ void DeviceFPGA::set_force_fpga_task_creation_ports_from_str(const std::string& 
     {
         _force_fpga_task_creation_ports.insert(val);
     }
+}
+
+std::string DeviceFPGA::FpgaOutlineInfo::get_filename() const
+{
+    return _type + ":" + _num_instances + ":" + _name + "_hls_automatic_mcxx.cpp";
+}
+
+std::string DeviceFPGA::FpgaOutlineInfo::get_wrapper_name() const
+{
+    return fpga_wrapper_name(this->_name);
 }
 
 EXPORT_PHASE(TL::Nanox::DeviceFPGA);
