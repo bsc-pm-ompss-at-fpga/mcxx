@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------
-  (C) Copyright 2018-2018 Barcelona Supercomputing Center
+  (C) Copyright 2018-2019 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
 
   This file is part of Mercurium C/C++ source-to-source compiler.
@@ -122,6 +122,145 @@ static void compute_array_info(
 std::string fpga_wrapper_name(const std::string &name)
 {
     return name + "_hls_automatic_mcxx_wrapper";
+}
+
+std::string get_mcxx_ptr_declaration(const TL::Type& type_to_point)
+{
+    return "mcxx_ptr_t<" + type_to_point.print_declarator() + ">";
+}
+
+struct ReplacePtrDeclVisitor : public Nodecl::ExhaustiveVisitor<void>
+{
+    private:
+        static TL::Symbol declare_mcxx_ptr_variable(TL::Scope scope, const TL::Type& type_to_point)
+        {
+            TL::Symbol structure = get_mcxx_ptr_symbol(scope);
+            //TODO: obtain the mcxx_ptr_t info from structure
+            TL::Symbol field = scope.new_symbol(get_mcxx_ptr_declaration(type_to_point));
+            field.get_internal_symbol()->kind = SK_VARIABLE;
+            symbol_entity_specs_set_is_user_declared(field.get_internal_symbol(), 1);
+            field.get_internal_symbol()->type_information = structure.get_user_defined_type().get_internal_type();
+            field.get_internal_symbol()->locus = make_locus("", 0, 0);
+            return field;
+        }
+
+        static TL::Symbol get_mcxx_ptr_symbol(TL::Scope scope)
+        {
+            std::string structure_name = "mcxx_ptr_t";
+            // const locus_t* locus = make_locus("", 0, 0);
+
+            TL::Symbol new_class_symbol = scope.new_symbol(structure_name);
+            new_class_symbol.get_internal_symbol()->kind = SK_CLASS;
+            type_t* new_class_type = get_new_class_type(scope.get_decl_context(), TT_STRUCT);
+            symbol_entity_specs_set_is_user_declared(new_class_symbol.get_internal_symbol(), 1);
+            const decl_context_t* class_context = new_class_context(new_class_symbol.get_scope().get_decl_context(),
+                    new_class_symbol.get_internal_symbol());
+            class_type_set_inner_context(new_class_type, class_context);
+            new_class_symbol.get_internal_symbol()->type_information = new_class_type;
+            new_class_symbol.get_internal_symbol()->do_not_print = 1;
+
+            // Add members
+            // TL::Scope class_scope(class_context);
+            //
+            // std::string field_name = "mcxx_ptr_member";
+            // TL::Symbol field = class_scope.new_symbol(field_name);
+            // field.get_internal_symbol()->kind = SK_VARIABLE;
+            // symbol_entity_specs_set_is_user_declared(field.get_internal_symbol(), 1);
+            //
+            // TL::Type field_type = get_unsigned_long_int_type();
+            // field.get_internal_symbol()->type_information = field_type.get_internal_type();
+            //
+            // symbol_entity_specs_set_is_member(field.get_internal_symbol(), 1);
+            // symbol_entity_specs_set_class_type(field.get_internal_symbol(),
+            //         ::get_user_defined_type(new_class_symbol.get_internal_symbol()));
+            // symbol_entity_specs_set_access(field.get_internal_symbol(), AS_PUBLIC);
+            //
+            // field.get_internal_symbol()->locus = locus;
+            //
+            // class_type_add_member(new_class_type,
+            //         field.get_internal_symbol(),
+            //         class_scope.get_decl_context(),
+            //         /* is_definition */ 1);
+
+            // nodecl_t nodecl_output = nodecl_null();
+            // finish_class_type(new_class_type,
+            //         ::get_user_defined_type(new_class_symbol.get_internal_symbol()),
+            //         scope.get_decl_context(),
+            //         locus,
+            //         &nodecl_output);
+            // set_is_complete_type(new_class_type, /* is_complete */ 1);
+            // set_is_complete_type(get_actual_class_type(new_class_type), /* is_complete */ 1);
+            //
+            // if (!nodecl_is_null(nodecl_output))
+            // {
+            //     std::cerr << "FIXME: finished class issues nonempty nodecl" << std::endl;
+            // }
+
+            return new_class_symbol;
+        }
+
+        static TL::Type get_user_defined_type_mcxx_ptr(TL::Scope scope)
+        {
+            TL::Symbol new_class_symbol = get_mcxx_ptr_symbol(scope);
+            return new_class_symbol.get_user_defined_type();
+        }
+
+    public:
+        ReplacePtrDeclVisitor() {}
+
+        virtual void visit(const Nodecl::Symbol& node)
+        {
+            TL::Symbol sym = node.get_symbol();
+            const TL::Type type = sym.get_type();
+            if (!sym.get_value().is_null())
+            {
+                walk(sym.get_value());
+            }
+            //n.replace(_sym_rename_map[s]);
+            const std::string sym_name = sym.get_name();
+            const bool is_nanox_var = sym_name.find("nanos_") != std::string::npos;
+            if (sym.is_variable() && type.is_pointer() && !is_nanox_var)
+            {
+                const TL::Type base_type = type.points_to();
+                //const TL::Type new_type = get_user_defined_type_mcxx_ptr(sym.get_scope(), base_type);
+                const TL::Type new_type = declare_mcxx_ptr_variable(sym.get_scope(), base_type).get_user_defined_type();
+                sym.set_type(new_type);
+            }
+        }
+};
+
+Source get_mcxx_ptr_source()
+{
+    Source out;
+
+    out << "template <typename T>"
+        << "struct mcxx_ptr_t {"
+        << "  uintptr_t val;"
+        << "  mcxx_ptr_t() : val(0) {}"
+        << "  mcxx_ptr_t(uintptr_t val) { this->val = val; }"
+        << "  mcxx_ptr_t(mcxx_ptr_t<T> const &ref) { this->val = ref.val; }"
+        << "  operator T*() const { return (T *)this->val; }"
+        << "  operator uintptr_t() const { return this->val; }"
+        << "  mcxx_ptr_t<T> operator + (int const val) const {"
+        << "    mcxx_ptr_t<T> ret;"
+        << "    ret.val = this->val + val*sizeof(T);"
+        << "    return ret;"
+        << "  }"
+        << "  mcxx_ptr_t<T> operator + (mcxx_ptr_t<T> const &obj) const {"
+        << "    return this + (int)obj.val;"
+        << "  }"
+        << "  mcxx_ptr_t<T> operator - (int const val) const {"
+        << "    mcxx_ptr_t<T> ret;"
+        << "    ret.val = this->val - val*sizeof(T);"
+        << "    return ret;"
+        << "  }"
+        << "  mcxx_ptr_t<T> operator - (mcxx_ptr_t<T> const &obj) const {"
+        << "    return this - (int)obj.val;"
+        << "  }"
+        << "};"
+    ;
+
+    return out;
 }
 
 } // namespace Nanox

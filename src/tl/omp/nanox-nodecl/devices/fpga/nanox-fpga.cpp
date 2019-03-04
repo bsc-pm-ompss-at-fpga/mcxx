@@ -186,6 +186,12 @@ void DeviceFPGA::create_outline(
                     *symbol_map);
                 new_function.set_value(fun_code);
 
+                if (creates_children_tasks)
+                {
+                    ReplacePtrDeclVisitor replacePtrDeclVisitor;
+                    replacePtrDeclVisitor.walk(fun_code);
+                }
+
                 Source wrapper_decls, wrapper_code;
                 DeviceFPGA::gen_hls_wrapper(
                     new_function,
@@ -1313,6 +1319,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             << "\t\twrite_outstream(tmp, DEST_ID, idx == (numCopies - 1));"
             << "\t}"
             << "}"
+            << get_mcxx_ptr_source()
         ;
 
         pragmas_src
@@ -1366,7 +1373,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     int n_params_in = 0;
     int n_params_out = 0;
 
-    // Go through all the parameters. The iteration below goes through the copies.
+    // Go through all the data items
     for (ObjectList<OutlineDataItem*>::iterator it = data_items.begin(); it != data_items.end(); it++)
     {
         const std::string &field_name = (*it)->get_field_name();
@@ -1383,7 +1390,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         const ObjectList<OutlineDataItem::CopyItem> &copies = (*it)->get_copies();
         const ObjectList<Nodecl::NodeclBase> &localmem = (*it)->get_localmem();
 
-        if (!localmem.empty())
+        if (!localmem.empty() && !creates_children_tasks)
         {
             TL::Symbol symbol_copy = (*it)->get_field_symbol();
             Nodecl::NodeclBase expr_base = (*it)->get_base_address_expression();
@@ -1584,9 +1591,12 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         const std::string &param_name = it->get_name();
         TL::Type param_type = it->get_type().no_ref();
         TL::Type unql_type = param_type.get_unqualified_type();
+        const std::string param_decl = unql_type.get_declaration(scope, param_name);
+        const bool is_mcxx_ptr_t = param_decl.find("mcxx_ptr_t") != std::string::npos;
 
         local_decls
-            << "\t" << unql_type.get_declaration(scope, param_name) << ";";
+            << "\t" << param_decl << ";"
+        ;
 
         if (param_type.is_pointer() || param_type.is_array())
         {
@@ -1620,6 +1630,15 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 << "\t\t\t\t} mcc_arg_" << param_id << ";"
                 << "\t\t\t\tmcc_arg_" << param_id << "." << param_name << "_task_arg = " << STR_INPUTSTREAM << ".read().data;"
                 << "\t\t\t\t" << param_name << " = mcc_arg_" << param_id << "." << param_name << ";"
+                << "\t\t\t\tbreak;"
+            ;
+        }
+        else if (creates_children_tasks && is_mcxx_ptr_t)
+        {
+            in_copies_aux
+                << "\t\t\tcase " << param_id << ":\n"
+                << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
+                << "\t\t\t\t" << param_name << " = __param;"
                 << "\t\t\t\tbreak;"
             ;
         }
