@@ -344,7 +344,7 @@ Source get_nanos_create_wd_source()
         << "  const unsigned short TM_NEW = 0x12;"
         << "  const unsigned short TM_SCHED = 0x14;"
         << "  const unsigned char hasSmpArch = (archMask & NANOS_FPGA_ARCH_SMP) != 0;"
-        << "  const unsigned short DEST_ID = (numDeps == 0 && numCopies == 0 && !hasSmpArch) ? TM_SCHED : TM_NEW;"
+        << "  const unsigned short DEST_ID = (numDeps == 0 && !hasSmpArch) ? TM_SCHED : TM_NEW;"
         //1st word: [ valid (8b) | arch_mask (24b) | num_args (16b) | num_copies (16b) ]
         << "  uint64_t tmp = 0x80000000 | archMask;"
         << "  tmp = (tmp << 16) | numArgs;"
@@ -360,18 +360,20 @@ Source get_nanos_create_wd_source()
         << "    tmp = (tmp << 56) | args[idx];"
         << "    write_outstream(tmp, DEST_ID, (idx == (numArgs - 1))&(numCopies == 0));"
         << "  }"
-        << "  for (uint16_t idx = 0; idx < numCopies; ++idx) {"
+        << "  if (DEST_ID != TM_SCHED) {"
+        << "    for (uint16_t idx = 0; idx < numCopies; ++idx) {"
         //1st copy word: [ address (64b) ]
-        << "    tmp = copies[idx].address;"
-        << "    write_outstream(tmp, DEST_ID, 0);"
+        << "      tmp = copies[idx].address;"
+        << "      write_outstream(tmp, DEST_ID, 0);"
         //2nd copy word: [ size (32b) | not_used (24b) | flags (8b) ]
-        << "    tmp = copies[idx].size;"
-        << "    tmp = (tmp << 32) | copies[idx].flags;"
-        << "    write_outstream(tmp, DEST_ID, 0);"
+        << "      tmp = copies[idx].size;"
+        << "      tmp = (tmp << 32) | copies[idx].flags;"
+        << "      write_outstream(tmp, DEST_ID, 0);"
         //3rd copy word: [ accessed_length (32b) | offset (32b) ]
-        << "    tmp = copies[idx].accessed_length;"
-        << "    tmp = (tmp << 32) | copies[idx].offset;"
-        << "    write_outstream(tmp, DEST_ID, idx == (numCopies - 1));"
+        << "      tmp = copies[idx].accessed_length;"
+        << "      tmp = (tmp << 32) | copies[idx].offset;"
+        << "      write_outstream(tmp, DEST_ID, idx == (numCopies - 1));"
+        << "    }"
         << "  }"
         << "}"
     ;
