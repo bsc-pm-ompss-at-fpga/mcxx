@@ -34,12 +34,8 @@
 #include "tl-source.hpp"
 
 #define STR_OUTPUTSTREAM       "outStream"
-#define STR_GLOB_OUTPORT       "__mcxx_outPort"
 #define STR_INPUTSTREAM        "inStream"
-#define STR_GLOB_TWPORT        "__mcxx_twPort"
 #define STR_INSTRDATA          "mcxx_data"
-#define STR_ACCID              "accID"
-#define STR_TASKID             "__mcxx_taskId"
 #define STR_INSTRCOUNTER       "__mcxx_instrCounter"
 #define STR_INSTRBUFFER        "__mcxx_instrBuffer"
 #define STR_PREFIX             "mcxx_"
@@ -51,9 +47,6 @@
 #define STR_EVENTSTRUCT        "__mcxx_event_t"
 #define STR_WRITEEVENT         "__mcxx_writeInstrEvent"
 #define STR_INSTREND           "__mcxx_instrEnd"
-#define STR_COMPONENTS_COUNT   "__mcxx_taskComponents"
-#define STR_CREATE_TASK        "nanos_fpga_create_wd_async"
-#define STR_WAIT_TASKS         "nanos_wg_wait_completion"
 
 //Default events
 #define EV_DEVCOPYIN            77

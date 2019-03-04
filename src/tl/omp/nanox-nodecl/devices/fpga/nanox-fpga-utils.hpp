@@ -28,8 +28,13 @@
 #define NANOX_FPGA_UTILS_HPP
 
 #include "cxx-graphviz.h"
-
 #include "../../../lowering-common/tl-omp-lowering-utils.hpp"
+
+#define STR_ACCID              "accID"
+#define STR_COMPONENTS_COUNT   "__mcxx_taskComponents"
+#define STR_GLOB_OUTPORT       "__mcxx_outPort"
+#define STR_GLOB_TWPORT        "__mcxx_twPort"
+#define STR_TASKID             "__mcxx_taskId"
 
 namespace TL
 {
@@ -258,6 +263,117 @@ Source get_mcxx_ptr_source()
         << "    return this - (int)obj.val;"
         << "  }"
         << "};"
+    ;
+
+    return out;
+}
+
+Source get_aux_task_creation_source()
+{
+    Source out;
+
+    //NOTE: structs and enums types cannot be declared using a typedef, they must be declared as they will be in a regular mcxx source
+    out << "enum nanos_err_t {NANOS_OK = 0};"
+        << "typedef nanos_wd_t nanos_wg_t;"
+        << "nanos_wd_t nanos_current_wd() { return " << STR_TASKID << "; }"
+        << "void nanos_handle_error(enum nanos_err_t err) {}"
+        << "void write_outstream(uint64_t data, unsigned short dest, unsigned char last) {"
+        << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_OUTPORT << "\n"
+        //NOTE: Pack the axiData_t info: data(64bits) + dest(6bits) + last(2bit). It can be done
+        //      with less bits but this way the info is HEX friendly
+        << "  ap_uint<72> tmp = data;"
+        << "  tmp = (tmp << 8) | ((dest & 0x3F) << 2) | (last & 0x3);"
+        << "  " << STR_GLOB_OUTPORT << " = tmp;"
+        << "}"
+        << "void wait_tw_signal() {"
+        << "  #pragma HLS INTERFACE ap_hs port=" << STR_GLOB_TWPORT << "\n"
+        << "  ap_uint<2> sync = " << STR_GLOB_TWPORT << ";"
+        << "}"
+    ;
+
+    return out;
+}
+
+Source get_nanos_wait_completion_source()
+{
+    Source out;
+
+    //NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
+    out << "enum nanos_err_t nanos_wg_wait_completion(nanos_wg_t uwg, bool avoid_flush) {"
+        << "  if (" << STR_COMPONENTS_COUNT << " == 0) { return NANOS_OK; }"
+        << "  const unsigned short TM_TW = 0x13;"
+        << "  uint64_t tmp = " << STR_ACCID << ";"
+        << "  tmp = tmp << 48 /*ACC_ID info uses bits [48:55]*/;"
+        << "  tmp = 0x8000000100000000 | tmp | " << STR_COMPONENTS_COUNT << ";"
+        << "  write_outstream(tmp /*TASKWAIT_DATA_BLOCK*/, TM_TW, 0 /*last*/);"
+        << "  write_outstream(" << STR_TASKID << " /*data*/, TM_TW, 1 /*last*/);"
+        << "  {\n"
+        << "    #pragma HLS PROTOCOL fixed\n"
+        << "    wait_tw_signal();"
+        << "  }\n"
+        << "  " << STR_COMPONENTS_COUNT << " = 0;"
+        << "  return NANOS_OK;"
+        << "}"
+    ;
+
+    return out;
+}
+
+Source get_nanos_create_wd_source()
+{
+    Source out;
+
+    //NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
+    //NOTE: structs and enums types cannot be declared using a typedef, they must be declared as they will be in a regular mcxx source
+    out << "enum {NANOS_FPGA_ARCH_SMP = 0x800000, NANOS_FPGA_ARCH_FPGA = 0x400000};"
+        << "enum {NANOS_ARGFLAG_DEP_OUT  = 0x08, NANOS_ARGFLAG_DEP_IN  = 0x04,"
+        << "      NANOS_ARGFLAG_COPY_OUT = 0x02, NANOS_ARGFLAG_COPY_IN = 0x01,"
+        << "      NANOS_ARGFLAG_NONE    = 0x00};"
+        << "typedef struct nanos_fpga_copyinfo_t {"
+        << "  uint64_t address;"
+        << "  uint32_t flags;"
+        << "  uint32_t size;"
+        << "  uint32_t offset;"
+        << "  uint32_t accessed_length;"
+        << "} nanos_fpga_copyinfo_t;"
+        << "void nanos_fpga_create_wd_async(uint32_t archMask, uint64_t type, uint16_t numDeps,"
+        << "    uint16_t numArgs, uint64_t * args, uint8_t * argsFlags, uint16_t numCopies,"
+        << "    struct nanos_fpga_copyinfo_t * copies) {"
+        << "  #pragma HLS inline\n"
+        << "  ++" << STR_COMPONENTS_COUNT << ";"
+        << "  const unsigned short TM_NEW = 0x12;"
+        << "  const unsigned short TM_SCHED = 0x14;"
+        << "  const unsigned char hasSmpArch = (archMask & NANOS_FPGA_ARCH_SMP) != 0;"
+        << "  const unsigned short DEST_ID = (numDeps == 0 && numCopies == 0 && !hasSmpArch) ? TM_SCHED : TM_NEW;"
+        //1st word: [ valid (8b) | arch_mask (24b) | num_args (16b) | num_copies (16b) ]
+        << "  uint64_t tmp = 0x80000000 | archMask;"
+        << "  tmp = (tmp << 16) | numArgs;"
+        << "  tmp = (tmp << 16) | numCopies;"
+        << "  write_outstream(tmp, DEST_ID, 0);"
+        //2nd word: [ parent_task_id (64b) ]
+        << "  write_outstream(" << STR_TASKID << ", DEST_ID, 0);"
+        //3rd word: [ type_value (64b) ]
+        << "  write_outstream(type, DEST_ID, 0);"
+        << "  for (uint16_t idx = 0; idx < numArgs; ++idx) {"
+        //arg words: [ arg_flags (8b) | arg_value (56b) ]
+        << "    tmp = argsFlags[idx];"
+        << "    tmp = (tmp << 56) | args[idx];"
+        << "    write_outstream(tmp, DEST_ID, (idx == (numArgs - 1))&(numCopies == 0));"
+        << "  }"
+        << "  for (uint16_t idx = 0; idx < numCopies; ++idx) {"
+        //1st copy word: [ address (64b) ]
+        << "    tmp = copies[idx].address;"
+        << "    write_outstream(tmp, DEST_ID, 0);"
+        //2nd copy word: [ size (32b) | not_used (24b) | flags (8b) ]
+        << "    tmp = copies[idx].size;"
+        << "    tmp = (tmp << 32) | copies[idx].flags;"
+        << "    write_outstream(tmp, DEST_ID, 0);"
+        //3rd copy word: [ accessed_length (32b) | offset (32b) ]
+        << "    tmp = copies[idx].accessed_length;"
+        << "    tmp = (tmp << 32) | copies[idx].offset;"
+        << "    write_outstream(tmp, DEST_ID, idx == (numCopies - 1));"
+        << "  }"
+        << "}"
     ;
 
     return out;

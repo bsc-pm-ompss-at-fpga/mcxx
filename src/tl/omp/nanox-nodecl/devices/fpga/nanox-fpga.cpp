@@ -1235,90 +1235,10 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             << "static ap_uint<32> " << STR_COMPONENTS_COUNT << ";"
         ;
 
-        //NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
-        //NOTE: structs and enums types cannot be declared using a typedef, they must be declared as they will be in a regular mcxx source
         aux_decls_src
-            << "enum nanos_err_t {NANOS_OK = 0};"
-            << "typedef nanos_wd_t nanos_wg_t;"
-            << "nanos_wd_t nanos_current_wd() { return " << STR_TASKID << "; }"
-            << "void nanos_handle_error(enum nanos_err_t err) {}"
-            << "void write_outstream(uint64_t data, unsigned short dest, unsigned char last) {"
-            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_OUTPORT << "\n"
-            //NOTE: Using 72 bits to have the data shifted 8 positions. This way is readable in HEX
-            << "/* Pack the axiData_t info: data(64bits) + dest(6bits) + last(2bit) */\n"
-            << "\tap_uint<72> tmp = data;"
-            << "\ttmp = (tmp << 8) | ((dest & 0x3F) << 2) | (last & 0x3);"
-            << "\t" << STR_GLOB_OUTPORT << " = tmp;"
-            << "}"
-            << "void wait_tw_signal() {"
-            << "\t#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_TWPORT << "\n"
-            << "\tap_uint<2> sync = " << STR_GLOB_TWPORT << ";"
-            << "}"
-            << "enum nanos_err_t " << STR_WAIT_TASKS << "(nanos_wg_t uwg, bool avoid_flush) {"
-            << "\tif (" << STR_COMPONENTS_COUNT << " == 0) { return NANOS_OK; }"
-            << "\tconst unsigned short TM_TW = 0x13;"
-            << "\tuint64_t tmp = " << STR_ACCID << ";"
-            << "\ttmp = tmp << 48 /*ACC_ID info uses bits [48:55]*/;"
-            << "\ttmp = 0x8000000100000000 | tmp | " << STR_COMPONENTS_COUNT << ";"
-            << "\twrite_outstream(tmp /*TASKWAIT_DATA_BLOCK*/, TM_TW, 0 /*last*/);"
-            << "\twrite_outstream(" << STR_TASKID << " /*data*/, TM_TW, 1 /*last*/);"
-            << "\t{\n"
-            << "\t\t#pragma HLS PROTOCOL fixed\n"
-            << "\t\twait_tw_signal();"
-            << "\t}\n"
-            << "\t" << STR_COMPONENTS_COUNT << " = 0;"
-            << "\treturn NANOS_OK;"
-            << "}"
-            << "enum {NANOS_FPGA_ARCH_SMP = 0x800000, NANOS_FPGA_ARCH_FPGA = 0x400000};"
-            << "enum {NANOS_ARGFLAG_DEP_OUT  = 0x08, NANOS_ARGFLAG_DEP_IN  = 0x04,"
-            << "      NANOS_ARGFLAG_COPY_OUT = 0x02, NANOS_ARGFLAG_COPY_IN = 0x01,"
-            << "      NANOS_ARGFLAG_NONE    = 0x00};"
-            << "typedef struct nanos_fpga_copyinfo_t {"
-            << "    uint64_t address;"
-            << "    uint32_t flags;"
-            << "    uint32_t size;"
-            << "    uint32_t offset;"
-            << "    uint32_t accessed_length;"
-            << "} nanos_fpga_copyinfo_t;"
-            << "void " << STR_CREATE_TASK << "(uint32_t archMask, uint64_t type, uint16_t numDeps,"
-            << "    uint16_t numArgs, uint64_t * args, uint8_t * argsFlags, uint16_t numCopies,"
-            << "    struct nanos_fpga_copyinfo_t * copies) {"
-            << "#pragma HLS inline\n"
-            << "\t++" << STR_COMPONENTS_COUNT << ";"
-            //0x14 is the Scheduler TM, 0x12 is the New TM
-            << "\tconst unsigned short TM_NEW = 0x12;"
-            << "\tconst unsigned short TM_SCHED = 0x14;"
-            << "\tconst unsigned char hasSmpArch = (archMask & NANOS_FPGA_ARCH_SMP) != 0;"
-            << "\tconst unsigned short DEST_ID = (numDeps == 0 && numCopies == 0 && !hasSmpArch) ? TM_SCHED : TM_NEW;"
-            //1st word: [ valid (8b) | arch_mask (24b) | num_args (16b) | num_copies (16b) ]
-            << "\tuint64_t tmp = 0x80000000 | archMask;"
-            << "\ttmp = (tmp << 16) | numArgs;"
-            << "\ttmp = (tmp << 16) | numCopies;"
-            << "\twrite_outstream(tmp, DEST_ID, 0);"
-            //2nd word: [ parent_task_id (64b) ]
-            << "\twrite_outstream(" << STR_TASKID << ", DEST_ID, 0);"
-            //3rd word: [ type_value (64b) ]
-            << "\twrite_outstream(type, DEST_ID, 0);"
-            << "\tfor (uint16_t idx = 0; idx < numArgs; ++idx) {"
-            //arg words: [ arg_flags (8b) | arg_value (56b) ]
-            << "\t\ttmp = argsFlags[idx];"
-            << "\t\ttmp = (tmp << 56) | args[idx];"
-            << "\t\twrite_outstream(tmp, DEST_ID, (idx == (numArgs - 1))&(numCopies == 0));"
-            << "\t}"
-            << "\tfor (uint16_t idx = 0; idx < numCopies; ++idx) {"
-            //1st copy word: [ address (64b) ]
-            << "\t\ttmp = copies[idx].address;"
-            << "\t\twrite_outstream(tmp, DEST_ID, 0);"
-            //2nd copy word: [ size (32b) | not_used (24b) | flags (8b) ]
-            << "\t\ttmp = copies[idx].size;"
-            << "\t\ttmp = (tmp << 32) | copies[idx].flags;"
-            << "\t\twrite_outstream(tmp, DEST_ID, 0);"
-            //3rd copy word: [ accessed_length (32b) | offset (32b) ]
-            << "\t\ttmp = copies[idx].accessed_length;"
-            << "\t\ttmp = (tmp << 32) | copies[idx].offset;"
-            << "\t\twrite_outstream(tmp, DEST_ID, idx == (numCopies - 1));"
-            << "\t}"
-            << "}"
+            << get_aux_task_creation_source()
+            << get_nanos_wait_completion_source()
+            << get_nanos_create_wd_source()
             << get_mcxx_ptr_source()
         ;
 
@@ -2244,7 +2164,7 @@ void DeviceFPGA::emit_async_device(
     }
 
     spawn_code
-        << STR_CREATE_TASK << "(" << arch_mask << ", " << acc_type << ", " << num_deps << ", " << num_args << ", "
+        << "nanos_fpga_create_wd_async(" << arch_mask << ", " << acc_type << ", " << num_deps << ", " << num_args << ", "
         << (num_args > 0 ? "mcxx_args, mcxx_args_flags" : "(uint64_t *)0, (uint8_t *)0") << ", "
         << num_copies << ", " << (num_copies > 0 ? "mcxx_copies" : "(nanos_fpga_copyinfo_t *)0") << ");";
 
