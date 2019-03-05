@@ -781,13 +781,11 @@ void DeviceFPGA::add_stuff_to_copy(std::ostream &hls_file)
     }
 }
 
-static std::string get_element_type_pointer_to(TL::Type type, std::string field_name, TL::Scope scope)
+static TL::Type get_element_type_pointer_to(TL::Type type)
 {
-
     TL::Type points_to = type;
-    size_t position;
 
-    while(points_to.is_pointer() || points_to.is_pointer_to_class())
+    while(points_to.is_pointer() || points_to.is_pointer_to_class() || points_to.is_array())
     {
         if (points_to.is_pointer())
         {
@@ -797,15 +795,13 @@ static std::string get_element_type_pointer_to(TL::Type type, std::string field_
         {
             points_to = points_to.pointed_class();
         }
+        else if (points_to.is_array())
+        {
+            points_to = points_to.array_element();
+        }
     }
 
-    std::string pointed_to_string_simple = points_to.get_simple_declaration(scope,field_name);
-
-    position = pointed_to_string_simple.rfind(field_name);
-
-    std::string reference_type = pointed_to_string_simple.substr(0,position-1);
-
-    return reference_type;
+    return points_to;
 }
 
 static Source get_type_pointer_to_arrays_src(TL::Type copy_type, TL::Type type, bool is_only_pointer)
@@ -1267,10 +1263,10 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             if (localmem.size() > 1)
             {
                 internal_error("Only one localmem per object is allowed (%s)",
-                localmem.front().get_locus_str().c_str());
+                    localmem.front().get_locus_str().c_str());
             }
 
-            const Type &localmem_type = localmem.front().get_type().no_ref();
+            TL::Type localmem_type = localmem.front().get_type().no_ref();
             if (localmem_type.is_array() && localmem_type.array_is_vla())
             {
                 //NOTE: VLAs cannot be cached in the wrapper as we don't know the array size yet
@@ -1279,12 +1275,10 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                     << std::endl;
                 continue;
             }
-
-            const Type& field_type = (*it)->get_field_type().no_ref();
-            if (!field_type.is_pointer() && !field_type.is_array() && !field_type.array_is_region())
+            else if (!localmem_type.is_array())
             {
-                internal_error("Invalid field type, only pointer and array is allowed (%d)",
-                localmem.front().get_locus_str().c_str());
+                internal_error("%d: Unexpected type in localmem info. '%d' is not an array",
+                    localmem.front().get_locus_str().c_str(), localmem_type.print_declarator().c_str());
             }
 
             int param_id = find_parameter_position(param_list, param_symbol);
@@ -1294,38 +1288,58 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             Source n_elements_src;
             n_elements_src = get_copy_elements_all_dimensions_src(localmem_type);
 
-            const std::string field_type_decl = get_element_type_pointer_to(field_type, field_name, scope);
-            const std::string field_port_name = STR_PREFIX + field_name;
+            TL::Type elem_type = get_element_type_pointer_to(localmem_type);
+            TL::Type unql_type = elem_type.get_unqualified_type();
+            const std::string casting_const_pointer = unql_type.get_const_type().get_pointer_to().get_declaration(scope, "");
+            const std::string casting_sizeof = elem_type.get_declaration(scope, "");
+            const std::string port_name = STR_PREFIX + field_name;
+            const std::string port_declaration = elem_type.get_pointer_to().get_declaration(scope, port_name,
+                TL::Type::PARAMETER_DECLARATION);
 
             local_decls
-                << "\tstatic " << localmem_type.get_simple_declaration(scope, field_name) << ";"
+                << "\tstatic " << localmem_type.get_unqualified_type().get_declaration(scope, field_name) << ";"
             ;
 
-            params_src.append_with_separator(field_type.get_simple_declaration(scope, field_port_name), ", ");
+            params_src.append_with_separator(port_declaration, ", ");
 
             pragmas_src
-                << "#pragma HLS INTERFACE m_axi port=" << field_port_name << "\n"
+                << "#pragma HLS INTERFACE m_axi port=" << port_name << "\n"
             ;
 
             in_copies_aux
                 << "\t\t\tcase " << param_id << ":\n"
                 << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
                 << "\t\t\t\tif(__copyFlags[4])\n"
-                << "\t\t\t\t\tmemcpy(" << field_name << ", (const " << field_type_decl << " *)(" << field_port_name << " + __param/sizeof(" << field_type_decl << ")), " << n_elements_src << "*sizeof(" << field_type_decl << "));"
-                << "\t\t\t\t__copyFlags_id_out[" << n_params_out << "] = __copyFlags_id;"
-                << "\t\t\t\t__param_out[" << n_params_out << "] = __param;"
-                << "\t\t\t\tbreak;"
+                << "\t\t\t\t\tmemcpy(" << field_name << ", "
+                                       << "(" << casting_const_pointer << ")(" << port_name << " + __param/sizeof(" << casting_sizeof << ")), "
+                                       << n_elements_src << "*sizeof(" << casting_sizeof << "));"
             ;
 
-            out_copies_aux
-                << "\t\t\tcase " << param_id << ":\n"
-                << "\t\t\t\tif(__copyFlags[5])\n"
-                << "\t\t\t\t\tmemcpy(" << field_port_name <<  " + __param/sizeof(" << field_type_decl << "), (const " << field_type_decl << " *)" << field_name << ", " << n_elements_src << "*sizeof(" << field_type_decl << "));"
+            //NOTE: If the elements are const qualified they cannot be an output
+            if (!elem_type.is_const())
+            {
+                in_copies_aux
+                    << "\t\t\t\t__copyFlags_id_out[" << n_params_out << "] = __copyFlags_id;"
+                    << "\t\t\t\t__param_out[" << n_params_out << "] = __param;"
+                ;
+
+                out_copies_aux
+                    << "\t\t\tcase " << param_id << ":\n"
+                    << "\t\t\t\tif(__copyFlags[5])\n"
+                    << "\t\t\t\t\tmemcpy(" << port_name <<  " + __param/sizeof(" << casting_sizeof << "), "
+                                           << "(" << casting_const_pointer << ")" << field_name << ", "
+                                           << n_elements_src << "*sizeof(" << casting_sizeof << "));"
+                    << "\t\t\t\tbreak;"
+                ;
+
+                n_params_out++;
+            }
+
+            in_copies_aux
                 << "\t\t\t\tbreak;"
             ;
 
             n_params_in++;
-            n_params_out++;
         }
         else
         {
