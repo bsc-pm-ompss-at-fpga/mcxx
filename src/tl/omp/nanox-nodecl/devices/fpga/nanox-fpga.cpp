@@ -75,25 +75,13 @@ Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectLis
             fatal_error("Non-valid argument in FPGA task. Data type must be at most 64-bit wide\n");
         }
 
-        //const ObjectList<OutlineDataItem::CopyItem> &copies = data_items[param_pos]->get_copies();
+        const ObjectList<OutlineDataItem::CopyItem> &copies = data_items[param_pos]->get_copies();
         bool in_type, out_type;
 
-        //in_type = false;
-        //out_type = false;
-        //if (!copies.empty()) {
-        //    if (copies.front().directionality == OutlineDataItem::COPY_IN) {
-        //        in_type = true;
-        //    } else if (copies.front().directionality == OutlineDataItem::COPY_OUT) {
-        //        out_type = true;
-        //    } else if (copies.front().directionality == OutlineDataItem::COPY_INOUT) {
-        //        in_type = true;
-        //        out_type = true;
-        //    }
-        //}
-        //NOTE: For now, always allow the wrapper to decide whether to do the copy or not.
-        //      This supports tasks without copies but with localmem
-        in_type = true;
-        out_type = true;
+        in_type = copies.empty() ||
+            ((copies.front().directionality & OutlineDataItem::COPY_IN) == OutlineDataItem::COPY_IN);
+        out_type = copies.empty() ||
+            ((copies.front().directionality & OutlineDataItem::COPY_OUT) == OutlineDataItem::COPY_OUT);
 
         // Create union in order to reinterpret argument as a uint64_t
         fpga_outline
@@ -793,37 +781,6 @@ void DeviceFPGA::add_stuff_to_copy(std::ostream &hls_file)
     }
 }
 
-static void get_inout_decl(ObjectList<OutlineDataItem*>& data_items, std::string &in_type, std::string &out_type)
-{
-    in_type = "";
-    out_type = "";
-    for (TL::ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
-        it != data_items.end();
-        it++)
-    {
-        const ObjectList<OutlineDataItem::CopyItem> &copies = (*it)->get_copies();
-        if (!copies.empty())
-        {
-            Scope scope = (*it)->get_symbol().get_scope();
-            if (copies.front().directionality == OutlineDataItem::COPY_IN && in_type == "")
-            {
-                in_type = (*it)->get_field_type().get_simple_declaration(scope, "");
-            }
-            else if (copies.front().directionality == OutlineDataItem::COPY_OUT && out_type == "")
-            {
-                out_type = (*it)->get_field_type().get_simple_declaration(scope, "");
-            }
-            else if (copies.front().directionality == OutlineDataItem::COPY_INOUT)
-            {
-                //If we find an inout, set both input and output types and return
-                out_type = (*it)->get_field_type().get_simple_declaration(scope, "");
-                in_type = out_type;
-                return;
-            }
-        }
-    }
-}
-
 static std::string get_element_type_pointer_to(TL::Type type, std::string field_name, TL::Scope scope)
 {
 
@@ -844,7 +801,7 @@ static std::string get_element_type_pointer_to(TL::Type type, std::string field_
 
     std::string pointed_to_string_simple = points_to.get_simple_declaration(scope,field_name);
 
-    position=pointed_to_string_simple.rfind(field_name);
+    position = pointed_to_string_simple.rfind(field_name);
 
     std::string reference_type = pointed_to_string_simple.substr(0,position-1);
 
@@ -965,16 +922,15 @@ static Source get_type_arrays_src(TL::Type copy_type, TL::Type type, bool is_onl
 
 }
 
-static Source get_copy_elements_all_dimensions_src(TL::Type copy_type, TL::Type type, bool is_only_pointer)
+static Source get_copy_elements_all_dimensions_src(TL::Type copy_type)
 {
     Source ArrayExpression;
     std::string  dimension_str;
 
-    if (is_only_pointer)
+    if (copy_type.is_pointer())
     {
 #if _DEBUG_AUTOMATIC_COMPILER_
-        fprintf(stderr, "Pointer declaration  is array, num dimensions:\n");
-        std::cerr << type.print_declarator() << std::endl;
+        fprintf(stderr, "Pointer declaration  is array, num dimensions: 1\n");
 #endif
         dimension_str = "( 1 )";
         ArrayExpression << dimension_str;
@@ -1021,7 +977,7 @@ static Source get_copy_elements_all_dimensions_src(TL::Type copy_type, TL::Type 
 
     }
 #if _DEBUG_AUTOMATIC_COMPILER_
-    internal_error("ERROR! :%d\n",type.get_num_dimensions());
+    internal_error("ERROR! in get_copy_elements_all_dimensions_src\n");
 #endif
 
     return ArrayExpression;
@@ -1086,9 +1042,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
      *      scalar parameter passing based on original function task parameters
      */
 
-    //Source wrapper_params;
-    std::string in_dec, out_dec;
-    get_inout_decl(data_items, in_dec, out_dec);
     Source pragmas_src, params_src, clear_components_count, var_decls_src, aux_decls_src;
 
     var_decls_src
@@ -1307,19 +1260,18 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
         TL::Symbol param_symbol = (*it)->get_field_symbol();
         const Scope &scope = (*it)->get_symbol().get_scope();
-        const ObjectList<OutlineDataItem::CopyItem> &copies = (*it)->get_copies();
         const ObjectList<Nodecl::NodeclBase> &localmem = (*it)->get_localmem();
 
         if (!localmem.empty() && !creates_children_tasks)
         {
-            if (copies.size() > 1 || localmem.size() > 1)
+            if (localmem.size() > 1)
             {
-                internal_error("Only one copy/localmem per object (in/out/inout) is allowed (%s)",
+                internal_error("Only one localmem per object is allowed (%s)",
                 localmem.front().get_locus_str().c_str());
             }
 
-            const Type &type = localmem.front().get_type().no_ref();
-            if (type.is_array() && type.array_is_vla())
+            const Type &localmem_type = localmem.front().get_type().no_ref();
+            if (localmem_type.is_array() && localmem_type.array_is_vla())
             {
                 //NOTE: VLAs cannot be cached in the wrapper as we don't know the array size yet
                 std::cerr << localmem.front().get_locus_str() << ": warning: disabling localmem of"
@@ -1328,172 +1280,52 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 continue;
             }
 
-            std::string type_simple_decl = type.get_simple_declaration(scope, field_name);
-            size_t position = type_simple_decl.find("[");
-            bool is_only_pointer = (position == std::string::npos);
-
-#if _DEBUG_AUTOMATIC_COMPILER_
-            std::cerr << "type declaration: " << type_simple_decl << " position: " << position << std::endl;
-            std::cerr << std::endl << std::endl;
-#endif
-
-            Source dimensions_array;
-            Source dimensions_pointer_array;
-            Source n_elements_src;
-            Type elem_type;
-            Type basic_elem_type;
-            std::string basic_elem_type_name;
-
             const Type& field_type = (*it)->get_field_type().no_ref();
-            if (field_type.is_pointer() || field_type.is_array() || field_type.array_is_region())
-            {
-                n_elements_src = get_copy_elements_all_dimensions_src(type, field_type, is_only_pointer);
-                dimensions_array = get_type_arrays_src(type, field_type, is_only_pointer);
-                dimensions_pointer_array = get_type_pointer_to_arrays_src(type, field_type, is_only_pointer);
-            }
-            else
+            if (!field_type.is_pointer() && !field_type.is_array() && !field_type.array_is_region())
             {
                 internal_error("Invalid field type, only pointer and array is allowed (%d)",
                 localmem.front().get_locus_str().c_str());
             }
 
-            if (is_only_pointer)
-            {
-                elem_type = field_type.points_to();
-                basic_elem_type = field_type.basic_type();
-                basic_elem_type_name = basic_elem_type.print_declarator();
-            }
-            else if (type.is_array())
-            {
-                elem_type = type.array_element();
-                basic_elem_type = type.basic_type();
-                basic_elem_type_name = basic_elem_type.print_declarator();
-            }
-            else
-            {
-                internal_error("Invalid type for input/output, only pointer and array is allowed (%d)",
-                localmem.front().get_locus_str().c_str());
-            }
-
-            std::string par_simple_decl = elem_type.get_simple_declaration(scope, field_name);
-            TL::Type basic_par_type = field_type.basic_type();
-            std::string basic_par_type_decl = basic_par_type.print_declarator();
-
-#if _DEBUG_AUTOMATIC_COMPILER_
-            std::cerr << "BASIC PAR TYPE DECL :" << basic_par_type_decl << std::endl;
-#endif
-
-            std::string par_decl = field_type.get_declaration(scope, field_name);
-            TL::Type field_type_points_to;
-
-            if (field_type.is_pointer())
-            {
-                field_type_points_to = field_type.points_to();
-            }
-            else if (field_type.is_pointer_to_class())
-            {
-                field_type_points_to = field_type.pointed_class();
-            }
-
-            std::string pointed_to_string = field_type_points_to.print_declarator();
-            std::string pointed_to_string_simple = field_type_points_to.get_simple_declaration(scope, field_name);
-            position = par_simple_decl.rfind(field_name);
-            std::string type_par_decl = par_simple_decl.substr(0, position);
-            std::string type_basic_par_decl = get_element_type_pointer_to(field_type, field_name, scope);
-
             int param_id = find_parameter_position(param_list, param_symbol);
             function_parameters_passed[param_id] = 1;
             n_params_id++;
 
+            Source n_elements_src;
+            n_elements_src = get_copy_elements_all_dimensions_src(localmem_type);
+
+            const std::string field_type_decl = get_element_type_pointer_to(field_type, field_name, scope);
+            const std::string field_port_name = STR_PREFIX + field_name;
+
             local_decls
-                << "\tstatic " << type_basic_par_decl << " " << field_name << dimensions_array << ";"
+                << "\tstatic " << localmem_type.get_simple_declaration(scope, field_name) << ";"
             ;
 
-            const std::string field_port_name = STR_PREFIX + field_name;
-            const std::string field_name_param = type_basic_par_decl + " *" + field_port_name;
+            params_src.append_with_separator(field_type.get_simple_declaration(scope, field_port_name), ", ");
 
-            if (copies.empty() || copies.front().directionality == OutlineDataItem::COPY_INOUT)
-            {
-
-                const std::string field_port_name_i = field_port_name + "_i";
-                const std::string field_port_name_o = field_port_name + "_o";
-                const std::string field_name_param_i = field_name_param + "_i";
-                const std::string field_name_param_o = field_name_param + "_o";
-
-                params_src.append_with_separator(field_name_param_i, ", ");
-                params_src.append_with_separator(field_name_param_o, ", ");
-
-                pragmas_src
-                    << "#pragma HLS INTERFACE m_axi port=" << field_port_name_i << "\n"
-                    << "#pragma HLS INTERFACE m_axi port=" << field_port_name_o << "\n"
-                ;
-
-                in_copies_aux
-                    << "\t\t\tcase " << param_id << ":\n"
-                    << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
-                    << "\t\t\t\tif(__copyFlags[4])\n"
-                    << "\t\t\t\t\tmemcpy(" << field_name << ", (const " << type_basic_par_decl << " *)(" << field_port_name_i << " + __param/sizeof(" << type_basic_par_decl << ")), " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
-                    << "\t\t\t\t__copyFlags_id_out[" << n_params_out << "] = __copyFlags_id;"
-                    << "\t\t\t\t__param_out[" << n_params_out << "] = __param;"
-                ;
-
-                out_copies_aux
-                    << "\t\t\tcase " << param_id << ":\n"
-                    << "\t\t\t\tif(__copyFlags[5])\n"
-                    << "\t\t\t\t\tmemcpy(" << field_port_name_o <<  " + __param/sizeof(" << type_basic_par_decl << "), (const " << type_basic_par_decl << " *)" << field_name << ", " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
-                    << "\t\t\t\tbreak;"
-                ;
-
-                n_params_in++;
-                n_params_out++;
-            }
-            else if (copies.front().directionality == OutlineDataItem::COPY_IN)
-            {
-                params_src.append_with_separator(field_name_param, ", ");
-
-                pragmas_src
-                    << "#pragma HLS INTERFACE m_axi port=" << field_port_name << "\n"
-                ;
-
-                in_copies_aux
-                    << "\t\t\tcase " << param_id << ":\n"
-                    << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
-                    << "\t\t\t\tif(__copyFlags[4])\n"
-                    << "\t\t\t\t\tmemcpy(" << field_name << ", (const " << type_basic_par_decl << " *)(" << field_port_name << " + __param/sizeof(" << type_basic_par_decl << ")), " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
-                ;
-
-                n_params_in++;
-            }
-            else if (copies.front().directionality == OutlineDataItem::COPY_OUT)
-            {
-                params_src.append_with_separator(field_name_param, ", ");
-
-                pragmas_src
-                    << "#pragma HLS INTERFACE m_axi port=" << field_port_name << "\n"
-                ;
-
-                in_copies_aux
-                    << "\t\t\tcase " << param_id << ":\n"
-                    << "\t\t\t\t__copyFlags_id_out[" << n_params_out << "] = __copyFlags_id;"
-                    << "\t\t\t\t__param_out[" << n_params_out << "] = " << STR_INPUTSTREAM << ".read().data;"
-                ;
-
-                out_copies_aux
-                    << "\t\t\tcase " << param_id << ":\n"
-                    << "\t\t\t\tif(__copyFlags[5])\n"
-                    << "\t\t\t\t\tmemcpy( " << field_port_name <<  " + __param/sizeof(" << type_basic_par_decl << "), (const " << type_basic_par_decl << " *)" << field_name << ", " << n_elements_src << "*sizeof(" << type_basic_par_decl << "));"
-                    << "\t\t\t\tbreak;"
-                ;
-
-                n_params_out++;
-            }
-            else {
-                internal_error("Copy type not valid", 0);
-            }
+            pragmas_src
+                << "#pragma HLS INTERFACE m_axi port=" << field_port_name << "\n"
+            ;
 
             in_copies_aux
+                << "\t\t\tcase " << param_id << ":\n"
+                << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
+                << "\t\t\t\tif(__copyFlags[4])\n"
+                << "\t\t\t\t\tmemcpy(" << field_name << ", (const " << field_type_decl << " *)(" << field_port_name << " + __param/sizeof(" << field_type_decl << ")), " << n_elements_src << "*sizeof(" << field_type_decl << "));"
+                << "\t\t\t\t__copyFlags_id_out[" << n_params_out << "] = __copyFlags_id;"
+                << "\t\t\t\t__param_out[" << n_params_out << "] = __param;"
                 << "\t\t\t\tbreak;"
             ;
+
+            out_copies_aux
+                << "\t\t\tcase " << param_id << ":\n"
+                << "\t\t\t\tif(__copyFlags[5])\n"
+                << "\t\t\t\t\tmemcpy(" << field_port_name <<  " + __param/sizeof(" << field_type_decl << "), (const " << field_type_decl << " *)" << field_name << ", " << n_elements_src << "*sizeof(" << field_type_decl << "));"
+                << "\t\t\t\tbreak;"
+            ;
+
+            n_params_in++;
+            n_params_out++;
         }
         else
         {
