@@ -1312,22 +1312,21 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
         if (!localmem.empty() && !creates_children_tasks)
         {
-            TL::Symbol symbol_copy = (*it)->get_field_symbol();
-            Nodecl::NodeclBase expr_base = (*it)->get_base_address_expression();
-
             if (copies.size() > 1 || localmem.size() > 1)
             {
                 internal_error("Only one copy/localmem per object (in/out/inout) is allowed (%s)",
                 localmem.front().get_locus_str().c_str());
             }
 
-            const Type& field_type = (*it)->get_field_type().no_ref();
             const Type &type = localmem.front().get_type().no_ref();
-            std::string field_simple_decl = field_type.get_simple_declaration(scope, field_name);
-
-#if _DEBUG_AUTOMATIC_COMPILER_
-            std::cerr << "filed type declaration: " << field_simple_decl << std::endl;
-#endif
+            if (type.is_array() && type.array_is_vla())
+            {
+                //NOTE: VLAs cannot be cached in the wrapper as we don't know the array size yet
+                std::cerr << localmem.front().get_locus_str() << ": warning: disabling localmem of"
+                    << " FPGA accelerator for argument '" << field_name << "' (size not know at compile time)"
+                    << std::endl;
+                continue;
+            }
 
             std::string type_simple_decl = type.get_simple_declaration(scope, field_name);
             size_t position = type_simple_decl.find("[");
@@ -1345,6 +1344,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             Type basic_elem_type;
             std::string basic_elem_type_name;
 
+            const Type& field_type = (*it)->get_field_type().no_ref();
             if (field_type.is_pointer() || field_type.is_array() || field_type.array_is_region())
             {
                 n_elements_src = get_copy_elements_all_dimensions_src(type, field_type, is_only_pointer);
