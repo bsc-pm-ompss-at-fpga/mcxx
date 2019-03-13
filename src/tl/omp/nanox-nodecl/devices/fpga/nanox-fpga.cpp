@@ -1609,7 +1609,7 @@ ObjectList<Source> DeviceFPGA::get_called_functions_sources(const TL::ObjectList
                         TL::ObjectList<Nodecl::NodeclBase> called_function_code_list;
                         called_function_code_list.insert(code);
 
-                        result = get_called_functions_sources(called_function_code_list);
+                        result.insert(get_called_functions_sources(called_function_code_list));
 
                         Source called_function_code_src;
                         called_function_code_src << code.prettyprint();
