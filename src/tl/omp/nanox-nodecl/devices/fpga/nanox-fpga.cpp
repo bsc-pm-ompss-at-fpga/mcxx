@@ -1369,6 +1369,15 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         if (param_type.is_pointer() || param_type.is_array())
         {
             TL::Type elem_type = param_type.is_pointer() ? param_type.points_to() : param_type.array_element();
+            if (elem_type.is_array())
+            {
+                //NOTE: Vivado HLS is not properly handling pointers to multi-dimensional arrays
+                error_printf_at(it->get_locus(),
+                    "Multi-dimensional arrays are only supported when cached in the wrapper."
+                    " Change the parameter type or enable the localmem for '%s' parameter\n",
+                    param_name.c_str());
+            }
+
             const std::string casting_pointer = unql_type.get_declaration(scope, "");
             const std::string casting_sizeof = elem_type.get_declaration(scope, "");
             const std::string port_name = STR_PREFIX + param_name;
