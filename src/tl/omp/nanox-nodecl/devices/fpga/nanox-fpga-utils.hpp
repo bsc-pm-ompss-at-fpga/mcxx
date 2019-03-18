@@ -355,7 +355,7 @@ Source get_nanos_create_wd_source()
         //arg words: [ arg_flags (8b) | arg_value (56b) ]
         << "    tmp = argsFlags[idx];"
         << "    tmp = (tmp << 56) | args[idx];"
-        << "    write_outstream(tmp, DEST_ID, (idx == (numArgs - 1))&(numCopies == 0));"
+        << "    write_outstream(tmp, DEST_ID, (idx == (numArgs - 1))&(DEST_ID == TM_SCHED));"
         << "  }"
         << "  if (DEST_ID != TM_SCHED) {"
         << "    for (uint16_t idx = 0; idx < numCopies; ++idx) {"
