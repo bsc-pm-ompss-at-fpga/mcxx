@@ -214,7 +214,13 @@ void DeviceFPGA::create_outline(
 
                 Source outline_src;
 
-                //1st: Definition of called functions
+                //1st: Wrapper declarattions and nanos API functions
+                outline_src
+                    << wrapper_decls
+                    << "\n"
+                ;
+
+                //2st: Definition of called functions
                 for (TL::ObjectList<Source>::iterator it = called_functions_sources_list.begin();
                         it != called_functions_sources_list.end();
                         it++)
@@ -222,16 +228,15 @@ void DeviceFPGA::create_outline(
                     outline_src << *it;
                 }
 
-                //Then: wrapper declarations, function code and wrapper definition
+                //3st: User function code
+                //4th: Wrapper code
                 std::string const fun_code_str = fun_code.prettyprint();
                 outline_src
-                    << wrapper_decls
                     << "\n"
                     << fun_code_str
                     << "\n"
                     << wrapper_code
                 ;
-
 
                 FpgaOutlineInfo to_outline_info;
                 to_outline_info._type = acc_type;
