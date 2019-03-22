@@ -33,25 +33,6 @@
 #include "tl-devices.hpp"
 #include "tl-source.hpp"
 
-#define STR_OUTPUTSTREAM       "outStream"
-#define STR_INPUTSTREAM        "inStream"
-#define STR_INSTRDATA          "mcxx_data"
-#define STR_INSTRCOUNTER       "__mcxx_instrCounter"
-#define STR_INSTRBUFFER        "__mcxx_instrBuffer"
-#define STR_PREFIX             "mcxx_"
-#define STR_REAL_PARAM_PREFIX  "__mcxx_param_"
-#define STR_INSTRSLOTS         "__mcxx_instrSlots"
-#define STR_INSTRCURRENTSLOT   "__mcxx_instrCurrentSlot"
-#define STR_INSTROVERFLOW      "__mcxx_instrNumOverflow"
-#define STR_EVENTTYPE          "__mcxx_eventType"
-#define STR_EVENTSTRUCT        "__mcxx_event_t"
-#define STR_WRITEEVENT         "__mcxx_writeInstrEvent"
-#define STR_INSTREND           "__mcxx_instrEnd"
-
-//Default events
-#define EV_DEVCOPYIN            77
-#define EV_DEVCOPYOUT           78
-#define EV_DEVEXEC              79
 
 
 //#define _DEBUG_AUTOMATIC_COMPILER_ 1

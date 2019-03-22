@@ -50,6 +50,26 @@
 #include "tl-symbol-utils.hpp"
 #include "tl-counters.hpp"
 
+#define STR_OUTPUTSTREAM       "outStream"
+#define STR_INPUTSTREAM        "inStream"
+#define STR_INSTRCOUNTER       "mcxx_instr_counter"
+#define STR_INSTRBUFFER        "mcxx_instr_buffer"
+#define STR_INSTRBUFFER_OFFSET "__mcxx_instrBuffer"
+#define STR_PREFIX             "mcxx_"
+#define STR_REAL_PARAM_PREFIX  "__mcxx_param_"
+#define STR_INSTRSLOTS         "__mcxx_instrSlots"
+#define STR_INSTRCURRENTSLOT   "__mcxx_instrCurrentSlot"
+#define STR_INSTROVERFLOW      "__mcxx_instrNumOverflow"
+#define STR_EVENTTYPE          "__mcxx_eventType"
+#define STR_EVENTSTRUCT        "__mcxx_event_t"
+#define STR_WRITEEVENT         "__mcxx_writeInstrEvent"
+#define STR_INSTREND           "__mcxx_instrEnd"
+
+//Default events
+#define EV_DEVCOPYIN            77
+#define EV_DEVCOPYOUT           78
+#define EV_DEVEXEC              79
+
 using namespace TL;
 using namespace TL::Nanox;
 
@@ -1054,7 +1074,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         << "typedef uint64_t nanos_wd_t;"
         << "extern const uint8_t " << STR_ACCID << ";"
         << "static nanos_wd_t " << STR_TASKID << ";"
-        << "static uint64_t " << STR_INSTRCOUNTER << ", " << STR_INSTRBUFFER << ";"
+        << "static uint64_t " << STR_INSTRBUFFER_OFFSET << ";"
         << "static unsigned int " << STR_INSTRSLOTS << ", " << STR_INSTRCURRENTSLOT << ";"
         << "static int " << STR_INSTROVERFLOW << ";"
     ;
@@ -1090,7 +1110,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     {
         //instrumentation declarations/definitions
         var_decls_src
-            << "extern volatile counter_t * " << STR_INSTRDATA << ";"
+            << "extern volatile counter_t * " << STR_INSTRCOUNTER << ";"
+            << "extern volatile counter_t * " << STR_INSTRBUFFER << ";"
 
             << "typedef struct {"
             << "    uint64_t eventId;"
@@ -1099,10 +1120,10 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             << "}" << STR_EVENTSTRUCT << ";"
 
             << "typedef enum {"
-            STR_PREFIX << "_EVENT_TYPE_BURST_OPEN = 0,\n"
-            STR_PREFIX << "_EVENT_TYPE_BURST_CLOSE = 1,\n"
-            STR_PREFIX << "_EVENT_TYPE_POINT = 2,\n"
-            STR_PREFIX << "_EVENT_TYPE_LAST = 0XFFFFFFFF\n"
+            << STR_PREFIX << "_EVENT_TYPE_BURST_OPEN = 0,\n"
+            << STR_PREFIX << "_EVENT_TYPE_BURST_CLOSE = 1,\n"
+            << STR_PREFIX << "_EVENT_TYPE_POINT = 2,\n"
+            << STR_PREFIX << "_EVENT_TYPE_LAST = 0XFFFFFFFF\n"
             << "} " << STR_EVENTTYPE << ";"
             << "#define " << STR_PREFIX << "_EVENT_VAL_OK   0\n"
             << "#define " << STR_PREFIX << "_EVENT_VAL_OVERFLOW   0xFFFFFFFF\n"
@@ -1111,15 +1132,15 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         //NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
         aux_decls_src
             << "counter_t get_time() {"
-            << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRDATA << "\n"
+            << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRCOUNTER << "\n"
             << "#pragma HLS inline off\n"
-            << "return *(" STR_INSTRDATA " + ( " STR_INSTRCOUNTER "/sizeof(counter_t)));"
+            << "return *(" << STR_INSTRCOUNTER << ");"
             << "}"
             //write events
 
             << "void " << STR_WRITEEVENT << "(uint32_t event, uint64_t val, uint32_t type) {"
             << "#pragma HLS inline off\n"
-            << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRDATA << "\n"
+            << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRBUFFER << "\n"
 
             << "\t" << STR_EVENTSTRUCT << " fpga_event;"
             //Save last slot for end status
@@ -1128,15 +1149,16 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             << "\t\tfpga_event.eventId = ((uint64_t)type<<32) | event;"
             << "\t\tfpga_event.value = val;"
             << "\t\tfpga_event.timestamp = get_time();"
-            << "\t\tmemcpy((void*)(mcxx_data + ((" << STR_INSTRBUFFER " + " << STR_INSTRCURRENTSLOT
-            << " * " "sizeof(" << STR_EVENTSTRUCT << "))/sizeof(uint64_t))),"
+            << "\t\tmemcpy((void *)(" << STR_INSTRBUFFER << " + ((" << STR_INSTRBUFFER_OFFSET << " + " << STR_INSTRCURRENTSLOT
+            << " * sizeof(" << STR_EVENTSTRUCT << "))/sizeof(uint64_t))),"
             << "&fpga_event, sizeof(" << STR_EVENTSTRUCT << "));"
             << STR_INSTRCURRENTSLOT << "++;"
-            << "\t} else if (" << STR_INSTRCURRENTSLOT << " == " STR_INSTRSLOTS "  -1) {" //last event overflow
+            << "\t} else if (" << STR_INSTRCURRENTSLOT << " == " << STR_INSTRSLOTS << "  -1) {" //last event overflow
             << "\t\t" << STR_INSTROVERFLOW << "++;"   //First time overflow=1
             << "\t\tfpga_event.eventId = ((uint64_t) " << STR_PREFIX << "_EVENT_TYPE_LAST << 32) | " << STR_INSTROVERFLOW << ";"
             << "\t\tfpga_event.value = " << STR_INSTROVERFLOW << ";"
-            << "\t\tmemcpy((void *)(" << STR_INSTRDATA " + ((" << STR_INSTRBUFFER << " + " << STR_INSTRCURRENTSLOT << " * sizeof(" << STR_EVENTSTRUCT << "))/sizeof(uint64_t))),"
+            << "\t\tmemcpy((void *)(" << STR_INSTRBUFFER << " + ((" << STR_INSTRBUFFER_OFFSET << " + " << STR_INSTRCURRENTSLOT
+            << " * sizeof(" << STR_EVENTSTRUCT << "))/sizeof(uint64_t))),"
             << "&fpga_event, sizeof(" << STR_EVENTSTRUCT << "));"
             << "\t}"
             << "}"
@@ -1165,7 +1187,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         ;
 
         pragmas_src
-            << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRDATA << "\n"
+            << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRCOUNTER << "\n"
+            << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRBUFFER << "\n"
         ;
     }
     else
@@ -1507,9 +1530,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
     generic_initial_code
         << "\t" << STR_TASKID << " = " << STR_INPUTSTREAM << ".read().data;"
-        << "\t" << STR_INSTRCOUNTER << " = " << STR_INPUTSTREAM << ".read().data;"
+        << "\t" STR_INPUTSTREAM << ".read();"
         << "\t__bufferData = " << STR_INPUTSTREAM << ".read().data;"
-        //<< "\t" << STR_INSTRBUFFER << " = " << STR_INPUTSTREAM << ".read().data;"
         << "\t__accHeader = " << STR_INPUTSTREAM << ".read().data;"
         << "\t__comp_needed = __accHeader;"
         << "\t__destID = __accHeader>>32;"
@@ -1518,7 +1540,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     if (instrumentation_enabled())
     {
         generic_initial_code
-            << "\t" << STR_INSTRBUFFER << " = __bufferData & ((1ULL<<48)-1);" //48 lower bits
+            << "\t" << STR_INSTRBUFFER_OFFSET << " = __bufferData & ((1ULL<<48)-1);" //48 lower bits
             << "\t" << STR_INSTRSLOTS << " =__bufferData >> 48;"
             << "\t" << STR_INSTROVERFLOW << " = 0;"
             << "\t" << STR_INSTRCURRENTSLOT << " = 0;"
