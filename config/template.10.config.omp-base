@@ -13,6 +13,12 @@ linker_name = @GCC@
 {cuda} preprocessor_options = -D__CUDABE__ -D__CUDA_LIBDEVICE__ -I${CUDA_HOME}/include
 {cuda} linker_options = -D__CUDABE__ -D__CUDA_LIBDEVICE__ -L${CUDA_HOME}/lib64 -lcudart
 
+
+# Transparent Checkpoint Mechanism
+{checkpoint} pragma_prefix = chk
+{checkpoint} compiler_phase = libtlcheckpoint-base.so
+{checkpoint, !@TCL_GATE@} error = "Flag --checkpoint passed but Mercurium was built without support for TCL"
+
 # OpenMP & OmpSs (runtime independent)
 {openmp,omp-dry-run} options = --variable=omp_dry_run:1
 {openmp} compiler_phase = libtlomp-base.so
@@ -102,6 +108,10 @@ linker_name = @GCC@
 {openmp, simd} compiler_phase = libtlomp-simd.so
 {openmp, simd} compiler_phase = libtlvector-lowering.so
 
+# Transparent Checkpoint Mechanism
+{@TCL_GATE@,checkpoint} preprocessor_options = -I@TCL_INCLUDES@ -include tcl.h
+{@TCL_GATE@,checkpoint} compiler_phase = libtlcheckpoint-lowering.so
+{@TCL_GATE@,checkpoint} linker_options = -L@TCL_LIB@/performance -ltcl
 
 # Nanos++
 {@NANOX_GATE@,openmp} pragma_prefix = nanos
@@ -124,6 +134,10 @@ linker_name = @GCC@
 {@NANOS6_GATE@,ompss-2,!do-not-lower-omp} compiler_phase = libtlnanos6-lowering.so
 
 
+# dlb
+{dlb} fortran_preprocessor_options = -I${DLB_HOME}/include
+{dlb} preprocessor_options = -I${DLB_HOME}/include
+{dlb} linker_options = -L${DLB_HOME}/lib -ldlb  -Xlinker @RPATH_PARAMETER@ -Xlinker ${DLB_HOME}/lib
 
 
 
@@ -162,11 +176,11 @@ linker_options = -Xlinker --enable-new-dtags
 {@NANOX_GATE@,@ENABLE_OPENCL@,ompss,opencl} linker_options = -lnanox-opencl-api
 
 
-#Nanos 6
-{@NANOS6_GATE@,ompss-2,!?default-nanos6-inc|default-nanos6-inc} preprocessor_options = -I@NANOS6_INCLUDES@ -include nanos6.h
-{@NANOS6_GATE@,ompss-2,!?default-nanos6-lib|default-nanos6-lib} linker_options = @NANOS6_LIB@/nanos6-main-wrapper.o
-{@NANOS6_GATE@,ompss-2,!?default-nanos6-lib|default-nanos6-lib} linker_options = -L@NANOS6_LIB@ -lnanos6 -ldl
-{@NANOS6_GATE@,ompss-2,!?default-nanos6-lib|default-nanos6-lib} linker_options = -Xlinker @RPATH_PARAMETER@ -Xlinker @NANOS6_LIB@
+#Nanos6
+{@NANOS6_GATE@,ompss-2,nanos6-by-env} preprocessor_options = -I${NANOS6_INCLUDE} -include nanos6.h
+{@NANOS6_GATE@,ompss-2,nanos6-by-env} linker_options = ${NANOS6_LIB}/nanos6-main-wrapper.o -L${NANOS6_LIB} -Wl,-z,lazy -lnanos6 -ldl -Xlinker @RPATH_PARAMETER@ -Xlinker ${NANOS6_LIB}
+{@NANOS6_GATE@,ompss-2,!nanos6-by-env,!?default-nanos6-inc|default-nanos6-inc} preprocessor_options = -I@NANOS6_INCLUDES@ -include nanos6.h
+{@NANOS6_GATE@,ompss-2,!nanos6-by-env,!?default-nanos6-lib|default-nanos6-lib} linker_options = @NANOS6_LIB@/nanos6-main-wrapper.o -L@NANOS6_LIB@ -Wl,-z,lazy -lnanos6 -ldl -Xlinker @RPATH_PARAMETER@ -Xlinker @NANOS6_LIB@
 
 # Nanos6 + CUDA
 {@NANOS6_GATE@,ompss-2,cuda} preprocessor_options = -DNANOS6_CUDA
@@ -174,12 +188,8 @@ linker_options = -Xlinker --enable-new-dtags
 # Nanos6 + OpenCL
 {@NANOS6_GATE@,ompss-2,opencl} preprocessor_options = -DNANOS6_OPENCL
 
-# dlb
-{@DLB_GATE@} fortran_preprocessor_options = -I@DLB_INCLUDE@
-{@DLB_GATE@} preprocessor_options = -I@DLB_INCLUDE@
-{@DLB_GATE@} linker_options = -L@DLB_LIB@  -ldlb  -Xlinker @RPATH_PARAMETER@ -Xlinker @DLB_LIB@
-
-
+# TCL
+{@TCL_GATE@, checkpoint} linker_options = -Xlinker @RPATH_PARAMETER@ -Xlinker @TCL_LIB@/performance
 
 [omp-base-ibm : omp-base-common]
 linker_options =
@@ -207,12 +217,6 @@ linker_options = -Wl,--enable-new-dtags
 # Nanos++ & OpenCL
 {@NANOX_GATE@,@ENABLE_OPENCL@,ompss,opencl} preprocessor_options = -qinclude nanos-opencl.h -D_MERCURIUM_OPENCL_
 {@NANOX_GATE@,@ENABLE_OPENCL@,ompss,opencl} linker_options = -lnanox-opencl-api
-
-
-# dlb
-{@DLB_GATE@} fortran_preprocessor_options = -I@DLB_INCLUDE@
-{@DLB_GATE@} preprocessor_options = -I@DLB_INCLUDE@
-{@DLB_GATE@} linker_options = -L@DLB_LIB@ -ldlb -Xlinker @RPATH_PARAMETER@ -Xlinker @DLB_LIB@
 
 
 [omp-base-cray : omp-base-common]
@@ -244,19 +248,12 @@ linker_options = -dynamic -Wl,--enable-new-dtags
 {@NANOX_GATE@,@ENABLE_OPENCL@,ompss,opencl} linker_options = -lnanox-opencl-api
 
 #Nanos 6
-{@NANOS6_GATE@,ompss-2,(!?default-nanos6-inc|default-nanos6-inc),!(gnu|intel)} preprocessor_options = -I@NANOS6_INCLUDES@ -Wp,-include,nanos6.h
-{@NANOS6_GATE@,ompss-2,(!?default-nanos6-inc|default-nanos6-inc), (gnu|intel)} preprocessor_options = -I@NANOS6_INCLUDES@ -include nanos6.h
-{@NANOS6_GATE@,ompss-2,!?default-nanos6-lib|default-nanos6-lib} linker_options = @NANOS6_LIB@/nanos6-main-wrapper.o
-{@NANOS6_GATE@,ompss-2,!?default-nanos6-lib|default-nanos6-lib} linker_options = -L@NANOS6_LIB@ -lnanos6 -ldl
-{@NANOS6_GATE@,ompss-2,!?default-nanos6-lib|default-nanos6-lib} linker_options = -Wl,@RPATH_PARAMETER@,@NANOS6_LIB@
+{@NANOS6_GATE@,ompss-2,!(gnu|intel)} preprocessor_options = -I@NANOS6_INCLUDES@ -Wp,-include,nanos6.h
+{@NANOS6_GATE@,ompss-2,(gnu|intel)} preprocessor_options = -I@NANOS6_INCLUDES@ -include nanos6.h
+{@NANOS6_GATE@,ompss-2} linker_options = @NANOS6_LIB@/nanos6-main-wrapper.o -L@NANOS6_LIB@ -lnanos6 -ldl -Wl,@RPATH_PARAMETER@,@NANOS6_LIB@
 
 # Nanos6 + CUDA
 {@NANOS6_GATE@,ompss-2,cuda} preprocessor_options = -DNANOS6_CUDA
 
 # Nanos6 + OpenCL
 {@NANOS6_GATE@,ompss-2,opencl} preprocessor_options = -DNANOS6_OPENCL
-
-# dlb
-{@DLB_GATE@} fortran_preprocessor_options = -I@DLB_INCLUDE@
-{@DLB_GATE@} preprocessor_options = -I@DLB_INCLUDE@
-{@DLB_GATE@} linker_options = -L@DLB_LIB@ -ldlb -Xlinker @RPATH_PARAMETER@ -Xlinker @DLB_LIB@

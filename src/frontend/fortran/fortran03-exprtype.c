@@ -290,17 +290,6 @@ static void fortran_check_expression_impl_(AST expression, const decl_context_t*
                     const_value_to_str(konst));
         }
     }
-
-    // if (CURRENT_CONFIGURATION->strict_typecheck)
-    // {
-    //     if (nodecl_get_type(*nodecl_output) == NULL
-    //             || nodecl_is_err_expr(*nodecl_output))
-    //     {
-    //         internal_error("%s: invalid expression '%s'\n",
-    //                 ast_location(expression),
-    //                 fortran_prettyprint_in_buffer(expression));
-    //     }
-    // }
 }
 
 static type_t* compute_result_of_intrinsic_operator(AST expr, const decl_context_t*,
@@ -743,6 +732,26 @@ static void check_substring(AST expr, const decl_context_t* decl_context, nodecl
         nodecl_upper = fortran_expression_as_value(nodecl_upper);
     }
 
+    // If lower or upper are invalid
+    if ((nodecl_is_null(nodecl_upper) ||
+                nodecl_is_null(nodecl_lower)) &&
+            // but the subscripted expression is constant
+            nodecl_is_constant(nodecl_subscripted))
+    {
+        char is_null_ended = 0;
+        const char* str =
+            const_value_string_unpack_to_string(nodecl_get_constant(nodecl_subscripted), &is_null_ended);
+
+        // subscripted_expr(:K)
+        if (nodecl_is_null(nodecl_lower))
+            nodecl_lower = const_value_to_nodecl(const_value_get_one(fortran_get_default_integer_type_kind(), 1));
+
+        // subscripted_expr(K:)
+        if (nodecl_is_null(nodecl_upper))
+            nodecl_upper = const_value_to_nodecl(
+                    const_value_get_integer(strlen(str), fortran_get_default_integer_type_kind(), 1));
+    }
+
     type_t* string_type = fortran_get_rank0_type(lhs_type);
     ERROR_CONDITION(!fortran_is_character_type(string_type), "Bad string type", 0);
 
@@ -772,7 +781,35 @@ static void check_substring(AST expr, const decl_context_t* decl_context, nodecl
                 nodecl_make_range(nodecl_lower, nodecl_upper, nodecl_stride, fortran_get_default_integer_type(), ast_get_locus(expr))),
             data_type,
             ast_get_locus(expr));
-    // FIXME - We should compute a constant
+
+    if (nodecl_is_constant(nodecl_subscripted) &&
+            nodecl_is_constant(nodecl_lower) &&
+            nodecl_is_constant(nodecl_upper))
+    {
+        uint32_t val_lower = const_value_cast_to_4(nodecl_get_constant(nodecl_lower)) - 1;
+        uint32_t val_upper = const_value_cast_to_4(nodecl_get_constant(nodecl_upper)) - 1;
+
+        char is_null_ended = 0;
+        const char* str = const_value_string_unpack_to_string(nodecl_get_constant(nodecl_subscripted), &is_null_ended);
+
+        const_value_t* cvalue_substring = 0;
+        if ((strlen(str) < val_upper) || // We are out of bounds
+                (val_lower > val_upper)) // or val_lower > val_upper
+        {
+            cvalue_substring = const_value_make_string("", 0);
+        }
+        else
+        {
+            char* new_str = xstrdup(str);
+            new_str[val_upper+1] = '\0';
+
+            char *adjusted_str = new_str + val_lower;
+
+            cvalue_substring = const_value_make_string(adjusted_str, strlen(adjusted_str));
+            DELETE(new_str);
+        }
+        nodecl_set_constant(*nodecl_output, cvalue_substring);
+    }
 }
 
 
@@ -1762,8 +1799,14 @@ static void check_component_ref_(AST expr,
 
     type_t* rhs_type = component_symbol->type_information;
 
+    // It may be a type bound procedure
+    if (component_symbol->kind == SK_FUNCTION)
+    {
+	rhs_type = symbol_entity_specs_get_alias_to(component_symbol)->type_information;
+    }
+
     nodecl_t nodecl_rhs = nodecl_make_symbol(component_symbol, ast_get_locus(name));
-    type_t* component_type = no_ref(component_symbol->type_information);
+    type_t* component_type = no_ref(rhs_type);
 
     if (ASTKind(rhs) == AST_ARRAY_SUBSCRIPT
             && !fortran_is_array_type(component_type)
@@ -2855,6 +2898,7 @@ static void check_called_symbol_list(
                 symbol->symbol_name);
     }
 
+    scope_entry_t* original_symbol = symbol;
     type_t* return_type = NULL;
     // This is a generic procedure reference
     if (symbol_entity_specs_get_is_builtin(symbol)
@@ -2951,6 +2995,14 @@ static void check_called_symbol_list(
     }
     else
     {
+	if (symbol->kind == SK_FUNCTION
+                && symbol_entity_specs_get_is_member(symbol))
+	{
+            // If this is a type bound procedure, we should check the arguments
+            // with the alias symbol!
+	    symbol = symbol_entity_specs_get_alias_to(symbol);
+	}
+
         type_t* function_type = no_ref(symbol->type_information);
         if (is_pointer_to_function_type(function_type))
         {
@@ -3294,7 +3346,16 @@ static void check_called_symbol_list(
     *num_actual_arguments = (last_argument + 1);
 
     *result_type = return_type;
-    *called_symbol = symbol;
+
+    if (symbol_entity_specs_get_is_member(original_symbol))
+    {
+        // Return the symbol that reprensents the binding name
+        *called_symbol = original_symbol;
+    }
+    else
+    {
+        *called_symbol = symbol;
+    }
 }
 
 static void check_function_call(AST expr, const decl_context_t* decl_context, nodecl_t* nodecl_output)
@@ -3306,18 +3367,58 @@ static void check_function_call(AST expr, const decl_context_t* decl_context, no
     AST actual_arg_spec_list = ASTSon1(expr);
 
     scope_entry_list_t* symbol_list = NULL;
-    check_symbol_of_called_name(procedure_designator, decl_context, &symbol_list, is_call_stmt);
+
+    int num_actual_arguments = 0;
+
+    nodecl_t nodecl_arguments[MCXX_MAX_FUNCTION_CALL_ARGUMENTS];
+    memset(nodecl_arguments, 0, sizeof(nodecl_arguments));
+
+    nodecl_t procedure_designator_nodecl = nodecl_null();
+    if (ASTKind(procedure_designator) == AST_SYMBOL
+	 || ASTKind(procedure_designator) == AST_SYMBOL_LITERAL_REF)
+    {
+	check_symbol_of_called_name(procedure_designator, decl_context, &symbol_list, is_call_stmt);
+    }
+    else
+    {
+	fortran_check_expression_impl_(procedure_designator, decl_context, &procedure_designator_nodecl);
+        ERROR_CONDITION(nodecl_is_null(procedure_designator_nodecl), "Invalid tree\n", 0);
+        ERROR_CONDITION(nodecl_get_kind(procedure_designator_nodecl) != NODECL_CLASS_MEMBER_ACCESS, "Unexpected tree\n", 0);
+
+	scope_entry_t* symbol = fortran_data_ref_get_symbol(procedure_designator_nodecl);
+
+        if (symbol == NULL ||
+                (!is_function_type(symbol->type_information) &&
+                 !is_pointer_to_function_type(symbol->type_information) &&
+                 !(symbol->kind == SK_FUNCTION
+                     && symbol_entity_specs_get_is_member(symbol))))
+        {
+            error_printf_at(ast_get_locus(procedure_designator), "invalid function call\n");
+            *nodecl_output = nodecl_make_err_expr(ast_get_locus(expr));
+            return;
+        }
+
+        if (symbol->kind == SK_FUNCTION &&
+                symbol_entity_specs_get_is_member(symbol) &&
+                !symbol_entity_specs_get_is_static(symbol))
+        {
+            // Calling a non-static member function
+            nodecl_arguments[num_actual_arguments++] =
+                nodecl_make_fortran_actual_argument(
+                        nodecl_get_child(procedure_designator_nodecl, 0),
+                        nodecl_get_locus(procedure_designator_nodecl));
+
+            procedure_designator_nodecl = nodecl_null();
+        }
+
+        symbol_list = entry_list_new(symbol);
+    }
 
     if (symbol_list == NULL)
     {
         *nodecl_output = nodecl_make_err_expr(ast_get_locus(expr));
         return;
     }
-
-    int num_actual_arguments = 0;
-
-    nodecl_t nodecl_arguments[MCXX_MAX_FUNCTION_CALL_ARGUMENTS];
-    memset(nodecl_arguments, 0, sizeof(nodecl_arguments));
 
     // Check arguments
     if (actual_arg_spec_list != NULL)
@@ -3399,7 +3500,6 @@ static void check_function_call(AST expr, const decl_context_t* decl_context, no
         }
     }
 
-
     type_t* result_type = NULL;
     scope_entry_t* called_symbol = NULL;
     scope_entry_t* generic_specifier_symbol = NULL;
@@ -3443,21 +3543,24 @@ static void check_function_call(AST expr, const decl_context_t* decl_context, no
                     ast_get_locus(procedure_designator));
         }
 
-        nodecl_t nodecl_called = 
-                nodecl_make_symbol(called_symbol, ast_get_locus(procedure_designator));
+        if (nodecl_is_null(procedure_designator_nodecl))
+        {
+            procedure_designator_nodecl = nodecl_make_symbol(called_symbol, ast_get_locus(procedure_designator));
+        }
+
         if (called_symbol->kind == SK_VARIABLE)
         {
             if (is_pointer_to_function_type(no_ref(called_symbol->type_information)))
             {
-                nodecl_called = nodecl_make_dereference(
-                        nodecl_called,
+                procedure_designator_nodecl = nodecl_make_dereference(
+                        procedure_designator_nodecl,
                         lvalue_ref(called_symbol->type_information),
                         ast_get_locus(procedure_designator));
             }
         }
 
         *nodecl_output = nodecl_make_function_call(
-                nodecl_called,
+                procedure_designator_nodecl,
                 nodecl_argument_list,
                 nodecl_generic_spec,
                 /* function_form */ nodecl_null(),

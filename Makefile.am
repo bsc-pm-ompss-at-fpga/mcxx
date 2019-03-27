@@ -1949,6 +1949,7 @@ src_tl_omp_lowering_common_libtlomplowering_common_la_CXXFLAGS = \
 
 src_tl_omp_lowering_common_libtlomplowering_common_la_LIBADD = \
     $(tl_libadd) \
+    $(top_builddir)/src/tl/omp/core/libtlomp-core.la \
     $(top_builddir)/src/tl/omp/common/libtlomp-common.la
 
 src_tl_omp_lowering_common_libtlomplowering_common_la_LDFLAGS = $(tl_ldflags)
@@ -2277,17 +2278,20 @@ phases_LTLIBRARIES += src/tl/omp/intel/libtlintel-omp-lowering.la
 
 src_tl_omp_intel_libtlintel_omp_lowering_la_CFLAGS= $(phases_cflags)\
 													-I$(srcdir)/src/tl/omp/core \
+													-I$(srcdir)/src/tl/omp/lowering-common \
 													-I$(srcdir)/src/tl/omp/common \
 													$(END)
 
 src_tl_omp_intel_libtlintel_omp_lowering_la_CXXFLAGS= $(phases_cxxflags) \
 													  -I$(srcdir)/src/tl/omp/core \
+													  -I$(srcdir)/src/tl/omp/lowering-common \
 													  -I$(srcdir)/src/tl/omp/common \
 													  $(END)
 
 src_tl_omp_intel_libtlintel_omp_lowering_la_LIBADD= $(phases_libadd) \
 								src/tl/omp/common/libtlomp-common.la \
 								src/tl/omp/core/libtlomp-core.la \
+								src/tl/omp/lowering-common/libtlomplowering-common.la \
 								$(END)
 
 src_tl_omp_intel_libtlintel_omp_lowering_la_LDFLAGS= $(phases_ldflags)
@@ -2308,6 +2312,13 @@ src_tl_omp_intel_libtlintel_omp_lowering_la_SOURCES=\
 								   src/tl/omp/intel/tl-lower-reductions.cpp \
 								   src/tl/omp/intel/tl-cache-rtl-calls.hpp \
 								   src/tl/omp/intel/tl-cache-rtl-calls.cpp \
+								   src/tl/omp/intel/tl-lower-task-common.hpp \
+								   src/tl/omp/intel/tl-lower-task.cpp \
+								   src/tl/omp/intel/tl-lower-taskwait.cpp \
+								   src/tl/omp/intel/tl-lower-taskgroup.cpp \
+								   src/tl/omp/intel/tl-lower-taskloop.cpp \
+								   src/tl/omp/intel/tl-lower-taskyield.cpp \
+								   src/tl/omp/intel/tl-lower-critical.cpp \
 								   $(END)
 
 endif
@@ -2378,6 +2389,8 @@ src_tl_ompss_nanos6_libtlnanos6_lowering_la_LDFLAGS = $(phases_ldflags)
 src_tl_ompss_nanos6_libtlnanos6_lowering_la_SOURCES = \
     src/tl/ompss/nanos6/tl-nanos6.cpp \
     src/tl/ompss/nanos6/tl-nanos6.hpp \
+    src/tl/ompss/nanos6/tl-nanos6-environment-capture.cpp \
+    src/tl/ompss/nanos6/tl-nanos6-environment-capture.hpp \
     src/tl/ompss/nanos6/tl-nanos6-lower.cpp \
     src/tl/ompss/nanos6/tl-nanos6-lower.hpp \
     src/tl/ompss/nanos6/tl-nanos6-task.cpp \
@@ -2396,6 +2409,7 @@ src_tl_ompss_nanos6_libtlnanos6_lowering_la_SOURCES = \
     src/tl/ompss/nanos6/tl-nanos6-interface.hpp \
     src/tl/ompss/nanos6/tl-nanos6-interface.cpp \
     src/tl/ompss/nanos6/tl-nanos6-release.cpp \
+    src/tl/ompss/nanos6/devices/tl-nanos6-device-manager.hpp \
     src/tl/ompss/nanos6/devices/tl-nanos6-device-factory.hpp \
     src/tl/ompss/nanos6/devices/tl-nanos6-device.hpp \
     src/tl/ompss/nanos6/devices/tl-nanos6-device.cpp \
@@ -2749,6 +2763,57 @@ src_tl_vectorization_vector_lowering_libtlvector_lowering_la_LIBADD = \
     $(top_builddir)/src/tl/vectorization/vector-lowering/neon/libtlvector-lowering-neon.la \
     $(top_builddir)/src/tl/vectorization/vector-lowering/romol/libtlvector-lowering-romol.la \
     $(END)
+endif
+
+if BUILD_TCL
+##########################################################################
+# src/tl/checkpoint/base
+##########################################################################
+
+phases_LTLIBRARIES += src/tl/checkpoint/base/libtlcheckpoint-base.la
+
+src_tl_checkpoint_base_libtlcheckpoint_base_la_CFLAGS = $(phases_cflags)
+
+src_tl_checkpoint_base_libtlcheckpoint_base_la_CXXFLAGS = $(phases_cxxflags)
+
+src_tl_checkpoint_base_libtlcheckpoint_base_la_LDFLAGS = $(phases_ldflags)
+src_tl_checkpoint_base_libtlcheckpoint_base_la_LIBADD = $(phases_libadd)
+
+
+src_tl_checkpoint_base_libtlcheckpoint_base_la_SOURCES = \
+   src/tl/checkpoint/base/tl-checkpoint-base.hpp \
+   src/tl/checkpoint/base/tl-checkpoint-base.cpp \
+   $(END)
+
+##########################################################################
+# src/tl/checkpoint/lowering
+##########################################################################
+
+phases_LTLIBRARIES += src/tl/checkpoint/lowering/libtlcheckpoint-lowering.la
+
+src_tl_checkpoint_lowering_libtlcheckpoint_lowering_la_CFLAGS = $(phases_cflags) \
+    -I$(srcdir)/src/tl/omp/common \
+    -I$(srcdir)/src/tl/omp/lowering-common \
+    $(END)
+
+src_tl_checkpoint_lowering_libtlcheckpoint_lowering_la_CXXFLAGS = $(phases_cxxflags) \
+    -I$(srcdir)/src/tl/omp/common \
+    -I$(srcdir)/src/tl/omp/lowering-common \
+    $(END)
+
+src_tl_checkpoint_lowering_libtlcheckpoint_lowering_la_LDFLAGS = $(phases_ldflags)
+src_tl_checkpoint_lowering_libtlcheckpoint_lowering_la_LIBADD = $(phases_libadd) \
+    src/tl/omp/common/libtlomp-common.la \
+    src/tl/omp/lowering-common/libtlomplowering-common.la \
+    $(END)
+
+
+src_tl_checkpoint_lowering_libtlcheckpoint_lowering_la_SOURCES = \
+   src/tl/checkpoint/lowering/tl-checkpoint-lowering.hpp \
+   src/tl/checkpoint/lowering/tl-checkpoint-lowering.cpp \
+   src/tl/checkpoint/lowering/tl-checkpoint-visitor.hpp \
+   src/tl/checkpoint/lowering/tl-checkpoint-visitor.cpp \
+   $(END)
 endif
 
 
@@ -3312,15 +3377,15 @@ config_edit = \
      -e 's|@INTEL_OMP_INCLUDE[@]|$(INTEL_OMP_INCLUDE)|g' \
      -e 's|@MIC_TOOLS[@]|$(MIC_TOOLS)|g' \
      -e 's|@CORRECTNESS_LOG_DIR[@]|$(CORRECTNESS_LOG_DIR)|g' \
-     -e 's|@DLB_LIB[@]|$(DLB_LIB)|g' \
-     -e 's|@DLB_INCLUDE[@]|$(DLB_INCLUDE)|g' \
-     -e 's|@DLB_GATE[@]|$(DLB_GATE)|g' \
      -e 's|@NANOX_GATE[@]|$(NANOX_GATE)|g' \
      -e 's|@NANOS6_GATE[@]|$(NANOS6_GATE)|g' \
      -e 's|@NANOS6_INCLUDES[@]|$(NANOS6_INCLUDES)|g' \
      -e 's|@NANOS6_LIB[@]|$(NANOS6_LIB)|g' \
      -e 's|@GOMP_OMP_LIB[@]|$(GOMP_OMP_LIB)|g' \
      -e 's|@GFORTRAN_8_OR_GREATER_ARRAY_DESCRIPTORS[@]|$(GFORTRAN_8_OR_GREATER_ARRAY_DESCRIPTORS)|g' \
+     -e 's|@TCL_GATE[@]|$(TCL_GATE)|g' \
+     -e 's|@TCL_INCLUDES[@]|$(TCL_INCLUDES)|g' \
+     -e 's|@TCL_LIB[@]|$(TCL_LIB)|g' \
     $(END)
 
 # Cross compiler profile names
@@ -3395,7 +3460,8 @@ EXTRA_DIST += \
 			scripts/simd/x86/builtins_ia32.cpp \
 			scripts/simd/neon/builtins_neon.cpp \
 			scripts/simd/builtins-common.hpp \
-			$(DEBIAN_EXTRA)
+			$(DEBIAN_EXTRA) \
+			$(LIT_EXTRA) \
 			$(END)
 
 DEBIAN_EXTRA=\
@@ -3404,6 +3470,43 @@ DEBIAN_EXTRA=\
               scripts/debian/rules \
               scripts/debian/control \
               $(END)
+
+LIT_EXTRA=\
+          scripts/lit \
+          scripts/lit/lit.py \
+          scripts/lit/setup.cfg \
+          scripts/lit/PKG-INFO \
+          scripts/lit/setup.py \
+          scripts/lit/MANIFEST.in \
+          scripts/lit/lit \
+          scripts/lit/lit/main.py \
+          scripts/lit/lit/__init__.py \
+          scripts/lit/lit/LitTestCase.py \
+          scripts/lit/lit/ShCommands.py \
+          scripts/lit/lit/BooleanExpression.py \
+          scripts/lit/lit/ProgressBar.py \
+          scripts/lit/lit/discovery.py \
+          scripts/lit/lit/run.py \
+          scripts/lit/lit/builtin_commands \
+          scripts/lit/lit/builtin_commands/cat.py \
+          scripts/lit/lit/builtin_commands/__init__.py \
+          scripts/lit/lit/LitConfig.py \
+          scripts/lit/lit/llvm \
+          scripts/lit/lit/llvm/subst.py \
+          scripts/lit/lit/llvm/__init__.py \
+          scripts/lit/lit/llvm/config.py \
+          scripts/lit/lit/TestingConfig.py \
+          scripts/lit/lit/TestRunner.py \
+          scripts/lit/lit/ShUtil.py \
+          scripts/lit/lit/util.py \
+          scripts/lit/lit/Test.py \
+          scripts/lit/lit/formats \
+          scripts/lit/lit/formats/__init__.py \
+          scripts/lit/lit/formats/googletest.py \
+          scripts/lit/lit/formats/base.py \
+          scripts/lit/lit/formats/shtest.py \
+          scripts/lit/README.txt \
+		  $(END)
 
 #####################################
 # x86 builtins generator for GCC
@@ -3555,7 +3658,7 @@ generate_builtins_neon: scripts/generate_builtins_neon.bin
 # ARM64 NEON builtins generator
 #####################################
 
-LATEST_GXX_NEON_ARM64=aarch64-linux-gnu-g++
+LATEST_GXX_NEON_ARM64=/apps/gcc/7.2.0/bin/aarch64-unknown-linux-gnu-g++
 LATEST_GXX_NEON_ARM64_FLAGS =
 
 # These files are only regenerated manually
@@ -3570,7 +3673,7 @@ scripts/generate_builtins_neon_arm64.bin : $(srcdir)/scripts/simd/neon/builtins_
 		$(srcdir)/scripts/simd/neon/builtins_neon_arm64.cpp
 
 generate_builtins_neon_arm64: scripts/generate_builtins_neon_arm64.bin
-	qemu-aarch64 ./scripts/generate_builtins_neon_arm64.bin > $(top_srcdir)/src/frontend/cxx-gccbuiltins-arm64-neon.h
+	./scripts/generate_builtins_neon_arm64.bin > $(top_srcdir)/src/frontend/cxx-gccbuiltins-arm64-neon.h
 
 #####################################
 

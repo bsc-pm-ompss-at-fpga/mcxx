@@ -1223,30 +1223,32 @@ OPERATOR_TABLE
             emit_floating_constant(value);
         else if (const_value_is_integer(value))
             emit_integer_constant(value, node.get_type());
+        else if (const_value_is_complex(value))
+            emit_complex_constant(value);
         else
             internal_error("Code unreachable", 0);
     }
 
     void FortranBase::visit(const Nodecl::ComplexLiteral& node)
     {
-        bool in_data = state.in_data_value;
-
-        // This ommits parentheses in negative literals
-        state.in_data_value = 1;
-
-        TL::Type t = node.get_type().complex_get_base_type();
-
         const_value_t* complex_cval = node.get_constant();
-
         if (const_value_is_array(complex_cval))
         {
             // COMPLEX :: C(10) = (1,2)
             // (1,2) will be a ComplexLiteral but its constant value will be array, simplify to rank 0
             complex_cval = fortran_const_value_rank_zero(complex_cval);
         }
+        emit_complex_constant(complex_cval);
+    }
 
-        const_value_t* cval_real = const_value_complex_get_real_part(complex_cval);
-        const_value_t* cval_imag = const_value_complex_get_imag_part(complex_cval);
+    void FortranBase::emit_complex_constant(const_value_t* value)
+    {
+        bool in_data = state.in_data_value;
+        // This ommits parentheses in negative literals
+        state.in_data_value = 1;
+
+        const_value_t* cval_real = const_value_complex_get_real_part(value);
+        const_value_t* cval_imag = const_value_complex_get_imag_part(value);
 
         *(file) << "(";
         emit_floating_constant(cval_real);
@@ -1415,6 +1417,8 @@ OPERATOR_TABLE
             emit_floating_constant(value);
         else if (const_value_is_integer(value))
             emit_integer_constant(value, node.get_type());
+        else if (const_value_is_complex(value))
+            emit_complex_constant(value);
         else
             internal_error("Code unreachable", 0);
     }
@@ -1629,9 +1633,10 @@ OPERATOR_TABLE
         *(file) << ")";
     }
 
-    void FortranBase::codegen_function_call_arguments(const Nodecl::NodeclBase arguments, 
+    void FortranBase::codegen_function_call_arguments(const Nodecl::NodeclBase arguments,
             TL::Symbol called_symbol,
-            TL::Type function_type)
+            TL::Type function_type,
+            int ignore_n_first_arguments)
     {
         Nodecl::List l = arguments.as<Nodecl::List>();
 
@@ -1646,6 +1651,10 @@ OPERATOR_TABLE
         bool keywords_are_mandatory = false;
         for (Nodecl::List::iterator it = l.begin(); it != l.end(); it++, pos++)
         {
+            // Skip arguments that have been already handled!
+            if (pos < ignore_n_first_arguments)
+                continue;
+
             if (it->is<Nodecl::FortranNotPresent>())
             {
                 keywords_are_mandatory = true;
@@ -1701,23 +1710,34 @@ OPERATOR_TABLE
         Nodecl::NodeclBase alternate_name = node.get_alternate_name();
 
 
+        if (called.is<Nodecl::Dereference>())
+            called = called.as<Nodecl::Dereference>().get_rhs();
+
+
+        TL::Symbol called_symbol;
         if (called.is<Nodecl::Symbol>())
         {
-            // Do nothing
+            called_symbol = called.get_symbol();
         }
-        else if (called.is<Nodecl::Dereference>())
+        else if (called.is<Nodecl::ClassMemberAccess>())
         {
-            called = called.as<Nodecl::Dereference>().get_rhs();
+            Nodecl::NodeclBase member = called.as<Nodecl::ClassMemberAccess>().get_member();
+            if (!member.is<Nodecl::Symbol>())
+                internal_error("Unexpected node '%s'\n", ast_print_node_type(called.get_kind()));
+
+            called_symbol = member.get_symbol();
         }
         else
         {
             internal_error("Unexpected node '%s'\n", ast_print_node_type(called.get_kind()));
         }
 
-        ERROR_CONDITION(!called.is<Nodecl::Symbol>(), "Unexpected node '%s'", ast_print_node_type(called.get_kind()));
-        ERROR_CONDITION(!called.get_symbol().is_valid(), "Invalid symbol in call", 0);
+        // Type-bound procedures
+        if (called_symbol.is_function()
+                && called_symbol.is_member())
+            called_symbol = called_symbol.get_alias_to();
 
-        TL::Type function_type = called.get_symbol().get_type();
+        TL::Type function_type = called_symbol.get_type();
         if (function_type.is_any_reference())
             function_type = function_type.references_to();
 
@@ -1729,11 +1749,10 @@ OPERATOR_TABLE
 
 
         // Use the alternate_name if it's valid
-        Nodecl::NodeclBase function_name_in_charge = called;
+        TL::Symbol entry = called_symbol;
         if (!alternate_name.is_null())
-            function_name_in_charge = alternate_name;
+            entry = alternate_name.get_symbol();
 
-        TL::Symbol entry = function_name_in_charge.get_symbol();
         ERROR_CONDITION(!entry.is_valid(), "Invalid symbol in call", 0);
 
         bool is_user_defined_assignment = 
@@ -1747,20 +1766,38 @@ OPERATOR_TABLE
 
         if (!infix_notation)
         {
+            Nodecl::List arg_list = arguments.as<Nodecl::List>();
             if (is_call)
             {
                 *(file) << "CALL ";
             }
 
+            int ignore_n_first_arguments = 0;
+            if (entry.is_function()
+                    && entry.is_member()
+                    && !entry.is_static())
+            {
+                // The first argument of non-static member functions represents the object
+                walk(arg_list[ignore_n_first_arguments++]);
+                *(file) << " % ";
+                *(file) << entry.get_name();
+            }
+            else if (called.is<Nodecl::ClassMemberAccess>())
+            {
+                walk(called);
+            }
+            else
+            {
+                *(file) << entry.get_name();
+            }
 
-            *(file) << entry.get_name() << "(";
-            codegen_function_call_arguments(arguments, called.get_symbol(), function_type);
+            *(file) << "(";
+            codegen_function_call_arguments(arguments, called_symbol, function_type, ignore_n_first_arguments);
             *(file) << ")";
         }
         else
         {
             Nodecl::List arg_list = arguments.as<Nodecl::List>();
-
             if (is_user_defined_assignment)
             {
                 ERROR_CONDITION(arg_list.size() != 2, "Invalid user defined assignment", 0);
@@ -3927,6 +3964,20 @@ OPERATOR_TABLE
                 }
             }
 
+            if (entry.is_member()
+                    && entry.is_procedure_declaration_statement())
+            {
+                if (entry.get_type().is_pointer()
+                    && entry.get_type().points_to().is_function())
+                {
+                    attribute_list += ", NOPASS";
+                }
+                else if (entry.get_type().is_pointer_to_member())
+                {
+                    attribute_list += ", PASS";
+                }
+            }
+
             declare_everything_needed_by_the_type(entry.get_type(), entry.get_scope());
 
             if (!entry.get_value().is_null())
@@ -4498,7 +4549,59 @@ OPERATOR_TABLE
             if (members.empty())
             {
                 indent();
-                *(file) << "! DERIVED TYPE WITHOUT MEMBERS\n";
+                *(file) << "! DERIVED TYPE WITHOUT DATA MEMBERS\n";
+            }
+
+            TL::ObjectList<TL::Symbol> member_functions
+                = entry.get_type().get_all_member_functions();
+
+            if (!member_functions.empty())
+            {
+                indent();
+                *(file) << "CONTAINS\n";
+
+                inc_indent();
+
+                for (TL::ObjectList<TL::Symbol>::iterator it = member_functions.begin();
+                     it != member_functions.end(); it++)
+                {
+                    indent();
+                    (*file) << "PROCEDURE, "
+                            << (it->is_static() ? "NOPASS" : "PASS");
+                    if (it->is_final())
+                    {
+                        (*file) << ", NON_OVERRIDEABLE";
+                    }
+                    if (it->is_virtual())
+                    {
+                        (*file) << ", DEFERRED";
+                    }
+                    // FIXME: We may have to be more precise here
+                    if (it->get_access_specifier() == AS_PRIVATE)
+                    {
+                        (*file) << ", PRIVATE";
+                    }
+                    else if (it->get_access_specifier() == AS_PUBLIC)
+                    {
+                        (*file) << ", PUBLIC";
+                    }
+
+                    (*file) << " :: ";
+
+                    if (it->get_name() != it->get_alias_to().get_name())
+                    {
+                        (*file) << it->get_name() << " => "
+                                << it->get_alias_to().get_name();
+                    }
+                    else
+                    {
+                        (*file) << it->get_name();
+                    }
+
+                    (*file) << "\n";
+                }
+
+                dec_indent();
             }
 
             dec_indent();
@@ -6006,6 +6109,10 @@ OPERATOR_TABLE
             {
                 type_specifier = real_name;
             }
+            else if (variant_type_is_fortran_polymorphic(t.get_internal_type()))
+            {
+                type_specifier = "CLASS(" + real_name + ")";
+            }
             else
             {
                 type_specifier = "TYPE(" + real_name + ")";
@@ -6068,6 +6175,13 @@ OPERATOR_TABLE
                     ss << "PROCEDURE(" << return_type_spec << ")";
                 }
             }
+            type_specifier = ss.str();
+        }
+        else if (t.is_pointer_to_member())
+        {
+            // It must be a procedure component. The procedure interface must be valid
+            std::stringstream ss;
+            ss << "PROCEDURE(" << procedure_interface.get_name() << ")";
             type_specifier = ss.str();
         }
         // Special case for char* / const char*

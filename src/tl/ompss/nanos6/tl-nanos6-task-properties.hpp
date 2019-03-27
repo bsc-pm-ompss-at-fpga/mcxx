@@ -30,6 +30,7 @@
 
 #include "tl-nanos6.hpp"
 #include "tl-nanos6-device.hpp"
+#include "tl-nanos6-environment-capture.hpp"
 
 #include "tl-omp-lowering-directive-environment.hpp"
 
@@ -47,14 +48,11 @@ namespace TL { namespace Nanos6 {
     using TL::OpenMP::Lowering::DirectiveEnvironment;
 
     // Forward declaration of TL::Nanos6::Lower
-    class Lower;
+    struct Lower;
 
     struct TaskProperties
     {
         private:
-            typedef std::map<TL::Symbol, TL::Symbol> field_map_t;
-            typedef std::map<TL::Symbol, TL::Symbol> array_descriptor_map_t;
-
             struct TaskloopBounds
             {
                 Nodecl::NodeclBase lower_bound;
@@ -75,11 +73,7 @@ namespace TL { namespace Nanos6 {
             //! Used to store some shared information between tasks
             Lower* _lower_visitor;
 
-            field_map_t _field_map;
-
-            array_descriptor_map_t _array_descriptor_map;
-
-            static const int VLA_OVERALLOCATION_ALIGN = 8;
+            EnvironmentCapture _environment_capture;
 
             //! Used to store the number of reductions within the task (and to identify them)
             unsigned int _num_reductions;
@@ -88,18 +82,6 @@ namespace TL { namespace Nanos6 {
             int _nanos6_task_counter;
 
             TL::Type _info_structure;
-
-            TL::Symbol _dependences_function;
-            TL::Symbol _dependences_function_mangled;
-
-            TL::Symbol _reduction_initializers;
-            TL::Symbol _reduction_combiners;
-
-            TL::Symbol _priority_function;
-            TL::Symbol _priority_function_mangled;
-
-            TL::Symbol _destroy_function;
-            TL::Symbol _destroy_function_mangled;
 
             TaskloopBounds _taskloop_bounds;
 
@@ -114,35 +96,75 @@ namespace TL { namespace Nanos6 {
 
         private:
 
-            TL::Symbol create_outline_function(std::shared_ptr<Device> device);
+            //! Generate the complete function chain for the task region and
+            //! return the outline function symbol
+            TL::Symbol create_task_region_function(std::shared_ptr<Device> device);
+            TL::Symbol create_task_region_unpacked_function(
+                    const std::string &common_name,
+                    const std::shared_ptr<Device> &device);
 
-            void create_dependences_function();
-            void create_dependences_function_c();
+            //! Generate the complete function chain for the constraints and
+            //! return the outline function symbol
+            TL::Symbol create_constraints_function();
+            TL::Symbol create_constraints_unpacked_function(
+                    const std::string& common_name);
 
-            void create_dependences_function_fortran();
+            //! Generate the reduction initializer and combiner functions and
+            //! return the symbols corresponding to the arrays containing them
+            void create_reduction_functions(
+                    TL::Symbol &reduction_initializers,
+                    TL::Symbol &reduction_combiners);
 
-            //! This function creates the unpacked function for the task dependences,
-            //! generates its statements and finally returns the symbol
-            TL::Symbol create_dependences_unpack_function_fortran();
+            //! Generate the complete function chain for the dependences and
+            //! return the outline function symbol. It also computes the total
+            //! number of task dependences (static + dynamic deps)
+            TL::Symbol create_dependences_function(Nodecl::NodeclBase &num_deps);
+            TL::Symbol create_dependences_unpacked_function(
+                    const std::string &common_name,
+                    Nodecl::NodeclBase &num_deps);
 
-            void expand_parameters_with_task_args(
+            //! Generate the complete function chain for the priority and
+            //! return the outline function symbol
+            TL::Symbol create_priority_function();
+            TL::Symbol create_priority_unpacked_function(
+                    const std::string& common_name);
+
+            //! Generate the destroy function (outline only) and return the function symbol
+            TL::Symbol create_destroy_function();
+
+            //! Generate the duplicate function (outline only) and return the function symbol
+            TL::Symbol create_duplicate_function();
+
+            void unpack_datasharing_arguments(
                     const TL::Symbol &arg,
-                    TL::ObjectList<std::string> &parameter_names,
-                    ObjectList<TL::Type> &parameter_types,
+                    // Out
                     Nodecl::List &args,
-                    std::map<std::string, std::pair<TL::Symbol, TL::Symbol>> &name_to_pair_orig_field_map);
-            void create_outline_function_fortran(
-                    const TL::Symbol &unpack_function,
+                    TL::ObjectList<std::string> *parameter_names,
+                    ObjectList<TL::Type> *parameter_types,
+                    std::map<std::string, std::pair<TL::Symbol, TL::Symbol>> *name_to_pair_orig_field_map) const;
+
+            friend class ComputeUnpackedArgumentFromSymbolName;
+
+            void create_forward_function_fortran(
+                    const TL::Symbol &unpacked_function,
+                    const std::string &common_name,
+                    const TL::ObjectList<std::string> &outline_parameter_names,
+                    const TL::Scope &outline_inside_scope,
+                    // Out
+                    Nodecl::NodeclBase &forwarded_function_call);
+
+            void create_outline_function_common(
                     const std::string &common_name,
                     const TL::ObjectList<std::string> &outline_parameter_names,
                     const ObjectList<TL::Type> &outline_parameter_types,
-                    TL::Symbol &outline_function);
-
-            void create_reduction_functions();
-
-            TL::Symbol create_constraints_function() const;
-            void create_priority_function();
-            void create_destroy_function();
+                    //Out
+                    TL::Symbol &outline_function,
+                    Nodecl::NodeclBase &outline_empty_stmt);
+            TL::Symbol create_outline_function(
+                    const TL::Symbol &unpacked_function,
+                    const std::string &common_name,
+                    const TL::ObjectList<std::string> &outline_parameter_names,
+                    const ObjectList<TL::Type> &outline_parameter_types);
 
             TL::Symbol add_field_to_class(TL::Symbol new_class_symbol,
                                           TL::Scope class_scope,
@@ -153,50 +175,12 @@ namespace TL { namespace Nanos6 {
 
             TL::Scope compute_scope_for_environment_structure();
 
-            Nodecl::NodeclBase rewrite_expression_using_args(
-                TL::Symbol args,
-                Nodecl::NodeclBase expr,
-                const TL::ObjectList<TL::Symbol> &local) const;
-
-            TL::Type rewrite_type_using_args(
-                    TL::Symbol arg,
-                    TL::Type t,
-                    const TL::ObjectList<TL::Symbol> &local) const;
-
             void compute_reduction_arguments_register_dependence(
                     TL::DataReference& data_ref,
                     // Out
                     TL::ObjectList<Nodecl::NodeclBase>& arguments_list);
 
-            void register_dependence_c(
-                    TL::DataReference& data_ref,
-                    TL::Symbol handler,
-                    TL::Symbol arg,
-                    TL::Symbol register_fun,
-                    const TL::ObjectList<TL::Symbol>& local_symbols,
-                    // Out
-                    Nodecl::List& register_statements);
-
-            void register_multidependence_c(
-                    TL::DataReference& data_ref,
-                    TL::Symbol handler,
-                    TL::Symbol arg,
-                    TL::Symbol register_fun,
-                    TL::Scope scope,
-                    TL::ObjectList<TL::Symbol> local_symbols,
-                    // Out
-                    Nodecl::List& register_statements);
-
-            void register_multidependence_fortran(
-                    TL::DataReference &data_ref,
-                    TL::Symbol handler,
-                    Nodecl::Utils::SymbolMap &symbol_map,
-                    TL::Symbol register_fun,
-                    TL::Scope scope,
-                    // Out
-                    Nodecl::List &register_statements);
-
-            void register_dependence_fortran(
+            void register_dependence(
                     TL::DataReference &data_ref,
                     TL::Symbol handler,
                     Nodecl::Utils::SymbolMap &symbol_map,
@@ -204,29 +188,15 @@ namespace TL { namespace Nanos6 {
                     // Out
                     Nodecl::List &register_statements);
 
-            void create_static_variable_depending_on_function_context(
-                    const std::string &var_name,
-                    TL::Type var_type,
+            void register_multidependence(
+                    TL::DataReference &data_ref,
+                    TL::Symbol handler,
+                    Nodecl::Utils::SymbolMap &symbol_map,
+                    TL::Symbol register_fun,
+                    TL::Scope scope,
                     // Out
-                    TL::Symbol &new_var) const;
-
-            void create_static_variable_regular_function(
-                    const std::string &var_name,
-                    TL::Type var_type,
-                    // Out
-                    TL::Symbol &new_var) const;
-
-            void create_static_variable_nondependent_function(
-                    const std::string &var_name,
-                    TL::Type var_type,
-                    // Out
-                    TL::Symbol &new_var) const;
-
-            void create_static_variable_dependent_function(
-                    const std::string &var_name,
-                    TL::Type var_type,
-                    // Out
-                    TL::Symbol &new_var) const;
+                    Nodecl::List &register_statements,
+                    Nodecl::NodeclBase &curr_num_deps);
 
             void compute_captured_saved_expressions();
 
@@ -261,11 +231,13 @@ namespace TL { namespace Nanos6 {
                     TL::Symbol &implementations);
 
             //! This function creates a new global static variable that contains all
-            //! the information associated with a task
+            //! the information associated with a task. It also returns an expression
+            //! that represents the total number of depedences
             void create_task_info(
                     TL::Symbol implementations,
                     /* out */
-                    TL::Symbol &task_info);
+                    TL::Symbol &task_info,
+                    Nodecl::NodeclBase &num_deps);
 
             //! This function creates a new class type that represents the arguments structure.
             /*!
@@ -291,8 +263,8 @@ namespace TL { namespace Nanos6 {
                     Nodecl::NodeclBase& task_flags_stmts);
 
             void handle_task_reductions(
-                    TL::Scope& unpacked_inside_scope,
-                    Nodecl::NodeclBase unpacked_empty_stmt,
+                    TL::Scope& unpacked_fun_inside_scope,
+                    Nodecl::NodeclBase unpacked_fun_empty_stmt,
                     Nodecl::Utils::SimpleSymbolMap &symbol_map);
 
             void compute_release_statements(/* out */ Nodecl::List& release_stmts);
@@ -300,8 +272,6 @@ namespace TL { namespace Nanos6 {
             void fortran_add_types(TL::Scope sc);
 
             bool symbol_has_data_sharing_attribute(TL::Symbol sym) const;
-
-            static bool is_saved_expression(Nodecl::NodeclBase n);
 
             bool task_is_loop() const;
 

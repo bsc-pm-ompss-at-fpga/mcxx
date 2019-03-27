@@ -30,6 +30,7 @@
 #include "tl-lowering-visitor.hpp"
 
 #include "tl-omp-lowering-final-stmts-generator.hpp"
+#include "tl-omp-lowering-utils.hpp"
 
 #include "tl-compilerpipeline.hpp"
 #include "codegen-phase.hpp"
@@ -212,9 +213,17 @@ namespace TL { namespace Nanox {
 
         std::cerr << "Nanos++ phase" << std::endl;
 
-        this->load_headers(dto);
-
         Nodecl::NodeclBase n = *std::static_pointer_cast<Nodecl::NodeclBase>(dto["nodecl"]);
+        FORTRAN_LANGUAGE()
+        {
+            Nodecl::NodeclBase api_tree = TL::OpenMP::Lowering::Utils::Fortran::preprocess_api(n);
+
+            Source::source_language = SourceLanguage::C;
+            Nanos::Interface interface;
+            interface.walk(api_tree);
+            Source::source_language = SourceLanguage::Current;
+        }
+
 
         TaskCreationContextVisitor task_context_visitor;
         task_context_visitor.walk(n);

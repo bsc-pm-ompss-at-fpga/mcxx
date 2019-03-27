@@ -1,5 +1,7 @@
 ! <testinfo>
 ! test_generator=config/mercurium-ompss-2
+! test_compile_fail=yes
+! test_compile_faulty=yes
 ! </testinfo>
 
 FUNCTION FOO(A)
@@ -22,6 +24,7 @@ PROGRAM P
         END FUNCTION
     END INTERFACE
 
-    !$OSS TASK INOUT([X(I, J), I = FOO(1), FOO(10), J = I, I + 9])
+    !$OSS TASK INOUT([X(I, J), I = FOO(1), FOO(10), J = I, 10])
+        CONTINUE
     !$OSS END TASK
 END PROGRAM

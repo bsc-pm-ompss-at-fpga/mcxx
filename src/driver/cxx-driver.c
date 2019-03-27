@@ -176,8 +176,6 @@
 "  --variable=<name:value>  Defines variable 'name' with value\n" \
 "                           'value' to be used in the compiler\n" \
 "                           phases pipeline\n" \
-"  --typecheck              Strict typechecking. If an expression\n" \
-"                           cannot be checked compilation fails.\n" \
 "  --disable-gxx-traits     Disables g++ 4.3 type traits. Required\n" \
 "                           if you use g++ 4.2 or previous.\n" \
 "  --env=<env-name>         Sets <env-name> as the specific\n" \
@@ -1378,7 +1376,8 @@ int parse_arguments(int argc, const char* argv[],
                     }
                 case OPTION_TYPECHECK :
                     {
-                        CURRENT_CONFIGURATION->strict_typecheck = 1;
+                        fprintf(stderr, "%s: option --typecheck has been deprecated and it has no effect\n",
+                                    compilation_process.exec_basename);
                         break;
                     }
                 case OPTION_PREPROCESSOR_USES_STDOUT :
@@ -1694,7 +1693,8 @@ int parse_arguments(int argc, const char* argv[],
                     }
                 case OPTION_ISO_C_FLOATN:
                     {
-                        CURRENT_CONFIGURATION->supports_ISO_C_FloatN = 1;
+                        fprintf(stderr, "%s: option --iso-c-FloatN has been deprecated and it has no effect\n",
+                                    compilation_process.exec_basename);
                         break;
                     }
                 default:
