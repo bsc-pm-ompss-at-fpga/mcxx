@@ -1,5 +1,5 @@
 dnl Package definition: name, version, mail
-AC_INIT([mcxx],[2.2.0],[sergi.mateo@bsc.es])
+AC_INIT([mcxx],[2.3.0],[sergi.mateo@bsc.es])
 
 configure_orig_arguments="$@"
 
@@ -78,11 +78,11 @@ AX_CXX_COMPILE_STDCXX_11([noext],[optional])
 dnl Check GNU Bash.
 AC_PATH_PROG([BASH], [bash], [])
 
-dnl Check python 2.4
-AM_PATH_PYTHON2([2.4],, [:])
+dnl Check python 2.7
+AM_PATH_PYTHON2([2.7],, [:])
 
 if test "$PYTHON" = ":"; then
-   AC_MSG_ERROR([Python 2.x not found (note that Python 3 can't be used)])
+   AC_MSG_ERROR([Python 2.7 not found (note that Python 3 can't be used)])
 fi
 
 if test x$BASH = x; then
@@ -230,6 +230,8 @@ then
    )
 fi
 
+
+
 EXTRAE_LIB=$extrae_lib
 EXTRAE_INCLUDE=$extrae_include
 AC_SUBST([EXTRAE_LIB])
@@ -237,6 +239,45 @@ AC_SUBST([EXTRAE_INCLUDE])
 
 AM_CONDITIONAL([EXTRAE_ENABLED], test x$extrae_support = xyes)
 dnl --- End of support for Extrae ------------
+
+
+dnl --- Support for Transparent Checkpoint Library ------------
+tcl_support="no"
+TCL_GATE=":false:"
+AC_ARG_WITH([tcl],
+        AS_HELP_STRING([--with-tcl=dir], [Directory of TCL installation]),
+        [
+         tcl_support="yes"
+         TCL_GATE=":true:"
+         tcl_include="${withval}/include"
+         tcl_lib="${withval}/lib"
+        ]
+)
+
+AC_ARG_WITH([tcl-include],
+        AS_HELP_STRING([--with-tcl-include=dir], [Directory of TCL headers]),
+        [
+         tcl_support="yes"
+         TCL_GATE=":true:"
+         tcl_include="${withval}"
+        ]
+)
+
+AC_ARG_WITH([tcl-lib],
+        AS_HELP_STRING([--with-tcl-lib=dir], [Directory of TCL libraries]),
+        [
+         tcl_support="yes"
+         TCL_GATE=":true:"
+         tcl_lib="${withval}"
+        ]
+)
+
+AM_CONDITIONAL([BUILD_TCL], test x$tcl_support = xyes)
+
+AC_SUBST([TCL_GATE])
+AC_SUBST([TCL_INCLUDES], ["${tcl_include}"])
+AC_SUBST([TCL_LIB],      ["${tcl_lib}"])
+dnl --- End support for Transparent Checkpoint Library ------------
 
 
 dnl -- Fortran tests ---
@@ -1016,16 +1057,16 @@ then
             LDFLAGSBACKUP="$LDFLAGS"
             LDFLAGS="$LDFLAGSBACKUP -L$nanos6_lib"
 
-            AC_CHECK_LIB([nanos6], [nanos_in_final],
+            AC_CHECK_LIB([nanos6], [nanos6_in_final],
                 [break],
                 [
                     if test x${nanos6_mandatory_lib} = xyes; then
                         AC_MSG_ERROR([Nanos6 support was required but 'libnanos6.so' was not found])
                     fi
-                    AS_UNSET(ac_cv_lib_nanos6_nanos_in_final)
+                    AS_UNSET(ac_cv_lib_nanos6_nanos6_in_final)
                     nanos6_lib="${withval}/lib64"
                     LDFLAGS="$LDFLAGSBACKUP -L${nanos6_lib}"
-                    AC_CHECK_LIB([nanos6], [nanos_in_final],
+                    AC_CHECK_LIB([nanos6], [nanos6_in_final],
                         [break],
                         [AC_MSG_ERROR([Nanos6 support was required but 'libnanos6.so' was not found])])
                 ])
@@ -1044,16 +1085,13 @@ AC_SUBST([NANOS6_TESTS_ENABLED],  ["${is_enabled_tl_ompss_nanos6_tests}"])
 
 AC_SUBST([NANOS6_GATE])
 
-if test x$is_enabled_tl_ompss_nanos6 = xyes -o x$is_enabled_tl_omp_nanox = xyes;
+if test x$is_enabled_tl_ompss_nanos6 = xyes \
+     -o x$is_enabled_tl_omp_nanox = xyes \
+     -o x$tcl_support = xyes;
 then
    COMPILER_NAMES="${COMPILER_NAMES} mcc mcxx mf95 mfc"
 fi
 dnl ---------------------- End of Support for OmpSs-2 Nanos6 -----------------------------------------
-
-
-dnl ---------------------- DLB support ---------------------------------
-AX_DLB
-dnl ---------------------- End of DLB support ---------------------------------
 
 
 dnl --------------------- Support for GOMP ---------------------------------
@@ -1212,10 +1250,11 @@ AC_ARG_ENABLE([tl-openmp-profile],
 dnl --------------------- end of OpenMP profile mode ---------------------
 
 
-dnl --------------------- Shared between Nanox and Nanos6 ------------------
+dnl --------------------- Shared between Nanox, Nanos6 and TCL ------------------
 if test x$is_enabled_tl_omp_nanox = xyes \
       -o x$is_enabled_tl_omp_profile = xyes \
-      -o x$is_enabled_tl_ompss_nanos6 = xyes;
+      -o x$is_enabled_tl_ompss_nanos6 = xyes \
+      -o x$tcl_support = xyes;
 then
    INSTALL_CONFIG_FILES="${INSTALL_CONFIG_FILES} 10.config.omp-base 50.config.omp.mercurium"
 
@@ -1675,7 +1714,7 @@ then
           bison_good=no
           AC_MSG_ERROR(${bison_ver}[, this version is known to fail])
        ;;
-       x2.@<:@34567@:>@*|x3.@<:@0@:>@*)
+       x2.@<:@34567@:>@*|x3.@<:@012@:>@*)
           AC_MSG_RESULT([${bison_ver}])
           bison_good=yes
           ;;
@@ -2212,15 +2251,6 @@ then
 fi
 
 echo ""
-echo " * Dynamic Load Balancing (DLB) :" $ax_cv_is_enabled_dlb
-if test x$ax_cv_is_enabled_dlb = xyes;
-then
-  echo ""
-  echo "   DLB includes :" $ax_cv_dlb_include
-  echo "   DLB libraries:" $ax_cv_dlb_lib
-fi
-
-echo ""
 echo " * Intel OpenMP RTL :" $is_enabled_tl_omp_intel
 if test x$is_enabled_tl_omp_intel = xyes;
 then
@@ -2247,6 +2277,14 @@ echo ""
 echo "   Analysis phase enabled:" $is_enabled_analysis
 echo "   Vectorization phase enabled:" $is_enabled_vectorization
 echo ""
+
+if test x$tcl_support = xyes;
+then
+  echo " TCL support enabled"
+  echo "   TCL includes :" $tcl_include
+  echo "   TCL libraries:" $tcl_lib
+  echo ""
+fi
 
 if test x$extrae_support = xyes;
 then

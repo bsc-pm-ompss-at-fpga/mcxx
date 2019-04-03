@@ -1458,25 +1458,6 @@ type {
 #endif
 }
 
-
-"_Float128" {
-    parse_token_text();
-    update_location();
-    if (CURRENT_CONFIGURATION->supports_ISO_C_FloatN)
-    {
-#ifdef HAVE_QUADMATH_H
-        return TOKEN_FLOAT128;
-#else
-        return IDENTIFIER;
-#endif
-    }
-    else
-    {
-        return IDENTIFIER;
-    }
-}
-
-
  /* Special tokens for subparsing */
 @EXPRESSION@ { parse_token_text(); update_location(); return SUBPARSE_EXPRESSION; }
 @EXPRESSION-LIST@ { parse_token_text(); update_location(); return SUBPARSE_EXPRESSION_LIST; }
@@ -1815,9 +1796,8 @@ L?\"{schar}*\"      { parse_token_text(); update_location(); return STRING_LITER
       }
       return ')'; 
     }
-
-[^\[\]{}()\n]* { parse_token_text(); update_location(); return STD_ATTRIBUTE_TEXT; }
-
+[^\"\[\]{}()\n]* { parse_token_text(); update_location(); return STD_ATTRIBUTE_TEXT; }
+\"{schar}*\" { parse_token_text(); update_location(); return STD_ATTRIBUTE_TEXT; }
 }
  /*!endif*/
 

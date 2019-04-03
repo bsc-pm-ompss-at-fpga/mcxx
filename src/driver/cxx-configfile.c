@@ -120,9 +120,14 @@ const char* expand_profile_environment_variables(const char* value)
         {
             found = 1;
 
+            // We are modifying the original char *, so at some point we will have
+            // to restore the original value!
             *next_environment_variable = '\0';
 
             strbuilder_append(str_builder, next_chunk);
+
+            // Restoring original value
+            *next_environment_variable = '$';
 
             // {
             char* opening = next_environment_variable + 1;
@@ -137,6 +142,8 @@ const char* expand_profile_environment_variables(const char* value)
             if (closing == 0 || *closing != '}')
                 fprintf(stderr, "Error reading an environment variable, expecting '}'\n");
 
+            // We are modifying the original char *, so at some point we will have
+            // to restore the original value!
             *closing = '\0';
 
             char *env_variable = getenv(next_chunk);
@@ -144,6 +151,9 @@ const char* expand_profile_environment_variables(const char* value)
                 fprintf(stderr, "warning: undefined environment variable '%s'\n", next_chunk);
             else
                 strbuilder_append(str_builder, env_variable);
+
+            // Restoring original value
+            *closing = '}';
 
             next_chunk = closing + 1;
         }

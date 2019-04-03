@@ -235,6 +235,7 @@ expression : literal
            | NODECL_VECTOR_MASK_AND_1_NOT([lhs] expression, [rhs] expression) type const-value-opt
            | NODECL_VECTOR_MASK_AND_2_NOT([lhs] expression, [rhs] expression) type const-value-opt
            | NODECL_VECTOR_LOOP([peeling] expression, [main_loop] expression, [epilog] expression) type const-value-opt
+           | NODECL_NOEXCEPT_IMPLICIT_TRUE() type const-value
            | c-cxx-expressions
            | fortran-expressions
            | object-init
@@ -746,6 +747,7 @@ omp-deps-info: NODECL_OMP_SS*DEP_CONCURRENT([exprs]expression-seq)
                 | NODECL_OMP_SS*DEP_WEAK_IN([exprs]expression-seq)
                 | NODECL_OMP_SS*DEP_WEAK_OUT([exprs]expression-seq)
                 | NODECL_OMP_SS*DEP_WEAK_INOUT([exprs]expression-seq)
+                | NODECL_OMP_SS*DEP_WEAK_COMMUTATIVE([exprs]expression-seq)
 
 ompss-device-info : NODECL_OMP_SS*TARGET([devices]text-seq, [items]ompss-device-info-clauses-seq-opt)
 
@@ -820,3 +822,22 @@ assert-construct : NODECL_ANALYSIS*ASSERT([statements] statement-seq, [environme
 top-level : assert-directive
 
 assert-directive : NODECL_ANALYSIS*ASSERT_DECL([environment] analysis-exec-environment-seq-opt) symbol
+
+
+##############################
+# CHECKPOINT                 #
+##############################
+
+statement-but-object-init : checkpoint_directives
+
+checkpoint_directives : NODECL_CHECKPOINT*STORE([environment] checkpoint-environment-seq-opt])
+                      | NODECL_CHECKPOINT*LOAD([environment] checkpoint-environment-seq-opt])
+                      | NODECL_CHECKPOINT*INIT([environment] checkpoint-environment-seq-opt])
+                      | NODECL_CHECKPOINT*SHUTDOWN()
+
+checkpoint-environment : NODECL_CHECKPOINT*DATA([exprs] expression-seq)
+                       | NODECL_CHECKPOINT*LEVEL([expr] expression)
+                       | NODECL_CHECKPOINT*ID([expr] expression)
+                       | NODECL_CHECKPOINT*COMM([expr] expression)
+                       | NODECL_CHECKPOINT*IF([expr] expression)
+                       | NODECL_CHECKPOINT*KIND([expr] expression)

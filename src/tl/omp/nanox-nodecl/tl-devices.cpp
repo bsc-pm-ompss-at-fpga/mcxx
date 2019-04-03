@@ -555,6 +555,37 @@ namespace TL { namespace Nanox {
                 final_statements);
     }
 
+    namespace {
+        TL::Symbol duplicate_function_symbol(TL::Symbol original_fun, TL::Scope function_context)
+        {
+            ERROR_CONDITION(!IS_FORTRAN_LANGUAGE, "Unexpected language", 0);
+
+            TL::Symbol new_fun = function_context.new_symbol(original_fun.get_name());
+            new_fun.get_internal_symbol()->kind = SK_FUNCTION;
+            new_fun.get_internal_symbol()->type_information = original_fun.get_type().get_internal_type();
+            symbol_entity_specs_set_is_user_declared(new_fun.get_internal_symbol(), 1);
+            new_fun.get_internal_symbol()->defined = 1;
+
+            TL::ObjectList<TL::Symbol> params = original_fun.get_related_symbols();
+            for (ObjectList<TL::Symbol>::iterator it = params.begin();
+                    it != params.end();
+                    it++)
+            {
+                ERROR_CONDITION(type_is_runtime_sized(it->get_type().get_internal_type()),"Unsupported case", 0);
+
+                scope_entry_t* new_param = function_context.new_symbol(it->get_name()).get_internal_symbol();
+                new_param->kind = it->get_internal_symbol()->kind;
+                new_param->type_information = it->get_type().get_internal_type();
+
+                symbol_entity_specs_set_is_user_declared(new_param, 1);
+                new_param->defined = 1;
+
+                symbol_entity_specs_add_related_symbols(new_fun.get_internal_symbol(), new_param);
+            }
+
+            return new_fun;
+        }
+    }
     TL::Symbol DeviceProvider::new_function_symbol_unpacked(
             TL::Symbol current_function,
             const std::string& function_name,
@@ -675,13 +706,22 @@ namespace TL { namespace Nanox {
                 case OutlineDataItem::SHARING_CAPTURE:
                 case OutlineDataItem::SHARING_CAPTURE_ADDRESS:
                     {
-                        scope_entry_t* private_sym = ::new_symbol(function_context, function_context->current_scope,
-                                uniquestr(name.c_str()));
+                        scope_entry_t* private_sym = NULL;
+                        if (IS_FORTRAN_LANGUAGE
+                                && is_function_type(no_ref((*it)->get_in_outline_type().get_internal_type())))
+                        {
+                            private_sym = duplicate_function_symbol((*it)->get_symbol(), function_context).get_internal_symbol();
+                        }
+                        else
+                        {
+                            private_sym = ::new_symbol(function_context, function_context->current_scope,
+                                    uniquestr(name.c_str()));
 
-                        private_sym->kind = SK_VARIABLE;
-                        private_sym->type_information = (*it)->get_in_outline_type().get_internal_type();
-                        symbol_entity_specs_set_is_user_declared(private_sym, 1);
-                        private_sym->defined = 1;
+                            private_sym->kind = SK_VARIABLE;
+                            private_sym->type_information = (*it)->get_in_outline_type().get_internal_type();
+                            symbol_entity_specs_set_is_user_declared(private_sym, 1);
+                            private_sym->defined = 1;
+                        }
 
                         if (sym.is_valid())
                         {
@@ -693,8 +733,6 @@ namespace TL { namespace Nanox {
 
                             symbol_map->add_map(sym, private_sym);
                         }
-
-
 
                         symbol_entity_specs_set_is_allocatable(private_sym,
                                 symbol_entity_specs_get_is_allocatable(private_sym) ||
@@ -1293,40 +1331,35 @@ namespace TL { namespace Nanox {
     }
 
     void DeviceProvider::add_forward_function_code_to_extra_c_code(
-            const std::string& outline_name,
-            TL::ObjectList<OutlineDataItem*> data_items,
+            const TL::Symbol& fortran_forward_symbol,
             Nodecl::NodeclBase parse_context)
     {
         Source ancillary_source, parameters;
 
         ancillary_source
-            << "extern void " << outline_name << "_forward_" << "(";
-        int num_data_items = data_items.size();
-        if (num_data_items == 0)
+            << "extern void " << fortran_forward_symbol.get_name() << "_(";
+
+        int num_data_items = fortran_forward_symbol.get_type().parameters().size();
+
+        // It will always have at least one argument (function pointer)
+        if (num_data_items == 1)
         {
             ancillary_source << "void (*outline_fun)(void)";
         }
         else
         {
             ancillary_source << "void (*outline_fun)(";
-            if (num_data_items == 0)
+            for (int i = 1; i < num_data_items; i++)
             {
-                ancillary_source << "void";
-            }
-            else
-            {
-                for (int i = 0; i < num_data_items; i++)
+                if (i > 1)
                 {
-                    if (i > 0)
-                    {
-                        ancillary_source << ", ";
-                    }
-                    ancillary_source << "void *p" << i;
+                    ancillary_source << ", ";
                 }
+                ancillary_source << "void *p" << i;
             }
             ancillary_source << ")";
 
-            for (int i = 0; i < num_data_items; i++)
+            for (int i = 1; i < num_data_items; i++)
             {
                 ancillary_source << ", void *p" << i;
             }
@@ -1335,9 +1368,9 @@ namespace TL { namespace Nanox {
             // << "    extern int nanos_free(void*);\n"
             << "    extern int nanos_handle_error(int);\n\n"
             << "    outline_fun(";
-        for (int i = 0; i < num_data_items; i++)
+        for (int i = 1; i < num_data_items; i++)
         {
-            if (i > 0)
+            if (i > 1)
             {
                 ancillary_source << ", ";
             }

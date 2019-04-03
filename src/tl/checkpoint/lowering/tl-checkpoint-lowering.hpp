@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------
-  (C) Copyright 2006-2012 Barcelona Supercomputing Center
+  (C) Copyright 2006-2014 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
   
   This file is part of Mercurium C/C++ source-to-source compiler.
@@ -24,20 +24,25 @@
   Cambridge, MA 02139, USA.
 --------------------------------------------------------------------*/
 
+#ifndef TL_CHECKPOINT_LOWERING_HPP
+#define TL_CHECKPOINT_LOWERING_HPP
 
-/*
-<testinfo>
-test_generator=config/mercurium
-test_CFLAGS="--iso-c-FloatN"
-</testinfo>
-*/
+#include "tl-compilerphase.hpp"
+#include "tl-nodecl.hpp"
 
-void f()
-{
-#if defined(__x86_64__) && defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6))
-    _Float128 a;
-    a = 3;
-    a = 3.4f;
-    a = 3.4;
-#endif
-}
+namespace TL { namespace Checkpoint {
+
+    class LoweringPhase : public TL::CompilerPhase
+    {
+        private:
+            int _tcl_max_dims;
+
+        public:
+            LoweringPhase();
+            virtual void run(DTO& dto);
+
+            int get_tcl_max_dims() const;
+    };
+} }
+
+#endif // TL_CHECKPOINT_LOWERING_HPP
