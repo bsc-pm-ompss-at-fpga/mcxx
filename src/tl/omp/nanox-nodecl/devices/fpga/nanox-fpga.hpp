@@ -134,6 +134,7 @@ namespace TL
                 std::string _force_fpga_task_creation_ports_str;
                 bool        _bitstream_generation;
                 str_set_t   _force_fpga_task_creation_ports;
+                std::string _memory_port_width;
                 str_set_t   _registered_tasks;
                 Nodecl::NodeclBase _root;
                 TL::ObjectList< struct FpgaOutlineInfo >       _outlines;
@@ -141,6 +142,7 @@ namespace TL
 
                 void set_bitstream_generation_from_str(const std::string& str);
                 void set_force_fpga_task_creation_ports_from_str(const std::string& str);
+                void set_memory_port_width_from_str(const std::string& str);
 
                 unsigned int                                   __number_of_calls;
                 Nodecl::Utils::SimpleSymbolMap                 _copied_fpga_functions;
