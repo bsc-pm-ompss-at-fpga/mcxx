@@ -275,7 +275,7 @@ Source get_aux_task_creation_source()
         << "nanos_wd_t nanos_current_wd() { return " << STR_TASKID << "; }"
         << "void nanos_handle_error(enum nanos_err_t err) {}"
         << "void write_outstream(uint64_t data, unsigned short dest, unsigned char last) {"
-        << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_OUTPORT << "\n"
+        << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_OUTPORT << " register\n"
         //NOTE: Pack the axiData_t info: data(64bits) + dest(6bits) + last(2bit). It can be done
         //      with less bits but this way the info is HEX friendly
         << "  ap_uint<72> tmp = data;"
