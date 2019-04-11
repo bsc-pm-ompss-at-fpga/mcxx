@@ -358,9 +358,10 @@ namespace Codegen
                     const std::string &function_name,
                     int dim);
 
-            void codegen_function_call_arguments(const Nodecl::NodeclBase arguments, 
+            void codegen_function_call_arguments(const Nodecl::NodeclBase arguments,
                     TL::Symbol called_symbol,
-                    TL::Type function_type);
+                    TL::Type function_type,
+                    int ignore_n_first_arguments);
 
             void do_declare_symbol(TL::Symbol entry, Nodecl::NodeclBase, void*);
             void do_declare_symbol_in_scope(TL::Symbol entry, Nodecl::NodeclBase, void*);
@@ -481,6 +482,7 @@ namespace Codegen
 
             void if_else_body(Nodecl::NodeclBase then, Nodecl::NodeclBase else_);
 
+            void emit_complex_constant(const_value_t* value);
             void emit_floating_constant(const_value_t* value);
             void emit_integer_constant(const_value_t* value, TL::Type t);
 

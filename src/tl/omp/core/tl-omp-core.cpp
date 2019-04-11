@@ -492,7 +492,7 @@ namespace TL { namespace OpenMP {
                         && (_data_attrib & DS_PRIVATE)
                         && data_ref.is_assumed_size_array())
                 {
-                    warn_printf_at(
+                    error_printf_at(
                             _ref_tree.get_locus(),
                             "assumed-size array '%s' cannot be privatized\n",
                             sym.get_name().c_str());
@@ -1101,6 +1101,13 @@ namespace TL { namespace OpenMP {
                         "'this' pseudo-variable is always shared");
                 continue;
             }
+            if ((IS_C_LANGUAGE || IS_CXX_LANGUAGE)
+                    && sym.get_name() == "__MERCURIUM_PRETTY_FUNCTION__")
+            {
+                data_environment.set_data_sharing(sym, DS_SHARED, DSK_IMPLICIT,
+                        "'__MERCURIUM_PRETTY_FUNCTION__' variable is always shared");
+                continue;
+            }
 
             if (IS_FORTRAN_LANGUAGE
                     && sym.get_type().no_ref().is_function())
@@ -1199,6 +1206,7 @@ namespace TL { namespace OpenMP {
         // In C/C++ a compound statement is mandatory
 
         Nodecl::List l = stmt.as<Nodecl::List>();
+        Nodecl::Context original_context;
 
         TL::ObjectList<Nodecl::NodeclBase> section_seq;
 
@@ -1219,13 +1227,13 @@ namespace TL { namespace OpenMP {
             }
             else
             {
-                l = first.as<Nodecl::Context>()
-                    .get_in_context()
-                    .as<Nodecl::List>()
-                    .front()
-                    .as<Nodecl::CompoundStatement>()
-                    .get_statements()
-                    .as<Nodecl::List>();
+                original_context = first.as<Nodecl::Context>();
+                l = original_context.get_in_context()
+                        .as<Nodecl::List>()
+                        .front()
+                        .as<Nodecl::CompoundStatement>()
+                        .get_statements()
+                        .as<Nodecl::List>();
             }
 
             if (l.empty())
@@ -1312,6 +1320,7 @@ namespace TL { namespace OpenMP {
         {
             Nodecl::NodeclBase first = l[0];
             ERROR_CONDITION(!first.is<Nodecl::Context>(), "Invalid node", 0);
+            original_context = first.as<Nodecl::Context>();
 
             l = first.as<Nodecl::Context>().get_in_context().as<Nodecl::List>();
 
@@ -1404,15 +1413,18 @@ namespace TL { namespace OpenMP {
             internal_error("Code unreachable", 0);
         }
 
+        ERROR_CONDITION(original_context.is_null(), "We didn't get the context", 0);
+
         Nodecl::NodeclBase compound_statement =
             Nodecl::CompoundStatement::make(
                     Nodecl::List::make(section_seq),
                     Nodecl::NodeclBase::null(),
                     construct.get_locus());
+        original_context.set_in_context(compound_statement);
 
         construct
             .get_statements()
-            .replace(compound_statement);
+            .replace(original_context);
     }
 
     void Core::common_for_handler(
@@ -1612,6 +1624,14 @@ namespace TL { namespace OpenMP {
                 // 'this' is special
                 data_environment.set_data_sharing(sym, DS_SHARED, DSK_IMPLICIT,
                         "'this' pseudo-variable is always shared");
+                continue;
+            }
+
+            if ((IS_C_LANGUAGE || IS_CXX_LANGUAGE)
+                    && sym.get_name() == "__MERCURIUM_PRETTY_FUNCTION__")
+            {
+                data_environment.set_data_sharing(sym, DS_SHARED, DSK_IMPLICIT,
+                        "'__MERCURIUM_PRETTY_FUNCTION__' variable is always shared");
                 continue;
             }
 

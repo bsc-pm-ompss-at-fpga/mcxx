@@ -2830,6 +2830,20 @@ CxxBase::Ret CxxBase::visit(const Nodecl::FunctionCode& node)
         }
     }
 
+    std::string virt_specifiers;
+
+    if (symbol.is_member() && symbol.is_defined_inside_class())
+    {
+        if (symbol.is_explicit_override())
+        {
+            virt_specifiers += " override";
+        }
+        if (symbol.is_final())
+        {
+            virt_specifiers += " final";
+        }
+    }
+
     if (!symbol.is_member()
             && asm_specification != ""
             // Only emit this extra declaration if we were not declared earlier at all
@@ -2841,19 +2855,19 @@ CxxBase::Ret CxxBase::visit(const Nodecl::FunctionCode& node)
         if (CURRENT_CONFIGURATION->native_vendor == NATIVE_VENDOR_IBM)
         {
             // IBM XL is very picky regarding attribute location
-            *(file) << gcc_extension << decl_spec_seq << declarator
+            *(file) << gcc_extension << decl_spec_seq << declarator << virt_specifiers
                 << exception_spec << " " << gcc_attributes << " " << asm_specification << trailing_type_specifier << ";\n";
         }
         else
         {
-            *(file) << gcc_extension << decl_spec_seq << gcc_attributes << declarator
+            *(file) << gcc_extension << decl_spec_seq << gcc_attributes << declarator << virt_specifiers
                 << exception_spec << asm_specification << trailing_type_specifier << ";\n";
         }
     }
 
     emit_line_marker(node);
     indent();
-    *(file) << gcc_extension << decl_spec_seq << gcc_attributes << declarator
+    *(file) << gcc_extension << decl_spec_seq << gcc_attributes << declarator << virt_specifiers
         << exception_spec << trailing_type_specifier << "\n";
 
 
@@ -5384,7 +5398,17 @@ void CxxBase::define_class_symbol_using_member_declarations_aux(TL::Symbol symbo
                     }
                 }
 
-                *(file) << this->get_qualified_name(base, symbol.get_scope());
+                if (base.is_decltype())
+                {
+                    *(file)
+                        << print_type_str(base.get_type().get_internal_type(),
+                                symbol.get_scope().get_decl_context(),
+                                (void*)this);
+                }
+                else
+                {
+                    *(file) << this->get_qualified_name(base, symbol.get_scope());
+                }
 
                 if (it->is_expansion)
                     (*file) << " ...";
@@ -9198,35 +9222,39 @@ std::string CxxBase::exception_specifier_to_str(TL::Symbol symbol)
     {
         if (!symbol.function_noexcept().is_null())
         {
-            exception_spec += " noexcept(";
+            exception_spec += " noexcept";
 
-            State new_state(state);
-            new_state._do_not_emit_this = true;
-
-            if (CURRENT_CONFIGURATION->line_markers)
+            if (!symbol.function_noexcept().is<Nodecl::NoexceptImplicitTrue>())
             {
-                std::stringbuf strbuf;
-                CodegenStreambuf<char> codegen_streambuf(&strbuf, this);
-                std::ostream out(&codegen_streambuf);
+                exception_spec += "(";
+                State new_state(state);
+                new_state._do_not_emit_this = true;
 
-                push_scope(symbol.get_scope());
-                this->set_last_is_newline(false); // we are right after noexcept
-                this->codegen(symbol.function_noexcept(), new_state, &out);
-                pop_scope();
+                if (CURRENT_CONFIGURATION->line_markers)
+                {
+                    std::stringbuf strbuf;
+                    CodegenStreambuf<char> codegen_streambuf(&strbuf, this);
+                    std::ostream out(&codegen_streambuf);
 
-                exception_spec += strbuf.str();
+                    push_scope(symbol.get_scope());
+                    this->set_last_is_newline(false); // we are right after noexcept
+                    this->codegen(symbol.function_noexcept(), new_state, &out);
+                    pop_scope();
+
+                    exception_spec += strbuf.str();
+                }
+                else
+                {
+                    std::stringstream ss;
+
+                    push_scope(symbol.get_scope());
+                    this->codegen(symbol.function_noexcept(), new_state, &ss);
+                    pop_scope();
+
+                    exception_spec += ss.str();
+                }
+                exception_spec += ")";
             }
-            else
-            {
-                std::stringstream ss;
-
-                push_scope(symbol.get_scope());
-                this->codegen(symbol.function_noexcept(), new_state, &ss);
-                pop_scope();
-
-                exception_spec += ss.str();
-            }
-            exception_spec += ")";
         }
         else if (!symbol.function_throws_any_exception())
         {
@@ -9515,9 +9543,17 @@ void CxxBase::fill_parameter_names_and_parameter_attributes(TL::Symbol symbol,
                     scope_of_param = symbol.get_scope();
                 }
 
-                // Note that we add redundant parentheses because of a g++ 4.3 problem
-                parameter_attributes[i] += " = (" + this->codegen_to_str(symbol.get_default_argument_num(i), 
-                            scope_of_param) + ")";
+                Nodecl::NodeclBase default_argument = symbol.get_default_argument_num(i);
+                if (default_argument.is<Nodecl::CxxBracedInitializer>())
+                {
+                    parameter_attributes[i] += " = " + this->codegen_to_str(symbol.get_default_argument_num(i), scope_of_param);
+                }
+                else
+                {
+                    // Note that we add redundant parentheses because of a g++ 4.3 problem
+                    parameter_attributes[i] += " = (" + this->codegen_to_str(symbol.get_default_argument_num(i),
+                                scope_of_param) + ")";
+                }
             }
             set_codegen_status(current_param, CODEGEN_STATUS_DEFINED);
         }

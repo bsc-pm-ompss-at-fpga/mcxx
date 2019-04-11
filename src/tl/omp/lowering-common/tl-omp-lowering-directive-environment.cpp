@@ -98,6 +98,24 @@ namespace TL { namespace OpenMP { namespace Lowering {
                         .map<TL::Symbol>(&Nodecl::NodeclBase::get_symbol));
             }
 
+            virtual void visit(const Nodecl::OpenMP::Lastprivate &n)
+            {
+                _env.lastprivate.insert(
+                        n.get_symbols()
+                        .as<Nodecl::List>()
+                        .to_object_list()
+                        .map<TL::Symbol>(&Nodecl::NodeclBase::get_symbol));
+            }
+
+            virtual void visit(const Nodecl::OpenMP::FirstLastprivate &n)
+            {
+                _env.firstlastprivate.insert(
+                        n.get_symbols()
+                        .as<Nodecl::List>()
+                        .to_object_list()
+                        .map<TL::Symbol>(&Nodecl::NodeclBase::get_symbol));
+            }
+
             virtual void visit(const Nodecl::OpenMP::If &n)
             {
                 _env.if_clause = n.get_condition();
@@ -121,6 +139,27 @@ namespace TL { namespace OpenMP { namespace Lowering {
                     ERROR_CONDITION(red == NULL, "Invalid value for red_item", 0);
 
                     _env.reduction.insert(ReductionItem(reduction_symbol, reduction_type, red, /* isWeak */ false));
+                }
+            }
+
+            virtual void visit(const Nodecl::OpenMP::InReduction &n)
+            {
+
+                Nodecl::List reductions = n.get_reductions().as<Nodecl::List>();
+                for (Nodecl::List::iterator it = reductions.begin();
+                        it != reductions.end();
+                        it++)
+                {
+                    Nodecl::OpenMP::ReductionItem red_item = it->as<Nodecl::OpenMP::ReductionItem>();
+
+                    TL::Symbol reductor_sym = red_item.get_reductor().get_symbol();
+                    TL::Symbol reduction_symbol = red_item.get_reduced_symbol().get_symbol();
+                    TL::Type reduction_type = red_item.get_reduction_type().get_type();
+
+                    OpenMP::Reduction* red = OpenMP::Reduction::get_reduction_info_from_symbol(reductor_sym);
+                    ERROR_CONDITION(red == NULL, "Invalid value for red_item", 0);
+
+                    _env.in_reduction.insert(ReductionItem(reduction_symbol, reduction_type, red, /* isWeak */ false));
                 }
             }
 
@@ -184,6 +223,11 @@ namespace TL { namespace OpenMP { namespace Lowering {
             virtual void visit(const Nodecl::OmpSs::DepCommutative &n)
             {
                 handle_dependences(n, _env.dep_commutative);
+            }
+
+            virtual void visit(const Nodecl::OmpSs::DepWeakCommutative &n)
+            {
+                handle_dependences(n, _env.dep_weakcommutative);
             }
 
             virtual void visit(const Nodecl::OmpSs::DepConcurrent &n)
@@ -360,6 +404,10 @@ namespace TL { namespace OpenMP { namespace Lowering {
         // saved expressions in their type and add them to the 'captured_value' list
         compute_captured_saved_expressions();
 
+        // Due to default data sharing rules, saved expressions may end up in the
+        // shared set after expanding an inner construct
+        fix_data_sharing_of_captured_saved_expressions();
+
         // Insert the remaining symbols in '_firstprivate' at the end of the
         // 'captured_value' list
         captured_value.insert(_firstprivate);
@@ -444,6 +492,7 @@ namespace TL { namespace OpenMP { namespace Lowering {
         dep_weakout.map(fp_syms_without_data_sharing);
         dep_weakinout.map(fp_syms_without_data_sharing);
         dep_commutative.map(fp_syms_without_data_sharing);
+        dep_weakcommutative.map(fp_syms_without_data_sharing);
         dep_concurrent.map(fp_syms_without_data_sharing);
         dep_reduction.map(fp_syms_without_data_sharing);
         dep_weakreduction.map(fp_syms_without_data_sharing);
@@ -527,6 +576,30 @@ namespace TL { namespace OpenMP { namespace Lowering {
             if (it->get_type().depends_on_nonconstant_values())
                 walk_type_for_saved_expressions(it->get_type());
         }
+    }
+
+    namespace
+    {
+        bool only_saved_expressions(const TL::Symbol& s)
+        {
+            return s.is_saved_expression();
+        }
+    }
+
+    void DirectiveEnvironment::fix_data_sharing_of_captured_saved_expressions()
+    {
+        TL::ObjectList<TL::Symbol> saved_expressions = captured_value.filter(only_saved_expressions);
+
+        TL::ObjectList<TL::Symbol> filtered_shared;
+        for (TL::ObjectList<TL::Symbol>::iterator it = shared.begin();
+                it != shared.end();
+                it++)
+        {
+            if (!saved_expressions.contains(*it))
+                filtered_shared.append(*it);
+        }
+
+        shared = filtered_shared;
     }
 
     namespace  {

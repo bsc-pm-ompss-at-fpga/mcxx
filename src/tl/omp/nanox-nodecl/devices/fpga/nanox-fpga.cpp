@@ -2223,7 +2223,7 @@ void DeviceFPGA::register_task_creation(
 
             //The type of this parameter is an struct (i. e. user defined type)
             ObjectList<TL::Type> arg_type;
-            arg_type.append(TL::Type(TL::Type::get_unsigned_long_int_type()).get_pointer_to());
+            arg_type.append(TL::Type(TL::Type::get_unsigned_long_long_int_type()).get_pointer_to());
 
             TL::Symbol outline_function = SymbolUtils::new_function_symbol(
                 current_function,

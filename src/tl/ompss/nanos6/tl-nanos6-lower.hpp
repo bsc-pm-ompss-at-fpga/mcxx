@@ -29,6 +29,8 @@
 #define TL_NANOS6_VISITOR_HPP
 
 #include "tl-nanos6.hpp"
+#include "tl-nanos6-device-manager.hpp"
+
 #include "tl-nodecl.hpp"
 #include "tl-nodecl-visitor.hpp"
 #include "tl-omp-reduction.hpp"
@@ -42,6 +44,7 @@ namespace TL { namespace Nanos6 {
         private:
             LoweringPhase* _phase;
             std::map<Nodecl::NodeclBase, Nodecl::NodeclBase> _final_stmts_map;
+            DeviceManager _device_manager;
 
         public:
             Lower(LoweringPhase* phase,
@@ -87,9 +90,27 @@ namespace TL { namespace Nanos6 {
                 TL::Symbol initializer;
                 TL::Symbol combiner;
             };
-            typedef std::map<TL::OpenMP::Reduction*, ReductionFunctions>
+
+            // Note: This comparator takes into consideration the reduction info
+            // and type only, ignoring the symbol
+            struct ReductionTypeComparator {
+                bool operator() (const TL::OpenMP::Lowering::ReductionItem& x, const TL::OpenMP::Lowering::ReductionItem& y) const
+                {
+                    if (&x == &y) return false;
+
+                    if (x._reduction_info != y._reduction_info)
+                        return (x._reduction_info < y._reduction_info);
+                    else if (!x._reduction_type.is_same_type(y._reduction_type))
+                        return (x._reduction_type < y._reduction_type);
+                    else
+                        return false;
+                }
+            };
+            typedef std::map<TL::OpenMP::Lowering::ReductionItem, ReductionFunctions, ReductionTypeComparator>
                 reduction_functions_map_t;
             reduction_functions_map_t _reduction_functions_map;
+
+            DeviceManager& get_device_manager() { return _device_manager; }
 
 
         private:
