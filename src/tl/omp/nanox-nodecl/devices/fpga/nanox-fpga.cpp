@@ -1234,6 +1234,9 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     Source sync_output_code;
     Source end_instrumentation;
     Source generic_initial_code;
+    unsigned int n_params_id = 0;
+    unsigned int n_params_out = 0;
+    unsigned int wrapper_memory_port_width;
 
     in_copies_aux
         << "\t\t__copyFlags_id = " << STR_INPUTSTREAM << ".read().data;"
@@ -1250,24 +1253,48 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         << "\t\tswitch (__param_id) {"
     ;
 
-    int n_params_id = 0;
-    int n_params_out = 0;
+    //Create the memory access port shared between all task parameters
+    if (_memory_port_width != "")
+    {
+        std::istringstream iss(_memory_port_width);
+        iss >> wrapper_memory_port_width;
+        if (iss.fail())
+        {
+            error_printf_at(func_symbol.get_locus(),
+                "FPGA memory port width '%s' is not an unsigned integer\n",
+                _memory_port_width.c_str());
+            fatal_error("Unsupported value");
+        }
+        else if (wrapper_memory_port_width == 0 || wrapper_memory_port_width%8 != 0)
+        {
+            error_printf_at(func_symbol.get_locus(),
+                "FPGA memory port width '%s' is not >0 and/or multiple of 8\n",
+                _memory_port_width.c_str());
+            fatal_error("Unsupported value");
+        }
+
+        const std::string port_declaration =
+            "ap_uint<" + _memory_port_width + "> * " + STR_WRAPPERDATA;
+        params_src.append_with_separator(port_declaration, ", ");
+
+        pragmas_src
+            << "#pragma HLS INTERFACE m_axi port=" << STR_WRAPPERDATA << "\n"
+        ;
+
+        local_decls
+            << "\tunsigned int __j, __k;"
+        ;
+    }
 
     // Go through all the data items
     for (ObjectList<OutlineDataItem*>::iterator it = data_items.begin(); it != data_items.end(); it++)
     {
-        const std::string &field_name = (*it)->get_field_name();
-        fun_params.append_with_separator(field_name, ", ");
-
-#if _DEBUG_AUTOMATIC_COMPILER_
-        std::cerr << std::endl << std::endl;
-        std::cerr << "Variable: " << field_name << std::endl;
-        std::cerr << std::endl << std::endl;
-#endif
-
         TL::Symbol param_symbol = (*it)->get_field_symbol();
+        const std::string &field_name = (*it)->get_field_name();
         const Scope &scope = (*it)->get_symbol().get_scope();
         const ObjectList<Nodecl::NodeclBase> &localmem = (*it)->get_localmem();
+
+        fun_params.append_with_separator(field_name, ", ");
 
         if (!localmem.empty() && !creates_children_tasks)
         {
@@ -1303,15 +1330,9 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             TL::Type unql_type = elem_type.get_unqualified_type();
             const std::string casting_const_pointer = unql_type.get_const_type().get_pointer_to().get_declaration(scope, "");
             const std::string casting_sizeof = elem_type.get_declaration(scope, "");
-            const std::string port_name = STR_PREFIX + field_name;
-            std::string port_declaration;
 
             local_decls
                 << "\tstatic " << localmem_type.get_unqualified_type().get_declaration(scope, field_name) << ";"
-            ;
-
-            pragmas_src
-                << "#pragma HLS INTERFACE m_axi port=" << port_name << "\n"
             ;
 
             in_copies_aux
@@ -1342,26 +1363,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
             if (_memory_port_width != "")
             {
-                std::istringstream iss(_memory_port_width);
-                unsigned int width;
-                iss >> width;
-                if (iss.fail())
-                {
-                    error_printf_at(param_symbol.get_locus(),
-                        "Memory port width '%s' for parameter '%s' is not an unsigned integer\n",
-                        _memory_port_width.c_str(), field_name.c_str());
-                    fatal_error("Unsupported value");
-                }
-                else if (width == 0 || width%8 != 0)
-                {
-                    error_printf_at(param_symbol.get_locus(),
-                        "Memory port width '%s' for parameter '%s' is not >0 and/or multiple of 8\n",
-                        _memory_port_width.c_str(), field_name.c_str());
-                    fatal_error("Unsupported value");
-                }
-
                 //NOTE: The following check may not be vaild when cross-compiling
-                if (width%elem_type.get_size() != 0)
+                if (wrapper_memory_port_width%elem_type.get_size() != 0)
                 {
                     error_printf_at(param_symbol.get_locus(),
                         "Memory port width '%s' is not multiple of parameter '%s' width\n",
@@ -1369,14 +1372,9 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                     fatal_error("Unsupported value");
                 }
 
+                const std::string port_name = STR_WRAPPERDATA;
                 const std::string mem_ptr_type = "ap_uint<" + _memory_port_width + ">";
                 const std::string n_elems_read = "(sizeof(" + mem_ptr_type + ")/sizeof(" + casting_sizeof + "))";
-
-                port_declaration = mem_ptr_type + " * " + port_name;
-
-                local_decls
-                    << "\tunsigned int __j, __k;"
-                ;
 
                 in_copies_aux << "{"
                     << "for (__j=0;"
@@ -1427,7 +1425,14 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             }
             else
             {
-                port_declaration = elem_type.get_pointer_to().get_declaration(scope, port_name, TL::Type::PARAMETER_DECLARATION);
+                const std::string port_name = STR_PREFIX + field_name;
+                const std::string port_declaration =
+                    elem_type.get_pointer_to().get_declaration(scope, port_name, TL::Type::PARAMETER_DECLARATION);
+                params_src.append_with_separator(port_declaration, ", ");
+
+                pragmas_src
+                    << "#pragma HLS INTERFACE m_axi port=" << port_name << "\n"
+                ;
 
                 in_copies_aux
                     << "memcpy(" << field_name << ", "
@@ -1444,8 +1449,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                     ;
                 }
             }
-
-            params_src.append_with_separator(port_declaration, ", ");
 
             in_copies_aux
                 << "break;"
