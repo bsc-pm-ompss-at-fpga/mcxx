@@ -1068,7 +1068,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     Source pragmas_src, params_src, clear_components_count, var_decls_src, aux_decls_src;
 
     var_decls_src
-        << "typedef ap_axis<64,1,1,5> axiData_t;"
+        << "typedef ap_axis<64,1,8,5> axiData_t;"
         << "typedef hls::stream<axiData_t> axiStream_t;"
         << "typedef uint64_t counter_t;"
         << "typedef uint64_t nanos_wd_t;"
@@ -1083,6 +1083,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         << "void write_stream(axiStream_t &stream, uint64_t data, unsigned short dest, unsigned char last) {"
         << "#pragma HLS INTERFACE axis port=stream\n"
         << "\taxiData_t __data = {0, 0, 0, 0, 0, 0, 0};"
+        << "\t__data.id = accID;"
         << "\t__data.keep = 0xFF;"
         << "\t__data.dest = dest;"
         << "\t__data.last = last;"
