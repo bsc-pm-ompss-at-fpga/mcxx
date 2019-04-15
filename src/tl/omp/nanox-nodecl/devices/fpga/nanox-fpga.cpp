@@ -56,6 +56,7 @@
 #define STR_INSTRBUFFER        "mcxx_instr_buffer"
 #define STR_INSTRBUFFER_OFFSET "__mcxx_instrBuffer"
 #define STR_PREFIX             "mcxx_"
+#define STR_WRAPPERDATA        "mcxx_wrapper_data"
 #define STR_REAL_PARAM_PREFIX  "__mcxx_param_"
 #define STR_INSTRSLOTS         "__mcxx_instrSlots"
 #define STR_INSTRCURRENTSLOT   "__mcxx_instrCurrentSlot"
