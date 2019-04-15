@@ -1146,7 +1146,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             //write events
 
             << "void " << STR_WRITEEVENT << "(uint32_t event, uint64_t val, uint32_t type) {"
-            << "#pragma HLS inline off\n"
+            << "#pragma HLS inline\n"
             << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRBUFFER << "\n"
 
             << "\t" << STR_EVENTSTRUCT << " fpga_event;"
