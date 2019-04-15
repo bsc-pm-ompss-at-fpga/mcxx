@@ -499,7 +499,7 @@ void DeviceFPGA::create_outline(
 }
 
 DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_generation(false),
-    _force_fpga_task_creation_ports(), _onto_warn_shown(false)
+    _force_fpga_task_creation_ports(), _memory_port_width(""), _onto_warn_shown(false)
 {
     set_phase_name("Nanox FPGA support");
     set_phase_description("This phase is used by Nanox phases to implement FPGA device support");
@@ -547,6 +547,11 @@ DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_gener
         "This is the parameter to force the use of extra task creation ports in a set of fpga accelerators: <onto value>[,<onto value>][...]",
         _force_fpga_task_creation_ports_str,
         "0").connect(std::bind(&DeviceFPGA::set_force_fpga_task_creation_ports_from_str, this, std::placeholders::_1));
+
+    register_parameter("fpga_memory_port_width",
+        "Defines the width (in bits) of memory ports (only for wrapper localmem data) for fpga accelerators",
+        _memory_port_width,
+        "").connect(std::bind(&DeviceFPGA::set_memory_port_width_from_str, this, std::placeholders::_1));
 }
 
 void DeviceFPGA::pre_run(DTO& dto) {
@@ -953,7 +958,7 @@ static Source get_copy_elements_all_dimensions_src(TL::Type copy_type)
     if (copy_type.is_pointer())
     {
 #if _DEBUG_AUTOMATIC_COMPILER_
-        fprintf(stderr, "Pointer declaration  is array, num dimensions: 1\n");
+        fprintf(stderr, "Pointer declaration is array, num dimensions: 1\n");
 #endif
         dimension_str = "( 1 )";
         ArrayExpression << dimension_str;
@@ -962,7 +967,7 @@ static Source get_copy_elements_all_dimensions_src(TL::Type copy_type)
     else if (copy_type.is_array()) //it's a shape
     {
 #if _DEBUG_AUTOMATIC_COMPILER_
-        fprintf(stderr, "Type declaration  is array, num dimensions %d\n" , copy_type.get_num_dimensions());
+        fprintf(stderr, "Type declaration is array, num dimensions %d\n" , copy_type.get_num_dimensions());
 #endif
         int total_dimensions = copy_type.get_num_dimensions();
         int n_dimensions=0;
@@ -1253,6 +1258,9 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     Source sync_output_code;
     Source end_instrumentation;
     Source generic_initial_code;
+    unsigned int n_params_id = 0;
+    unsigned int n_params_out = 0;
+    unsigned int wrapper_memory_port_width;
 
     in_copies_aux
         << "\t\t__copyFlags_id = " << STR_INPUTSTREAM << ".read().data;"
@@ -1269,25 +1277,48 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         << "\t\tswitch (__param_id) {"
     ;
 
-    int n_params_id = 0;
-    int n_params_in = 0;
-    int n_params_out = 0;
+    //Create the memory access port shared between all task parameters
+    if (_memory_port_width != "")
+    {
+        std::istringstream iss(_memory_port_width);
+        iss >> wrapper_memory_port_width;
+        if (iss.fail())
+        {
+            error_printf_at(func_symbol.get_locus(),
+                "FPGA memory port width '%s' is not an unsigned integer\n",
+                _memory_port_width.c_str());
+            fatal_error("Unsupported value");
+        }
+        else if (wrapper_memory_port_width == 0 || wrapper_memory_port_width%8 != 0)
+        {
+            error_printf_at(func_symbol.get_locus(),
+                "FPGA memory port width '%s' is not >0 and/or multiple of 8\n",
+                _memory_port_width.c_str());
+            fatal_error("Unsupported value");
+        }
+
+        const std::string port_declaration =
+            "ap_uint<" + _memory_port_width + "> * " + STR_WRAPPERDATA;
+        params_src.append_with_separator(port_declaration, ", ");
+
+        pragmas_src
+            << "#pragma HLS INTERFACE m_axi port=" << STR_WRAPPERDATA << "\n"
+        ;
+
+        local_decls
+            << "\tunsigned int __j, __k;"
+        ;
+    }
 
     // Go through all the data items
     for (ObjectList<OutlineDataItem*>::iterator it = data_items.begin(); it != data_items.end(); it++)
     {
-        const std::string &field_name = (*it)->get_field_name();
-        fun_params.append_with_separator(field_name, ", ");
-
-#if _DEBUG_AUTOMATIC_COMPILER_
-        std::cerr << std::endl << std::endl;
-        std::cerr << "Variable: " << field_name << std::endl;
-        std::cerr << std::endl << std::endl;
-#endif
-
         TL::Symbol param_symbol = (*it)->get_field_symbol();
+        const std::string &field_name = (*it)->get_field_name();
         const Scope &scope = (*it)->get_symbol().get_scope();
         const ObjectList<Nodecl::NodeclBase> &localmem = (*it)->get_localmem();
+
+        fun_params.append_with_separator(field_name, ", ");
 
         if (!localmem.empty() && !creates_children_tasks)
         {
@@ -1323,27 +1354,14 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             TL::Type unql_type = elem_type.get_unqualified_type();
             const std::string casting_const_pointer = unql_type.get_const_type().get_pointer_to().get_declaration(scope, "");
             const std::string casting_sizeof = elem_type.get_declaration(scope, "");
-            const std::string port_name = STR_PREFIX + field_name;
-            const std::string port_declaration = elem_type.get_pointer_to().get_declaration(scope, port_name,
-                TL::Type::PARAMETER_DECLARATION);
 
             local_decls
                 << "\tstatic " << localmem_type.get_unqualified_type().get_declaration(scope, field_name) << ";"
             ;
 
-            params_src.append_with_separator(port_declaration, ", ");
-
-            pragmas_src
-                << "#pragma HLS INTERFACE m_axi port=" << port_name << "\n"
-            ;
-
             in_copies_aux
                 << "\t\t\tcase " << param_id << ":\n"
                 << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
-                << "\t\t\t\tif(__copyFlags[4])\n"
-                << "\t\t\t\t\tmemcpy(" << field_name << ", "
-                                       << "(" << casting_const_pointer << ")(" << port_name << " + __param/sizeof(" << casting_sizeof << ")), "
-                                       << n_elements_src << "*sizeof(" << casting_sizeof << "));"
             ;
 
             //NOTE: If the elements are const qualified they cannot be an output
@@ -1357,20 +1375,116 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 out_copies_aux
                     << "\t\t\tcase " << param_id << ":\n"
                     << "\t\t\t\tif(__copyFlags[5])\n"
-                    << "\t\t\t\t\tmemcpy(" << port_name <<  " + __param/sizeof(" << casting_sizeof << "), "
-                                           << "(" << casting_const_pointer << ")" << field_name << ", "
-                                           << n_elements_src << "*sizeof(" << casting_sizeof << "));"
-                    << "\t\t\t\tbreak;"
                 ;
 
                 n_params_out++;
             }
 
             in_copies_aux
-                << "\t\t\t\tbreak;"
+                << "\t\t\t\tif(__copyFlags[4])\n"
             ;
 
-            n_params_in++;
+
+            if (_memory_port_width != "")
+            {
+                //NOTE: The following check may not be vaild when cross-compiling
+                if (wrapper_memory_port_width%elem_type.get_size() != 0)
+                {
+                    error_printf_at(param_symbol.get_locus(),
+                        "Memory port width '%s' is not multiple of parameter '%s' width\n",
+                        _memory_port_width.c_str(), field_name.c_str());
+                    fatal_error("Unsupported value");
+                }
+
+                const std::string port_name = STR_WRAPPERDATA;
+                const std::string mem_ptr_type = "ap_uint<" + _memory_port_width + ">";
+                const std::string n_elems_read = "(sizeof(" + mem_ptr_type + ")/sizeof(" + casting_sizeof + "))";
+
+                in_copies_aux << "{"
+                    << "for (__j=0;"
+                    <<      "__j<((" << n_elements_src << "*sizeof(" << casting_sizeof << ")-1)/sizeof(" << mem_ptr_type << ")+1);"
+                    <<      "__j++)"
+                    << "{"
+                    <<   "#pragma HLS PIPELINE\n"
+                    <<   mem_ptr_type << " __tmpBuffer;"
+                    <<   "__tmpBuffer = *(" << port_name << " + __param/sizeof(" << mem_ptr_type << ") + __j);"
+                    <<   "for (__k=0;"
+                    <<        "__k<(" << n_elems_read << ") && ((__j*" << n_elems_read << "+__k) < " << n_elements_src << ");"
+                    <<        "__k++)"
+                    <<   "{"
+                    <<     "#pragma HLS UNROLL\n"
+                    <<     "union { uint64_t raw; " << casting_sizeof << " typed; } cast_tmp;"
+                    <<     "cast_tmp.raw = __tmpBuffer.range("
+                    <<       "(__k+1)*sizeof(" << casting_sizeof << ")*8-1,"
+                    <<       "__k*sizeof(" << casting_sizeof << ")*8);"
+                    <<     field_name << "[__j*" << n_elems_read << "+__k] = cast_tmp.typed;"
+                    << "} } }"
+                ;
+
+                //NOTE: If the elements are const qualified they cannot be an output
+                if (!elem_type.is_const())
+                {
+                    out_copies_aux << "{"
+                        << "for (__j=0;"
+                        <<      "__j<((" << n_elements_src << "*sizeof(" << casting_sizeof << ")-1)/sizeof(" << mem_ptr_type << ")+1);"
+                        <<      "__j++)"
+                        << "{"
+                        <<   mem_ptr_type << " __tmpBuffer;"
+                        <<   "#pragma HLS PIPELINE\n"
+                        <<   "for (__k=0;"
+                        <<        "__k<(" << n_elems_read << ") && ((__j*" << n_elems_read << "+__k) < " << n_elements_src << ");"
+                        <<        "__k++)"
+                        <<   "{"
+                        <<     "#pragma HLS UNROLL\n"
+                        <<     "union { uint64_t raw; " << casting_sizeof << " typed; } cast_tmp;"
+                        <<     "cast_tmp.typed = " << field_name << "[__j*" << n_elems_read << "+__k];"
+                        <<     "__tmpBuffer.range("
+                        <<       "(__k+1)*sizeof(" << casting_sizeof << ")*8-1,"
+                        <<       "__k*sizeof(" << casting_sizeof << ")*8) = cast_tmp.raw;"
+                        <<   "}"
+                        <<    "*(" << port_name << " + __param/sizeof(" << mem_ptr_type << ") + __j) = __tmpBuffer;"
+                        << "} }"
+                    ;
+                }
+            }
+            else
+            {
+                const std::string port_name = STR_PREFIX + field_name;
+                const std::string port_declaration =
+                    elem_type.get_pointer_to().get_declaration(scope, port_name, TL::Type::PARAMETER_DECLARATION);
+                params_src.append_with_separator(port_declaration, ", ");
+
+                pragmas_src
+                    << "#pragma HLS INTERFACE m_axi port=" << port_name << "\n"
+                ;
+
+                in_copies_aux
+                    << "memcpy(" << field_name << ", "
+                    << "(" << casting_const_pointer << ")(" << port_name << " + __param/sizeof(" << casting_sizeof << ")), "
+                    << n_elements_src << "*sizeof(" << casting_sizeof << "));"
+                ;
+
+                if (!elem_type.is_const())
+                {
+                    out_copies_aux
+                        << "memcpy(" << port_name <<  " + __param/sizeof(" << casting_sizeof << "), "
+                        << "(" << casting_const_pointer << ")" << field_name << ", "
+                        << n_elements_src << "*sizeof(" << casting_sizeof << "));"
+                    ;
+                }
+            }
+
+            in_copies_aux
+                << "break;"
+            ;
+
+            //NOTE: If the elements are const qualified they cannot be an output
+            if (!elem_type.is_const())
+            {
+                out_copies_aux
+                    << "break;"
+                ;
+            }
         }
         else
         {
@@ -1405,6 +1519,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                     "Multi-dimensional arrays are only supported when cached in the wrapper."
                     " Change the parameter type or enable the localmem for '%s' parameter\n",
                     param_name.c_str());
+                fatal_error("Unsupported fpga task parameter");
             }
 
             const std::string casting_pointer = unql_type.get_declaration(scope, "");
@@ -1454,11 +1569,10 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 "Unsupported data type '%s' in fpga task parameter '%s'\n",
                 print_declarator(param_type.get_internal_type()), param_name.c_str()
             );
-            internal_error("Unsupported parameter type for fpga task", 0);
+            fatal_error("Unsupported fpga task parameter");
         }
 
         //function_parameters_passed[param_id] = 1;
-        n_params_in++;
         n_params_id++;
     }
 
@@ -1490,12 +1604,11 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     }
 
     local_decls
-        << "\tunsigned int __i;"
+        << "\tunsigned int __i, __param_id;"
         << "\tuint64_t __accHeader;"
         << "\tap_uint<8> __copyFlags, __destID;"
         << "\tuint32_t __comp_needed;"
         << "\tunsigned long long __param, __copyFlags_id;"
-        << "\tunsigned int __param_id, __n_params_in, __n_params_out;"
         << "\tuint64_t __bufferData;"
     ;
 
@@ -1679,6 +1792,7 @@ std::string DeviceFPGA::get_acc_type(const TL::Symbol& task, const TargetInforma
         {
             error_printf_at(onto_val.get_locus(),
                 "The syntax 'onto(type, count)' is no longer supported. Use 'onto(type) num_instances(count)' instead\n");
+            fatal_error("Unsupported clause syntax");
         }
 
         if (onto_clause[0].is_constant())
@@ -1687,6 +1801,7 @@ std::string DeviceFPGA::get_acc_type(const TL::Symbol& task, const TargetInforma
             if (!const_value_is_integer(ct_val))
             {
                 error_printf_at(onto_val.get_locus(), "Constant is not integer type in onto clause\n");
+                fatal_error("Unsupported clause syntax");
             }
             else
             {
@@ -1735,6 +1850,7 @@ std::string DeviceFPGA::get_num_instances(const TargetInformation& target_info)
             if (!const_value_is_integer(ct_val))
             {
                 error_printf_at(numins_value.get_locus(), "Constant is not integer type in onto clause: num_instances\n");
+                fatal_error("Unsupported clause syntax");
             }
             else
             {
@@ -1743,12 +1859,16 @@ std::string DeviceFPGA::get_num_instances(const TargetInformation& target_info)
                 tmp_str_instances << acc_instances;
                 value = tmp_str_instances.str();
                 if (acc_instances <= 0)
+                {
                     error_printf_at(numins_value.get_locus(), "Constant in num_instances should be an integer longer than 0\n");
+                    fatal_error("Unsupported clause syntax");
+                }
             }
         }
         else
         {
             error_printf_at(numins_value.get_locus(), "num_instances clause does not contain a constant expresion\n");
+            fatal_error("Unsupported clause syntax");
         }
     }
     return value;
@@ -1955,6 +2075,7 @@ void DeviceFPGA::emit_async_device(
             {
                 error_printf_at((*it)->get_symbol().get_locus(),
                         "Dynamic copies during task spawn are not supported in fpga context\n");
+                fatal_error("Unsupported fpga task parameter");
             }
 
             TL::Type copy_type = copy_expr.get_data_type();
@@ -1983,6 +2104,7 @@ void DeviceFPGA::emit_async_device(
             {
                 error_printf_at((*it)->get_symbol().get_locus(),
                         "Copies with multiple dimensions not supported in fpga context\n");
+                fatal_error("Unsupported fpga task parameter");
             }
 
             Nodecl::NodeclBase address_of_object = copy_expr.get_address_of_symbol();
@@ -2432,6 +2554,11 @@ void DeviceFPGA::set_force_fpga_task_creation_ports_from_str(const std::string& 
     {
         _force_fpga_task_creation_ports.insert(val);
     }
+}
+
+void DeviceFPGA::set_memory_port_width_from_str(const std::string& in_str)
+{
+    _memory_port_width = in_str;
 }
 
 std::string DeviceFPGA::FpgaOutlineInfo::get_filename() const
