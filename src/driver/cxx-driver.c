@@ -4692,7 +4692,7 @@ static void link_files(const char** file_list, int num_files,
                             strappend(VERSION,
                             strappend(" ",
                             strappend(MCXX_BUILD_VERSION, "\""))))); //Mercurium version
-    if (!linker_args_fpga_contain_name)
+    if (!linker_args_fpga_contain_name && linked_output_filename)
     {
         //Auto-add the name option
         //NOTE: Remove the path part of linked_output_filename
