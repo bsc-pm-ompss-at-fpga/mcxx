@@ -52,24 +52,24 @@
 
 #define STR_OUTPUTSTREAM       "outStream"
 #define STR_INPUTSTREAM        "inStream"
-#define STR_INSTRCOUNTER       "mcxx_instr_counter"
-#define STR_INSTRBUFFER        "mcxx_instr_buffer"
-#define STR_INSTRBUFFER_OFFSET "__mcxx_instrBuffer"
 #define STR_PREFIX             "mcxx_"
 #define STR_WRAPPERDATA        "mcxx_wrapper_data"
-#define STR_REAL_PARAM_PREFIX  "__mcxx_param_"
-#define STR_INSTRSLOTS         "__mcxx_instrSlots"
-#define STR_INSTRCURRENTSLOT   "__mcxx_instrCurrentSlot"
-#define STR_INSTROVERFLOW      "__mcxx_instrNumOverflow"
+#define STR_INSTRCOUNTER       "mcxx_instr_counter"
+#define STR_INSTRBUFFER        "mcxx_instr_buffer"
+#define STR_INSTRBUFFER_OFFSET "__mcxx_instr_buffOffset"
+#define STR_INSTRAVSLOTS       "__mcxx_instr_avSlots"
+#define STR_INSTRSLOTS         "__mcxx_instr_slots"
+#define STR_INSTRCURRENTSLOT   "__mcxx_instr_currentSlot"
+#define STR_INSTROVERFLOW      "__mcxx_instr_numOverflow"
 #define STR_EVENTTYPE          "__mcxx_eventType"
 #define STR_EVENTSTRUCT        "__mcxx_event_t"
-#define STR_WRITEEVENT         "__mcxx_writeInstrEvent"
-#define STR_INSTREND           "__mcxx_instrEnd"
+#define STR_PARENT_TASKID      "__mcxx_parent_taskId"
 
 //Default events
-#define EV_DEVCOPYIN            77
-#define EV_DEVCOPYOUT           78
-#define EV_DEVEXEC              79
+#define EV_DEVCOPYIN            78
+#define EV_DEVCOPYOUT           79
+#define EV_DEVEXEC              80
+#define EV_INSTEVLOST           82
 
 using namespace TL;
 using namespace TL::Nanox;
@@ -196,6 +196,7 @@ void DeviceFPGA::create_outline(
                     called_task.get_scope(),
                     *symbol_map);
                 new_function.set_value(fun_code);
+                symbol_entity_specs_set_is_static(new_function.get_internal_symbol(), 1);
 
                 if (creates_children_tasks)
                 {
@@ -837,120 +838,6 @@ static TL::Type get_element_type_pointer_to(TL::Type type)
     return points_to;
 }
 
-static Source get_type_pointer_to_arrays_src(TL::Type copy_type, TL::Type type, bool is_only_pointer)
-{
-    Source ArrayExpression;
-    std::string  dimension_str;
-
-    if (is_only_pointer) //it's a shape
-    {
-        dimension_str = "[1]";
-        ArrayExpression << dimension_str;
-        return ArrayExpression;
-    }
-    else if (copy_type.is_array()) //it's a shape
-    {
-        int total_dimensions = copy_type.get_num_dimensions();
-        int n_dimensions=0;
-        Nodecl::NodeclBase array_get_expr;
-        while (n_dimensions<total_dimensions-1)
-        {
-            array_get_expr = copy_type.array_get_size();
-            dimension_str = "[" + array_get_expr.prettyprint() + "]";
-            ArrayExpression << dimension_str;
-            n_dimensions++;
-            copy_type  = copy_type.array_element();
-            // array_get_expr = type.array_get_size();
-            // dimension_str = "[" + array_get_expr.prettyprint() + "]";
-            // ArrayExpression << dimension_str;
-            // n_dimensions++;
-        }
-#if _DEBUG_AUTOMATIC_COMPILER_
-        std::cerr << std::endl << std::endl;
-        std::cerr << "Expression:" << ArrayExpression.get_source() << std::endl;
-        std::cerr << std::endl << std::endl;
-#endif
-        return ArrayExpression;
-    }
-    else if (copy_type.array_is_region())
-    {
-        Nodecl::NodeclBase cp_size = copy_type.array_get_region_size();
-        dimension_str = "[" + cp_size.prettyprint() + "]";
-        ArrayExpression <<  dimension_str;
-        //elems = const_value_cast_to_4(cp_size.get_constant());
-#if _DEBUG_AUTOMATIC_COMPILER_
-        std::cerr << std::endl << std::endl;
-        std::cerr << "Region Expression:" << ArrayExpression.get_source() << std::endl;
-        std::cerr << std::endl << std::endl;
-#endif
-        return ArrayExpression;
-
-    }
-#if _DEBUG_AUTOMATIC_COMPILER_
-    fprintf(stderr,"ERROR in dimensions! :%d\n",type.get_num_dimensions());
-#endif
-
-    return ArrayExpression;
-
-}
-
-static Source get_type_arrays_src(TL::Type copy_type, TL::Type type, bool is_only_pointer)
-{
-    Source ArrayExpression;
-    std::string  dimension_str;
-
-    if (is_only_pointer) //it's a shape
-    {
-        dimension_str = "[1]";
-        ArrayExpression << dimension_str;
-        return ArrayExpression;
-    }
-    else if (copy_type.is_array()) //it's a shape
-    {
-        int total_dimensions = copy_type.get_num_dimensions();
-        int n_dimensions=0;
-        Nodecl::NodeclBase array_get_expr;
-        array_get_expr = copy_type.array_get_size();
-        dimension_str = "[" + array_get_expr.prettyprint() + "]";
-        ArrayExpression << dimension_str;
-        n_dimensions++;
-        while (n_dimensions<total_dimensions)
-        {
-            copy_type  = copy_type.array_element();
-            array_get_expr = copy_type.array_get_size();
-            dimension_str = "[" + array_get_expr.prettyprint() + "]";
-            ArrayExpression << dimension_str;
-            n_dimensions++;
-        }
-#if _DEBUG_AUTOMATIC_COMPILER_
-        std::cerr << std::endl << std::endl;
-        std::cerr << "Expression:" << ArrayExpression.get_source() << std::endl;
-        std::cerr << std::endl << std::endl;
-#endif
-        return ArrayExpression;
-    }
-    else if (copy_type.array_is_region())
-    {
-        Nodecl::NodeclBase cp_size = copy_type.array_get_region_size();
-        dimension_str = "[" + cp_size.prettyprint() + "]";
-        ArrayExpression <<  dimension_str;
-        //elems = const_value_cast_to_4(cp_size.get_constant());
-#if _DEBUG_AUTOMATIC_COMPILER_
-        std::cerr << std::endl << std::endl;
-        std::cerr << "Region Expression:" << ArrayExpression.get_source() << std::endl;
-        std::cerr << std::endl << std::endl;
-#endif
-        return ArrayExpression;
-
-    }
-#if _DEBUG_AUTOMATIC_COMPILER_
-    fprintf(stderr,"ERROR in dimensions! :%d\n",type.get_num_dimensions());
-#endif
-
-    return ArrayExpression;
-
-}
-
 static Source get_copy_elements_all_dimensions_src(TL::Type copy_type)
 {
     Source ArrayExpression;
@@ -1071,7 +958,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
      *      scalar parameter passing based on original function task parameters
      */
 
-    Source pragmas_src, params_src, clear_components_count, var_decls_src, aux_decls_src;
+    Source pragmas_src, params_src, clear_components_count, var_decls_src, aux_decls_src,
+        local_decls_src, reset_src, handle_task_execution_cmd_src, init_hw_instr_cmd_src;
 
     var_decls_src
         << "typedef ap_axis<64,1,8,5> axiData_t;"
@@ -1080,25 +968,24 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         << "typedef uint64_t nanos_wd_t;"
         << "extern const uint8_t " << STR_ACCID << ";"
         << "static nanos_wd_t " << STR_TASKID << ";"
-        << "static uint64_t " << STR_INSTRBUFFER_OFFSET << ";"
-        << "static unsigned int " << STR_INSTRSLOTS << ", " << STR_INSTRCURRENTSLOT << ";"
-        << "static int " << STR_INSTROVERFLOW << ";"
+        << "static nanos_wd_t " << STR_PARENT_TASKID << ";"
     ;
 
     aux_decls_src
         << "void write_stream(axiStream_t &stream, uint64_t data, unsigned short dest, unsigned char last) {"
+        << "#pragma HLS INLINE\n"
         << "#pragma HLS INTERFACE axis port=stream\n"
-        << "\taxiData_t __data = {0, 0, 0, 0, 0, 0, 0};"
-        << "\t__data.id = accID;"
-        << "\t__data.keep = 0xFF;"
-        << "\t__data.dest = dest;"
-        << "\t__data.last = last;"
-        << "\t__data.data = data;"
-        << "\tstream.write(__data);"
+        << "  axiData_t __data = {0, 0, 0, 0, 0, 0, 0};"
+        << "  __data.id = " << STR_ACCID << ";"
+        << "  __data.keep = 0xFF;"
+        << "  __data.dest = dest;"
+        << "  __data.last = last;"
+        << "  __data.data = data;"
+        << "  stream.write(__data);"
         << "}"
         //<< "uint64_t read_stream(axiStream_t &stream) {"
         //<< "#pragma HLS INTERFACE axis port=stream\n"
-        //<< "\treturn stream.read().data;"
+        //<< "  return stream.read().data;"
         //<< "}"
     ;
 
@@ -1113,89 +1000,109 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         << "#pragma HLS INTERFACE axis port=" << STR_OUTPUTSTREAM << "\n"
     ;
 
+    local_decls_src
+        << "uint64_t __command, __commandArgs, __bufferData;"
+        << "uint8_t __commandCode;"
+        << "static ap_uint<1> __reset = 0;"
+        << "#pragma HLS RESET variable=__reset\n"
+    ;
+
     if (instrumentation_enabled())
     {
         //instrumentation declarations/definitions
         var_decls_src
             << "extern volatile counter_t * " << STR_INSTRCOUNTER << ";"
             << "extern volatile counter_t * " << STR_INSTRBUFFER << ";"
+            << "uint64_t " << STR_INSTRBUFFER_OFFSET << ";"
+            << "unsigned short int " << STR_INSTRSLOTS << ", " << STR_INSTRCURRENTSLOT << ", " << STR_INSTROVERFLOW << ", " << STR_INSTRAVSLOTS ";"
 
             << "typedef struct {"
-            << "    uint64_t eventId;"
-            << "    uint64_t value;"
-            << "    uint64_t timestamp;"
+            << "  uint64_t typeAndId;"
+            << "  uint64_t value;"
+            << "  uint64_t timestamp;"
             << "}" << STR_EVENTSTRUCT << ";"
 
             << "typedef enum {"
             << STR_PREFIX << "_EVENT_TYPE_BURST_OPEN = 0,\n"
             << STR_PREFIX << "_EVENT_TYPE_BURST_CLOSE = 1,\n"
             << STR_PREFIX << "_EVENT_TYPE_POINT = 2,\n"
-            << STR_PREFIX << "_EVENT_TYPE_LAST = 0XFFFFFFFF\n"
+            << STR_PREFIX << "_EVENT_TYPE_INVALID = 0XFFFFFFFF\n"
             << "} " << STR_EVENTTYPE << ";"
-            << "#define " << STR_PREFIX << "_EVENT_VAL_OK   0\n"
-            << "#define " << STR_PREFIX << "_EVENT_VAL_OVERFLOW   0xFFFFFFFF\n"
         ;
 
         //NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
         aux_decls_src
-            << "counter_t get_time() {"
+            << "counter_t __mcxx_instr_get_time() {"
             << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRCOUNTER << " offset=direct bundle=" << STR_INSTRCOUNTER << "\n"
             << "#pragma HLS inline off\n"
-            << "return *(" << STR_INSTRCOUNTER << ");"
+            << "  return *(" << STR_INSTRCOUNTER << ");"
             << "}"
-            //write events
-
-            << "void " << STR_WRITEEVENT << "(uint32_t event, uint64_t val, uint32_t type) {"
+            << "void __mcxx_instr_wait() {"
+            << "#pragma HLS inline off\n"
+            << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRBUFFER << "\n"
+            << "  if (" << STR_INSTRAVSLOTS << " == 1) {"
+            << "    unsigned short int i = (" << STR_INSTRCURRENTSLOT << "+1)%" << STR_INSTRSLOTS << ";"
+            << "    uint64_t typeAndId = *((uint64_t*)(" << STR_INSTRBUFFER << " + ((" << STR_INSTRBUFFER_OFFSET << " + i * sizeof(" << STR_EVENTSTRUCT << "))/sizeof(uint64_t))));"
+            << "    while (((typeAndId >> 32) == " << STR_PREFIX << "_EVENT_TYPE_INVALID) && (" << STR_INSTRAVSLOTS << " < " <<  STR_INSTRSLOTS << ")) {"
+            << "      " << STR_INSTRAVSLOTS << "++;"
+            << "      i = (i+1)%" << STR_INSTRSLOTS << ";"
+            << "      typeAndId = *((uint64_t*)(" << STR_INSTRBUFFER << " + ((" << STR_INSTRBUFFER_OFFSET << " + i * sizeof(" << STR_EVENTSTRUCT << "))/sizeof(uint64_t))));"
+            << "    }"
+            << "    if (" << STR_INSTRAVSLOTS << " > 1 && " << STR_INSTROVERFLOW << " > 0) {"
+            << "      " << STR_INSTROVERFLOW << " = 0;"
+            << "      " << STR_INSTRCURRENTSLOT << "++;"
+            << "    }"
+            << "  }"
+            << "}"
+            << "void __mcxx_instr_write(uint32_t event, uint64_t val, uint32_t type, const counter_t timestamp) {"
+            //NOTE: This function must be inline to avoid issue: https://pm.bsc.es/gitlab/ompss-at-fpga/mcxx/issues/19
             << "#pragma HLS inline\n"
             << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRBUFFER << "\n"
-
-            << "\t" << STR_EVENTSTRUCT << " fpga_event;"
-            //Save last slot for end status
-            //In case of instrumentation buffer size = 0, do not emit events
-            << "\tif (" << STR_INSTRCURRENTSLOT << "< (int)" << STR_INSTRSLOTS << "-1) {"
-            << "\t\tfpga_event.eventId = ((uint64_t)type<<32) | event;"
-            << "\t\tfpga_event.value = val;"
-            << "\t\tfpga_event.timestamp = get_time();"
-            << "\t\tmemcpy((void *)(" << STR_INSTRBUFFER << " + ((" << STR_INSTRBUFFER_OFFSET << " + " << STR_INSTRCURRENTSLOT
-            << " * sizeof(" << STR_EVENTSTRUCT << "))/sizeof(uint64_t))),"
-            << "&fpga_event, sizeof(" << STR_EVENTSTRUCT << "));"
-            << STR_INSTRCURRENTSLOT << "++;"
-            << "\t} else if (" << STR_INSTRCURRENTSLOT << " == " << STR_INSTRSLOTS << "  -1) {" //last event overflow
-            << "\t\t" << STR_INSTROVERFLOW << "++;"   //First time overflow=1
-            << "\t\tfpga_event.eventId = ((uint64_t) " << STR_PREFIX << "_EVENT_TYPE_LAST << 32) | " << STR_INSTROVERFLOW << ";"
-            << "\t\tfpga_event.value = " << STR_INSTROVERFLOW << ";"
-            << "\t\tmemcpy((void *)(" << STR_INSTRBUFFER << " + ((" << STR_INSTRBUFFER_OFFSET << " + " << STR_INSTRCURRENTSLOT
-            << " * sizeof(" << STR_EVENTSTRUCT << "))/sizeof(uint64_t))),"
-            << "&fpga_event, sizeof(" << STR_EVENTSTRUCT << "));"
-            << "\t}"
+            << "  __mcxx_instr_wait();"
+            << "  const uint64_t slot_offset = (" << STR_INSTRBUFFER_OFFSET << " + "
+            <<       STR_INSTRCURRENTSLOT << "%" << STR_INSTRSLOTS << " * sizeof(" << STR_EVENTSTRUCT << "))/sizeof(uint64_t);"
+            << "  if (" << STR_INSTRAVSLOTS << " > 1) {"
+            << "    " << STR_INSTRCURRENTSLOT << "++;"
+            << "    " << STR_INSTRAVSLOTS << "--;"
+            << "  }"
+            << "  else if (" << STR_INSTRAVSLOTS << " == 1) {"
+            << "    type = " << STR_PREFIX << "_EVENT_TYPE_POINT;"
+            << "    event = " << EV_INSTEVLOST << ";"
+            << "    val = " << STR_INSTROVERFLOW << "++;"
+            << "  }"
+            << "  " << STR_EVENTSTRUCT << " fpga_event;"
+            << "  fpga_event.typeAndId = ((uint64_t)type<<32) | event;"
+            << "  fpga_event.value = val;"
+            << "  fpga_event.timestamp = timestamp;"
+            << "  memcpy((void *)(" << STR_INSTRBUFFER << " + slot_offset), &fpga_event, sizeof(" << STR_EVENTSTRUCT << "));"
             << "}"
 
             << "void nanos_instrument_burst_begin(uint32_t event, uint64_t value) {"
             << "#pragma HLS inline\n"
-            << STR_WRITEEVENT << "(event, value, " << STR_PREFIX << "_EVENT_TYPE_BURST_OPEN );"
+            << "  __mcxx_instr_write(event, value, " << STR_PREFIX << "_EVENT_TYPE_BURST_OPEN, __mcxx_instr_get_time() );"
             << "}"
 
             << "void nanos_instrument_burst_end(uint32_t event, uint64_t value) {"
             << "#pragma HLS inline\n"
-            << STR_WRITEEVENT << "(event, value, " << STR_PREFIX << "_EVENT_TYPE_BURST_CLOSE );"
+            << "  __mcxx_instr_write(event, value, " << STR_PREFIX << "_EVENT_TYPE_BURST_CLOSE, __mcxx_instr_get_time() );"
             << "}"
 
             << "void nanos_instrument_point_event(uint32_t event, uint64_t value) {"
             << "#pragma HLS inline\n"
-            << STR_WRITEEVENT << "(event, value, " << STR_PREFIX << "_EVENT_TYPE_POINT );"
-            << "}"
-
-
-            << "void " << STR_INSTREND << "() {"
-            << "#pragma HLS inline\n"
-            << STR_WRITEEVENT << "(" << STR_PREFIX << "_EVENT_TYPE_LAST, " << STR_PREFIX << "_EVENT_VAL_OK, " << STR_PREFIX << "_EVENT_TYPE_LAST );"
-            //<< "    _emit_xtasks_ins_event(EVENT_ID_LAST, EVENT_VAL_OK, XTASKS_EVENT_TYPE_LAST);"
+            << "  __mcxx_instr_write(event, value, " << STR_PREFIX << "_EVENT_TYPE_POINT, __mcxx_instr_get_time() );"
             << "}"
         ;
 
         pragmas_src
             << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRCOUNTER << " offset=direct bundle=" << STR_INSTRCOUNTER << "\n"
             << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRBUFFER << "\n"
+        ;
+
+        reset_src
+            << "  " << STR_INSTRSLOTS << " = 0;"
+            << "  " << STR_INSTRAVSLOTS << " = 0;"
+            << "  " << STR_INSTRCURRENTSLOT << " = 0;"
+            << "  " << STR_INSTROVERFLOW << " = 0;"
         ;
     }
     else
@@ -1234,7 +1141,11 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         ;
 
         clear_components_count
-            << "\t\t" << STR_COMPONENTS_COUNT << " = 0;"
+            << "  " << STR_COMPONENTS_COUNT << " = 0;"
+        ;
+
+        reset_src
+            << "  " << STR_COMPONENTS_COUNT << " = 0;"
         ;
     }
 
@@ -1251,32 +1162,14 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     Source in_copies, out_copies;
     Source in_copies_aux, out_copies_aux;
     Source fun_params;
-    Source local_decls;
     Source profiling_0;
     Source profiling_1;
     Source profiling_2;
     Source profiling_3;
-    Source sync_output_code;
-    Source end_instrumentation;
     Source generic_initial_code;
     unsigned int n_params_id = 0;
     unsigned int n_params_out = 0;
     unsigned int wrapper_memory_port_width;
-
-    in_copies_aux
-        << "\t\t__copyFlags_id = " << STR_INPUTSTREAM << ".read().data;"
-        << "\t\t__copyFlags = __copyFlags_id;"
-        << "\t\t__param_id = __copyFlags_id >> 32;"
-        << "\t\tswitch (__param_id) {"
-    ;
-
-    out_copies_aux
-        << "\t\t__copyFlags_id = __copyFlags_id_out[__i];"
-        << "\t\t__copyFlags = __copyFlags_id; "
-        << "\t\t__param_id = __copyFlags_id >> 32;"
-        << "\t\t__param = __param_out[__i];"
-        << "\t\tswitch (__param_id) {"
-    ;
 
     //Create the memory access port shared between all task parameters
     if (_memory_port_width != "")
@@ -1306,10 +1199,16 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             << "#pragma HLS INTERFACE m_axi port=" << STR_WRAPPERDATA << "\n"
         ;
 
-        local_decls
-            << "\tunsigned int __j, __k;"
+        handle_task_execution_cmd_src
+            << "  unsigned int __j, __k;"
         ;
     }
+
+    handle_task_execution_cmd_src
+        << "  uint8_t __i, __param_id;"
+        << "  ap_uint<8> __copyFlags;"
+        << "  uint64_t __param, __paramInfo;"
+    ;
 
     // Go through all the data items
     for (ObjectList<OutlineDataItem*>::iterator it = data_items.begin(); it != data_items.end(); it++)
@@ -1325,17 +1224,16 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         {
             if (localmem.size() > 1)
             {
-                internal_error("Only one localmem per object is allowed (%s)",
-                    localmem.front().get_locus_str().c_str());
+                warn_printf_at(localmem.front().get_locus(),
+                    "Multiple implicit/explicit definitions of localmem for argument '%s'. Using first one\n", field_name.c_str());
             }
 
             TL::Type localmem_type = localmem.front().get_type().no_ref();
             if (localmem_type.is_array() && localmem_type.array_is_vla())
             {
                 //NOTE: VLAs cannot be cached in the wrapper as we don't know the array size yet
-                std::cerr << localmem.front().get_locus_str() << ": warning: disabling localmem of"
-                    << " FPGA accelerator for argument '" << field_name << "' (size not know at compile time)"
-                    << std::endl;
+                warn_printf_at(localmem.front().get_locus(),
+                    "Disabling localmem of FPGA accelerator for argument '%s' (size not know at compile time)\n", field_name.c_str());
                 continue;
             }
             else if (!localmem_type.is_array())
@@ -1356,33 +1254,33 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             const std::string casting_const_pointer = unql_type.get_const_type().get_pointer_to().get_declaration(scope, "");
             const std::string casting_sizeof = elem_type.get_declaration(scope, "");
 
-            local_decls
-                << "\tstatic " << localmem_type.get_unqualified_type().get_declaration(scope, field_name) << ";"
+            local_decls_src
+                << " static " << localmem_type.get_unqualified_type().get_declaration(scope, field_name) << ";"
             ;
 
             in_copies_aux
-                << "\t\t\tcase " << param_id << ":\n"
-                << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
+                << "    case " << param_id << ":\n"
+                << "      __param = " << STR_INPUTSTREAM << ".read().data;"
             ;
 
             //NOTE: If the elements are const qualified they cannot be an output
             if (!elem_type.is_const())
             {
                 in_copies_aux
-                    << "\t\t\t\t__copyFlags_id_out[" << n_params_out << "] = __copyFlags_id;"
-                    << "\t\t\t\t__param_out[" << n_params_out << "] = __param;"
+                    << "      __paramInfo_out[" << n_params_out << "] = __paramInfo;"
+                    << "      __param_out[" << n_params_out << "] = __param;"
                 ;
 
                 out_copies_aux
-                    << "\t\t\tcase " << param_id << ":\n"
-                    << "\t\t\t\tif(__copyFlags[5])\n"
+                    << "    case " << param_id << ":\n"
+                    << "      if(__copyFlags[5])"
                 ;
 
                 n_params_out++;
             }
 
             in_copies_aux
-                << "\t\t\t\tif(__copyFlags[4])\n"
+                << "      if(__copyFlags[4])"
             ;
 
 
@@ -1402,49 +1300,56 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 const std::string n_elems_read = "(sizeof(" + mem_ptr_type + ")/sizeof(" + casting_sizeof + "))";
 
                 in_copies_aux << "{"
-                    << "for (__j=0;"
-                    <<      "__j<((" << n_elements_src << "*sizeof(" << casting_sizeof << ")-1)/sizeof(" << mem_ptr_type << ")+1);"
-                    <<      "__j++)"
-                    << "{"
-                    <<   "#pragma HLS PIPELINE\n"
-                    <<   mem_ptr_type << " __tmpBuffer;"
-                    <<   "__tmpBuffer = *(" << port_name << " + __param/sizeof(" << mem_ptr_type << ") + __j);"
-                    <<   "for (__k=0;"
-                    <<        "__k<(" << n_elems_read << ") && ((__j*" << n_elems_read << "+__k) < " << n_elements_src << ");"
-                    <<        "__k++)"
-                    <<   "{"
-                    <<     "#pragma HLS UNROLL\n"
-                    <<     "union { uint64_t raw; " << casting_sizeof << " typed; } cast_tmp;"
-                    <<     "cast_tmp.raw = __tmpBuffer.range("
-                    <<       "(__k+1)*sizeof(" << casting_sizeof << ")*8-1,"
-                    <<       "__k*sizeof(" << casting_sizeof << ")*8);"
-                    <<     field_name << "[__j*" << n_elems_read << "+__k] = cast_tmp.typed;"
-                    << "} } }"
+                    << "      for (__j=0;"
+                    << "       __j<((" << n_elements_src << "*sizeof(" << casting_sizeof << ")-1)/sizeof(" << mem_ptr_type << ")+1);"
+                    << "       __j++) {"
+                    << "        #pragma HLS PIPELINE\n"
+                    << "        " <<  mem_ptr_type << " __tmpBuffer;"
+                    << "        __tmpBuffer = *(" << port_name << " + __param/sizeof(" << mem_ptr_type << ") + __j);"
+                    << "        for (__k=0;"
+                    << "         __k<(" << n_elems_read << ") && ((__j*" << n_elems_read << "+__k) < " << n_elements_src << ");"
+                    << "         __k++) {"
+                    << "          #pragma HLS UNROLL\n"
+                    << "          union {"
+                    << "            uint64_t raw;"
+                    << "            " << casting_sizeof << " typed;"
+                    << "          } cast_tmp;"
+                    << "          cast_tmp.raw = __tmpBuffer.range("
+                    <<            "(__k+1)*sizeof(" << casting_sizeof << ")*8-1,"
+                    <<            "__k*sizeof(" << casting_sizeof << ")*8);"
+                    << "          " << field_name << "[__j*" << n_elems_read << "+__k] = cast_tmp.typed;"
+                    << "        }"
+                    << "      }"
+                    << "}"
                 ;
 
                 //NOTE: If the elements are const qualified they cannot be an output
                 if (!elem_type.is_const())
                 {
                     out_copies_aux << "{"
-                        << "for (__j=0;"
-                        <<      "__j<((" << n_elements_src << "*sizeof(" << casting_sizeof << ")-1)/sizeof(" << mem_ptr_type << ")+1);"
-                        <<      "__j++)"
-                        << "{"
-                        <<   mem_ptr_type << " __tmpBuffer;"
-                        <<   "#pragma HLS PIPELINE\n"
-                        <<   "for (__k=0;"
-                        <<        "__k<(" << n_elems_read << ") && ((__j*" << n_elems_read << "+__k) < " << n_elements_src << ");"
-                        <<        "__k++)"
-                        <<   "{"
-                        <<     "#pragma HLS UNROLL\n"
-                        <<     "union { uint64_t raw; " << casting_sizeof << " typed; } cast_tmp;"
-                        <<     "cast_tmp.typed = " << field_name << "[__j*" << n_elems_read << "+__k];"
-                        <<     "__tmpBuffer.range("
-                        <<       "(__k+1)*sizeof(" << casting_sizeof << ")*8-1,"
-                        <<       "__k*sizeof(" << casting_sizeof << ")*8) = cast_tmp.raw;"
-                        <<   "}"
-                        <<    "*(" << port_name << " + __param/sizeof(" << mem_ptr_type << ") + __j) = __tmpBuffer;"
-                        << "} }"
+                        << "      for (__j=0;"
+                        << "       __j<((" << n_elements_src << "*sizeof(" << casting_sizeof << ")-1)"
+                        <<        "/sizeof(" << mem_ptr_type << ")+1);"
+                        << "       __j++) {"
+                        << "        " << mem_ptr_type << " __tmpBuffer;"
+                        << "        #pragma HLS PIPELINE\n"
+                        << "        for (__k=0;"
+                        << "         __k<(" << n_elems_read << ") && ((__j*" << n_elems_read << "+__k) < "
+                        <<           n_elements_src << ");"
+                        << "         __k++) {"
+                        << "          #pragma HLS UNROLL\n"
+                        << "          union {"
+                        << "            uint64_t raw;"
+                        << "            " << casting_sizeof << " typed;"
+                        << "          } cast_tmp;"
+                        << "          cast_tmp.typed = " << field_name << "[__j*" << n_elems_read << "+__k];"
+                        << "          __tmpBuffer.range("
+                        <<            "(__k+1)*sizeof(" << casting_sizeof << ")*8-1,"
+                        <<            "__k*sizeof(" << casting_sizeof << ")*8) = cast_tmp.raw;"
+                        << "        }"
+                        << "        *(" << port_name << " + __param/sizeof(" << mem_ptr_type << ") + __j) = __tmpBuffer;"
+                        << "      }"
+                        << "}"
                     ;
                 }
             }
@@ -1460,30 +1365,31 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 ;
 
                 in_copies_aux
-                    << "memcpy(" << field_name << ", "
-                    << "(" << casting_const_pointer << ")(" << port_name << " + __param/sizeof(" << casting_sizeof << ")), "
-                    << n_elements_src << "*sizeof(" << casting_sizeof << "));"
+                    << "      memcpy(" << field_name << ", "
+                    <<        "(" << casting_const_pointer << ")("
+                    <<         port_name << " + __param/sizeof(" << casting_sizeof << ")), "
+                    <<         n_elements_src << "*sizeof(" << casting_sizeof << "));"
                 ;
 
                 if (!elem_type.is_const())
                 {
                     out_copies_aux
-                        << "memcpy(" << port_name <<  " + __param/sizeof(" << casting_sizeof << "), "
-                        << "(" << casting_const_pointer << ")" << field_name << ", "
-                        << n_elements_src << "*sizeof(" << casting_sizeof << "));"
+                        << "      memcpy(" << port_name <<  " + __param/sizeof(" << casting_sizeof << "), "
+                        <<        "(" << casting_const_pointer << ")" << field_name << ", "
+                        <<         n_elements_src << "*sizeof(" << casting_sizeof << "));"
                     ;
                 }
             }
 
             in_copies_aux
-                << "break;"
+                << "      break;"
             ;
 
             //NOTE: If the elements are const qualified they cannot be an output
             if (!elem_type.is_const())
             {
                 out_copies_aux
-                    << "break;"
+                    << "      break;"
                 ;
             }
         }
@@ -1506,8 +1412,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         const std::string param_decl = unql_type.get_declaration(scope, param_name);
         const bool is_mcxx_ptr_t = param_decl.find("mcxx_ptr_t") != std::string::npos;
 
-        local_decls
-            << "\t" << param_decl << ";"
+        local_decls_src
+            << param_decl << ";"
         ;
 
         if (param_type.is_pointer() || param_type.is_array())
@@ -1535,33 +1441,33 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             ;
 
             in_copies_aux
-                << "\t\t\tcase " << param_id << ":\n"
-                << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
-                << "\t\t\t\t" << param_name << " = (" << casting_pointer << ")"
-                << "\t\t\t\t(" << port_name << " + __param/sizeof(" << casting_sizeof << "));"
-                << "\t\t\t\tbreak;"
+                << "    case " << param_id << ":\n"
+                << "      __param = " << STR_INPUTSTREAM << ".read().data;"
+                << "      " << param_name << " = (" << casting_pointer << ")"
+                <<        "(" << port_name << " + __param/sizeof(" << casting_sizeof << "));"
+                << "      break;"
             ;
         }
         else if (param_type.is_scalar_type())
         {
             in_copies_aux
-                << "\t\t\tcase " << param_id << ":\n"
-                << "\t\t\t\tunion {"
-                << "\t\t\t\t\t" << unql_type.get_declaration(scope, param_name) << ";"
-                << "\t\t\t\t\tuint64_t "<< param_name << "_task_arg;"
-                << "\t\t\t\t} mcc_arg_" << param_id << ";"
-                << "\t\t\t\tmcc_arg_" << param_id << "." << param_name << "_task_arg = " << STR_INPUTSTREAM << ".read().data;"
-                << "\t\t\t\t" << param_name << " = mcc_arg_" << param_id << "." << param_name << ";"
-                << "\t\t\t\tbreak;"
+                << "    case " << param_id << ":\n"
+                << "      union {"
+                << "        " << unql_type.get_declaration(scope, param_name) << ";"
+                << "        uint64_t "<< param_name << "_task_arg;"
+                << "      } mcc_arg_" << param_id << ";"
+                << "      mcc_arg_" << param_id << "." << param_name << "_task_arg = " << STR_INPUTSTREAM << ".read().data;"
+                << "      " << param_name << " = mcc_arg_" << param_id << "." << param_name << ";"
+                << "      break;"
             ;
         }
         else if (creates_children_tasks && is_mcxx_ptr_t)
         {
             in_copies_aux
-                << "\t\t\tcase " << param_id << ":\n"
-                << "\t\t\t\t__param = " << STR_INPUTSTREAM << ".read().data;"
-                << "\t\t\t\t" << param_name << " = __param;"
-                << "\t\t\t\tbreak;"
+                << "    case " << param_id << ":\n"
+                << "      __param = " << STR_INPUTSTREAM << ".read().data;"
+                << "      " << param_name << " = __param;"
+                << "      break;"
             ;
         }
         else
@@ -1577,109 +1483,103 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         n_params_id++;
     }
 
-    in_copies
-        << "\tfor (__i = 0; __i < " << n_params_id << "; __i++) {"
-        << in_copies_aux
-        << "\t\t\tdefault:;"
-        << "\t\t}"
-        << "\t}"
-    ;
+    if (n_params_id)
+    {
+        in_copies
+            << "  for (__i = 0; __i < " << n_params_id << "; __i++) {"
+            << "    __paramInfo = " << STR_INPUTSTREAM << ".read().data;"
+            << "    __copyFlags = __paramInfo;"
+            << "    __param_id = __paramInfo >> 32;"
+            << "    switch (__param_id) {"
+            <<      in_copies_aux
+            << "    default:;"
+            << "    }"
+            << "  }"
+        ;
+    }
 
     if (n_params_out)
     {
+        handle_task_execution_cmd_src
+            << "  uint64_t __paramInfo_out[" << n_params_out << "];"
+            << "  uint64_t __param_out[" << n_params_out << "];"
+        ;
+
         out_copies
-            << "\tfor (__i = 0; __i < (" << n_params_out << "); __i++) {"
-            << out_copies_aux
-            << "\t\t\tdefault:;"
-            << "\t\t}"
-            << "\t}"
-            << "\n"
-        ;
-    }
-
-    if (instrumentation_enabled())
-    {
-        local_decls
-            << "\tcounter_t  __counter_reg[4] = {0xA, 0xBAD, 0xC0FFE, 0xDEAD};"
-        ;
-    }
-
-    local_decls
-        << "\tunsigned int __i, __param_id;"
-        << "\tuint64_t __accHeader;"
-        << "\tap_uint<8> __copyFlags, __destID;"
-        << "\tuint32_t __comp_needed;"
-        << "\tunsigned long long __param, __copyFlags_id;"
-        << "\tuint64_t __bufferData;"
-    ;
-
-    if (n_params_out)
-    {
-        local_decls
-            << "\tunsigned long long __copyFlags_id_out[" << n_params_out << "];"
-            << "\tunsigned long long __param_out[" << n_params_out << "];"
+            << "  for (__i = 0; __i < (" << n_params_out << "); __i++) {"
+            << "    __paramInfo = __paramInfo_out[__i];"
+            << "    __copyFlags = __paramInfo; "
+            << "    __param_id = __paramInfo >> 32;"
+            << "    __param = __param_out[__i];"
+            << "    switch (__param_id) {"
+            <<      out_copies_aux
+            << "    default:;"
+            << "    }"
+            << "  }"
         ;
     }
 
     if (instrumentation_enabled())
     {
         profiling_0 //copy in begin
-            << "\tnanos_instrument_burst_begin(" << EV_DEVCOPYIN << ", " << STR_TASKID << ");"
+            << "  nanos_instrument_burst_begin(" << EV_DEVCOPYIN << ", " << STR_TASKID << ");"
         ;
 
         profiling_1 //copy in end, task exec begin
-            << "nanos_instrument_burst_end(" << EV_DEVCOPYIN << ", " << STR_TASKID << ");"
-            << "nanos_instrument_burst_begin(" << EV_DEVEXEC << ", " << STR_TASKID << ");"
+            << "  nanos_instrument_burst_end(" << EV_DEVCOPYIN << ", " << STR_TASKID << ");"
+            << "  nanos_instrument_burst_begin(" << EV_DEVEXEC << ", " << STR_TASKID << ");"
         ;
 
         profiling_2 //task exec end, copy out end
-            << "nanos_instrument_burst_end(" << EV_DEVEXEC << ", " << STR_TASKID << ");"
-            << "nanos_instrument_burst_begin(" << EV_DEVCOPYOUT << ", " << STR_TASKID << ");"
+            << "  nanos_instrument_burst_end(" << EV_DEVEXEC << ", " << STR_TASKID << ");"
+            << "  nanos_instrument_burst_begin(" << EV_DEVCOPYOUT << ", " << STR_TASKID << ");"
         ;
 
         profiling_3 //copy out end
-            << "nanos_instrument_burst_end(" << EV_DEVCOPYOUT << ", " << STR_TASKID << ");"
+            << "  nanos_instrument_burst_end(" << EV_DEVCOPYOUT << ", " << STR_TASKID << ");"
         ;
 
-    }
-
-    generic_initial_code
-        << "\t" << STR_TASKID << " = " << STR_INPUTSTREAM << ".read().data;"
-        << "\t" STR_INPUTSTREAM << ".read();"
-        << "\t__bufferData = " << STR_INPUTSTREAM << ".read().data;"
-        << "\t__accHeader = " << STR_INPUTSTREAM << ".read().data;"
-        << "\t__comp_needed = __accHeader;"
-        << "\t__destID = __accHeader>>32;"
-    ;
-
-    if (instrumentation_enabled())
-    {
-        generic_initial_code
-            << "\t" << STR_INSTRBUFFER_OFFSET << " = __bufferData & ((1ULL<<48)-1);" //48 lower bits
-            << "\t" << STR_INSTRSLOTS << " =__bufferData >> 48;"
-            << "\t" << STR_INSTROVERFLOW << " = 0;"
-            << "\t" << STR_INSTRCURRENTSLOT << " = 0;"
+        init_hw_instr_cmd_src
+            << "else if (__commandCode == 2) {"
+            << "  " << STR_INSTRSLOTS << " = __commandArgs&0xFFFFFF;"
+            << "  " << STR_INSTRAVSLOTS << " = __commandArgs&0xFFFFFF;"
+            << "  " << STR_INSTRBUFFER_OFFSET << " = " << STR_INPUTSTREAM << ".read().data;"
+            << "  " << STR_INSTROVERFLOW << " = 0;"
+            << "  " << STR_INSTRCURRENTSLOT << " = 0;"
+            << "}"
         ;
-
     }
 
-    sync_output_code
-        << "\tend_task: {"
-        << "\t#pragma HLS PROTOCOL fixed\n"
-        << "\t\tend_acc_task(" << STR_OUTPUTSTREAM << ", __destID);"
-        << "\t}"
-        << " "
+    handle_task_execution_cmd_src
+        << "  uint8_t __comp_needed, __destID;"
+        << "  " << STR_PARENT_TASKID << " = " << STR_INPUTSTREAM << ".read().data;"
+        << "  " << STR_TASKID << " = " << STR_INPUTSTREAM << ".read().data;"
+        << "  __comp_needed = __commandArgs>>24;"
+        << "  __destID = __commandArgs>>32;"
+        <<    profiling_0
+        <<    in_copies
+        <<    profiling_1
+        << "  if (__comp_needed) {"
+        <<      clear_components_count
+        << "    " << func_symbol.get_name() << "(" << fun_params << ");"
+        << "  }"
+        <<    profiling_2
+        <<    out_copies
+        <<    profiling_3
+        << "  end_task: {"
+        << "    #pragma HLS PROTOCOL fixed\n"
+        << "    end_acc_task(" << STR_OUTPUTSTREAM << ", __destID);"
+        << "  }"
     ;
-
-    if (instrumentation_enabled())
-        end_instrumentation << STR_INSTREND << "();" ;
 
     aux_decls_src
-        << "void end_acc_task(axiStream_t& stream, uint32_t destId) {"
-        << end_instrumentation
-        << "\tuint64_t data = " << STR_ACCID << ";"
-        << "\tdata = (data << 56) | (" << STR_TASKID << " & 0x00FFFFFFFFFFFFFF);"
-        << "\twrite_stream(stream, data, destId, 1);"
+        << "void end_acc_task(axiStream_t& stream, const uint8_t destId) {"
+        << "  uint64_t header = " << STR_ACCID << ";"
+        //Finished task command code is 0x03
+        << "  header = (header << 8) | 0x03;"
+        << "  write_stream(stream, header, destId, 0);"
+        << "  write_stream(stream, " << STR_PARENT_TASKID << ", destId, 0);"
+        << "  write_stream(stream, " << STR_TASKID << ", destId, 1);"
         << "}"
     ;
 
@@ -1687,27 +1587,19 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         << "void " << wrapper_func_name << "(" << params_src << ") {"
         << pragmas_src
         << "\n"
-        << local_decls
+        << local_decls_src
         << "\n"
-        << generic_initial_code
-        << "\n"
-        << profiling_0
-        << "\n"
-        << in_copies
-        << "\n"
-        << profiling_1
-        << "\n"
-        << "\tif (__comp_needed) {\n"
-        << clear_components_count
-        << "\t\t" << func_symbol.get_name() << "(" << fun_params << ");"
-        << "\t}"
-        << profiling_2
-        << "\n"
-        << out_copies
-        << profiling_3
-        << "\n"
-        << sync_output_code
-        << "\n"
+        << "if (__reset == 0) {"
+        << "  __reset = 1;"
+        <<    reset_src
+        << "}"
+        << "__command = " << STR_INPUTSTREAM << ".read().data;"
+        << "__commandCode = __command;"
+        << "__commandArgs = __command>>8;"
+        << "if (__commandCode == 1) {"
+        <<    handle_task_execution_cmd_src
+        << "}"
+        << init_hw_instr_cmd_src
         << "}"
     ;
 
@@ -1895,6 +1787,7 @@ void DeviceFPGA::emit_async_device(
     TL::ObjectList<OutlineDataItem*> data_items = outline_info.get_data_items();
     DeviceHandler device_handler = DeviceHandler::get_device_handler();
     const OutlineInfo::implementation_table_t& implementation_table = outline_info.get_implementation_table();
+    TL::Scope function_scope = current_function.get_scope();
 
     std::string acc_type;
 
@@ -1932,7 +1825,7 @@ void DeviceFPGA::emit_async_device(
         }
     }
 
-    Source spawn_code, args_list, args_flags_list, copies_list;
+    Source spawn_code, args_list, deps_list, deps_flags_list, copies_list;
     size_t num_args = 0, num_deps = 0, num_copies = 0;
 
     // Go through all the arguments and fill the arguments_list
@@ -1943,31 +1836,38 @@ void DeviceFPGA::emit_async_device(
         if (!(*it)->get_symbol().is_valid())
             continue;
 
-        bool is_dep = false;
-        Source arg_flags;
-        arg_flags.append_with_separator("NANOS_ARGFLAG_NONE", " | "); // Default argument flag
         TL::ObjectList<OutlineDataItem::DependencyItem> dependences = (*it)->get_dependences();
         for (TL::ObjectList<OutlineDataItem::DependencyItem>::iterator dep_it = dependences.begin();
                 dep_it != dependences.end();
                 dep_it++)
         {
-            if ((dep_it->directionality & OutlineDataItem::DEP_IN) == OutlineDataItem::DEP_IN)
-            {
-                arg_flags.append_with_separator("NANOS_ARGFLAG_DEP_IN", " | ");
-                is_dep = true;
-            }
-            if ((dep_it->directionality & OutlineDataItem::DEP_OUT) == OutlineDataItem::DEP_OUT)
-            {
-                arg_flags.append_with_separator("NANOS_ARGFLAG_DEP_OUT", " | ");
-                is_dep = true;
-            }
             if ((dep_it->directionality & (~OutlineDataItem::DEP_INOUT)) != OutlineDataItem::DEP_NONE)
             {
                 fatal_printf_at((*it)->get_base_address_expression().get_locus(),
                     "Only in/out/inout dependences are suported when creating a task in a FPGA device\n");
             }
+
+            // Dependence value
+            Source dep_value;
+            TL::DataReference dep_expr(dep_it->expression);
+            Nodecl::NodeclBase dep_expr_offset = dep_expr.get_offsetof_dependence();
+            dep_value << "(uintptr_t)(" << as_expression(dep_expr.get_base_address())  << ") + " << as_expression(dep_expr_offset);
+            deps_list.append_with_separator( dep_value, ", " );
+
+            // Dependence flags
+            Source dep_flags;
+            if ((dep_it->directionality & OutlineDataItem::DEP_IN) == OutlineDataItem::DEP_IN)
+            {
+                dep_flags.append_with_separator("NANOS_ARGFLAG_DEP_IN", " | ");
+            }
+            if ((dep_it->directionality & OutlineDataItem::DEP_OUT) == OutlineDataItem::DEP_OUT)
+            {
+                dep_flags.append_with_separator("NANOS_ARGFLAG_DEP_OUT", " | ");
+            }
+            deps_flags_list.append_with_separator( dep_flags, ", " );
+
+            ++num_deps;
         }
-        num_deps += is_dep;
 
         Source arg_value;
         switch ((*it)->get_sharing())
@@ -1978,7 +1878,6 @@ void DeviceFPGA::emit_async_device(
                             == OutlineDataItem::ALLOCATION_POLICY_OVERALLOCATED)
                     {
                         fatal_error("Argument overallocation not supported yet\n");
-
                     }
                     else
                     {
@@ -1997,48 +1896,22 @@ void DeviceFPGA::emit_async_device(
                         else
                         {
                             sym_type = sym_type.no_ref().get_unqualified_type();
-                            if ((*it)->get_captured_value().is_null())
+                            if (sym_type.is_pointer() || sym_type.is_integral_type())
                             {
-                                if (IS_CXX_LANGUAGE
-                                        && (sym_type.is_dependent()
-                                            || (sym_type.is_class()
-                                                && !sym_type.is_pod())))
-                                {
-                                    fatal_error("This kind of argument is not supported yet\n");
-                                }
-                                else
-                                {
-                                    // Plain assignment is enough
-                                    arg_value
-                                        << "(uintptr_t)("
-                                        << as_symbol((*it)->get_symbol())
-                                        << ")";
-                                }
+                                Nodecl::NodeclBase captured = (*it)->get_captured_value();
+                                arg_value
+                                    << "(uintptr_t)(" << as_expression(captured.shallow_copy()) << ")";
                             }
                             else
                             {
-                                Nodecl::NodeclBase captured = (*it)->get_captured_value();
-                                Nodecl::NodeclBase condition = (*it)->get_conditional_capture_value();
-                                if (!condition.is_null())
-                                {
-                                    warn_printf_at(condition.get_locus(),
-                                        "Conditional capture not supported yet. Ignoring it.\n");
-                                }
+                                std::string cast_obj_name = "fpga_spawn_cast_" + (*it)->get_symbol().get_name();
+                                Symbol cast_obj_sym = declare_casting_union(sym_type, construct);
+                                spawn_code
+                                    << cast_obj_sym.get_user_defined_type().get_declaration(function_scope, cast_obj_name) << ";"
+                                    << cast_obj_name << ".typed = " << as_symbol((*it)->get_symbol()) << ";";
 
-                                if (IS_CXX_LANGUAGE
-                                        && (sym_type.is_dependent()
-                                            || (sym_type.is_class()
-                                                && !sym_type.is_pod())))
-                                {
-                                    fatal_error("This kind of argument is not supported yet\n");
-                                }
-                                else
-                                {
-                                    arg_value
-                                        << "(uintptr_t)("
-                                        << as_expression(captured.shallow_copy())
-                                        << ")";
-                                }
+                                arg_value
+                                    << cast_obj_name << ".raw";
                             }
                         }
 
@@ -2060,10 +1933,7 @@ void DeviceFPGA::emit_async_device(
                     internal_error("Unexpected sharing kind", 0);
                 }
         };
-
         args_list.append_with_separator( arg_value, ", " );
-        args_flags_list.append_with_separator( arg_flags, ", " );
-        ++num_args;
 
         // Check if argument is also a copy
         TL::ObjectList<OutlineDataItem::CopyItem> copies = (*it)->get_copies();
@@ -2135,6 +2005,8 @@ void DeviceFPGA::emit_async_device(
             }
 
             copy_value
+                << ", .arg_idx = " << num_args
+                << ", ._padding = 0"
                 << ", .size = "
                 << "(" << as_expression(dims_sizes[0].shallow_copy()) << ") * sizeof(" << as_type(base_type) << ")"
                 << ", .offset = "
@@ -2147,9 +2019,11 @@ void DeviceFPGA::emit_async_device(
             copies_list.append_with_separator( copy_value, ", " );
             ++num_copies;
         }
+
+        ++num_args;
     }
 
-    if (!Nanos::Version::interface_is_at_least("fpga", 6))
+    if (!Nanos::Version::interface_is_at_least("fpga", 7))
         fatal_error("Your Nanos version is not supported for cration of tasks inside the FPGA. Please update your Nanos installation\n");
 
     if (num_args > 0)
@@ -2157,9 +2031,17 @@ void DeviceFPGA::emit_async_device(
         spawn_code
             << "uint64_t mcxx_args[] = {"
             << args_list
+            << "};";
+    }
+
+    if (num_deps > 0)
+    {
+        spawn_code
+            << "uint64_t mcxx_deps[] = {"
+            << deps_list
             << "};"
-            << "uint8_t mcxx_args_flags[] = {"
-            << args_flags_list
+            << "uint8_t mcxx_deps_flags[] = {"
+            << deps_flags_list
             << "};";
     }
 
@@ -2172,8 +2054,9 @@ void DeviceFPGA::emit_async_device(
     }
 
     spawn_code
-        << "nanos_fpga_create_wd_async(" << arch_mask << ", " << acc_type << ", " << num_deps << ", " << num_args << ", "
-        << (num_args > 0 ? "mcxx_args, mcxx_args_flags" : "(uint64_t *)0, (uint8_t *)0") << ", "
+        << "nanos_fpga_create_wd_async(" << arch_mask << ", " << acc_type << ", "
+        << num_args << ", " << (num_args > 0 ? "mcxx_args" : "(uint64_t *)0") << ", "
+        << num_deps << ", " << (num_deps > 0 ? "mcxx_deps, mcxx_deps_flags" : "(uint64_t *)0, (uint8_t *)0") << ", "
         << num_copies << ", " << (num_copies > 0 ? "mcxx_copies" : "(nanos_fpga_copyinfo_t *)0") << ");";
 
     Nodecl::NodeclBase spawn_code_tree = spawn_code.parse_statement(construct);
