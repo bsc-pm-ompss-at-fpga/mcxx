@@ -1283,8 +1283,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 << "      if(__copyFlags[4])"
             ;
 
-
-            if (_memory_port_width != "")
+            //FIXME: Add suport for arrays when the memory_port_width is defined
+            if (_memory_port_width != "" && !localmem_type.array_element().is_array())
             {
                 //NOTE: The following check may not be vaild when cross-compiling
                 if (wrapper_memory_port_width%elem_type.get_size() != 0)
@@ -1355,6 +1355,12 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             }
             else
             {
+                if (_memory_port_width != "" && localmem_type.array_element().is_array())
+                {
+                    warn_printf_at(localmem.front().get_locus(),
+                        "Disabling shared memory port for argument '%s' (array of arrays)\n", field_name.c_str());
+                }
+
                 const std::string port_name = STR_PREFIX + field_name;
                 const std::string port_declaration =
                     elem_type.get_pointer_to().get_declaration(scope, port_name, TL::Type::PARAMETER_DECLARATION);
