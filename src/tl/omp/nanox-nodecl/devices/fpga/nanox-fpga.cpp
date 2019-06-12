@@ -2014,12 +2014,15 @@ void DeviceFPGA::emit_async_device(
                 << ", .arg_idx = " << num_args
                 << ", ._padding = 0"
                 << ", .size = "
-                << "(" << as_expression(dims_sizes[0].shallow_copy()) << ") * sizeof(" << as_type(base_type) << ")"
+                << "((uint32_t)(" << as_expression(dims_sizes[0].shallow_copy()) << ") *"
+                << " (uint32_t)sizeof(" << as_type(base_type) << "))"
                 << ", .offset = "
-                << "(" << as_expression(lower_bounds[0].shallow_copy()) << ") * sizeof(" << as_type(base_type) << ")"
+                << "((uint32_t)(" << as_expression(lower_bounds[0].shallow_copy()) << ") *"
+                << " (uint32_t)sizeof(" << as_type(base_type) << "))"
                 << ", .accessed_length = "
-                << "((" << as_expression(upper_bounds[0].shallow_copy()) << ") - ("
-                << as_expression(lower_bounds[0].shallow_copy()) << ") + 1) * sizeof(" << as_type(base_type) << ")"
+                << "((uint32_t)((" << as_expression(upper_bounds[0].shallow_copy()) << ") - ("
+                << as_expression(lower_bounds[0].shallow_copy()) << ") + 1) *"
+                << " (uint32_t)sizeof(" << as_type(base_type) << "))"
                 << "}";
 
             copies_list.append_with_separator( copy_value, ", " );
