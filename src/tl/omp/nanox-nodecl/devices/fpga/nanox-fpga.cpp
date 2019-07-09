@@ -966,7 +966,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         << "typedef hls::stream<axiData_t> axiStream_t;"
         << "typedef uint64_t counter_t;"
         << "typedef uint64_t nanos_wd_t;"
-        << "extern const uint8_t " << STR_ACCID << ";"
+        << "extern const uint8_t " << STR_FULL_ACCID << ";"
         << "static nanos_wd_t " << STR_TASKID << ";"
         << "static nanos_wd_t " << STR_PARENT_TASKID << ";"
     ;
@@ -976,7 +976,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         << "#pragma HLS INLINE\n"
         << "#pragma HLS INTERFACE axis port=stream\n"
         << "  axiData_t __data = {0, 0, 0, 0, 0, 0, 0};"
-        << "  __data.id = " << STR_ACCID << ";"
+        << "  __data.id = " << STR_GLB_ACCID << ";"
         << "  __data.keep = 0xFF;"
         << "  __data.dest = dest;"
         << "  __data.last = last;"
@@ -1580,7 +1580,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
     aux_decls_src
         << "void end_acc_task(axiStream_t& stream, const uint8_t destId) {"
-        << "  uint64_t header = " << STR_ACCID << ";"
+        << "  uint64_t header = " << STR_GLB_ACCID << ";"
         //Finished task command code is 0x03
         << "  header = (header << 8) | 0x03;"
         << "  write_stream(stream, header, destId, 0);"
