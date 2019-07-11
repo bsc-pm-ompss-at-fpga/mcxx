@@ -31,7 +31,14 @@
 #include "tl-counters.hpp"
 #include "../../../lowering-common/tl-omp-lowering-utils.hpp"
 
-#define STR_ACCID              "accID"
+/*
+ * NOTE: accID is composed by 2 parts:
+ *  [0:3] global accelerator id (aka considering all accelerators)
+ *  [4:7] ext accelerator id (aka only considering accels with task creation capabilities)
+ */
+#define STR_FULL_ACCID         "accID"
+#define STR_GLB_ACCID          "(accID&0xF)"
+#define STR_EXT_ACCID          "((accID>>4)&0xF)"
 #define STR_COMPONENTS_COUNT   "__mcxx_taskComponents"
 #define STR_GLOB_OUTPORT       "__mcxx_outPort"
 #define STR_GLOB_TWPORT        "__mcxx_twPort"
@@ -405,7 +412,7 @@ Source get_nanos_wait_completion_source()
     out << "enum nanos_err_t nanos_wg_wait_completion(nanos_wg_t uwg, bool avoid_flush) {"
         << "  if (" << STR_COMPONENTS_COUNT << " == 0) { return NANOS_OK; }"
         << "  const unsigned short TM_TW = 0x13;"
-        << "  uint64_t tmp = " << STR_ACCID << ";"
+        << "  uint64_t tmp = " << STR_EXT_ACCID << ";"
         << "  tmp = tmp << 48 /*ACC_ID info uses bits [48:55]*/;"
         << "  tmp = 0x8000000100000000 | tmp | " << STR_COMPONENTS_COUNT << ";"
         << "  write_outstream(tmp /*TASKWAIT_DATA_BLOCK*/, TM_TW, 0 /*last*/);"
