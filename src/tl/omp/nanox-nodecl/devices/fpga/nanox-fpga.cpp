@@ -711,6 +711,7 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
                      << "// Accelerator type: " << it->_type << "\n"
                      << "// Num. instances:   " << it->_num_instances << "\n"
                      << "///////////////////\n"
+                     << "#define __HLS_AUTOMATIC_MCXX__ 1\n"
                      << "\n"
                      << "#include <stdint.h>\n"
                      << "#include <iostream>\n"
@@ -724,6 +725,8 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
             add_stuff_to_copy(hls_file);
 
             hls_file << it->_source_code.get_source(true);
+
+            hls_file << "#undef __HLS_AUTOMATIC_MCXX__";
 
             hls_file.close();
 
