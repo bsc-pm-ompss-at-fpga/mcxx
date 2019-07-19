@@ -1641,13 +1641,13 @@ ObjectList<Source> DeviceFPGA::get_called_functions_sources(const TL::ObjectList
                 its != called_function_code.end(); ++its)
             {
                 TL::Symbol sym = its->get_symbol();
-                std::string original_filename = TL::CompilationProcess::get_current_file().get_filename(/* fullpath */ true);
+                const std::string original_filename = TL::CompilationProcess::get_current_file().get_filename(/* fullpath */ true);
 
-                if (sym.is_function() && (sym.get_filename() == original_filename))
+                if (sym.is_function())
                 {
                     Nodecl::NodeclBase code = sym.get_function_code();
 
-                    if (!code.is_null())
+                    if (!code.is_null() && (code.get_filename() == original_filename))
                     {
                         TL::ObjectList<Nodecl::NodeclBase> called_function_code_list;
                         called_function_code_list.insert(code);
