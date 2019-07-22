@@ -712,6 +712,7 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
                      << "// Accelerator type: " << it->_type << "\n"
                      << "// Num. instances:   " << it->_num_instances << "\n"
                      << "///////////////////\n"
+                     << "#define __HLS_AUTOMATIC_MCXX__ 1\n"
                      << "\n"
                      << "#include <stdint.h>\n"
                      << "#include <iostream>\n"
@@ -725,6 +726,8 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
             add_stuff_to_copy(hls_file);
 
             hls_file << it->_source_code.get_source(true);
+
+            hls_file << "#undef __HLS_AUTOMATIC_MCXX__";
 
             hls_file.close();
 
@@ -1638,13 +1641,13 @@ ObjectList<Source> DeviceFPGA::get_called_functions_sources(const TL::ObjectList
                 its != called_function_code.end(); ++its)
             {
                 TL::Symbol sym = its->get_symbol();
-                std::string original_filename = TL::CompilationProcess::get_current_file().get_filename(/* fullpath */ true);
+                const std::string original_filename = TL::CompilationProcess::get_current_file().get_filename(/* fullpath */ true);
 
-                if (sym.is_function() && (sym.get_filename() == original_filename))
+                if (sym.is_function())
                 {
                     Nodecl::NodeclBase code = sym.get_function_code();
 
-                    if (!code.is_null())
+                    if (!code.is_null() && (code.get_filename() == original_filename))
                     {
                         TL::ObjectList<Nodecl::NodeclBase> called_function_code_list;
                         called_function_code_list.insert(code);
