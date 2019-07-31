@@ -2076,7 +2076,7 @@ void DeviceFPGA::emit_async_device(
 
     if (_registered_tasks.find(acc_type) == _registered_tasks.end())
     {
-        register_task_creation(construct, current_function, called_task, structure_symbol, outline_info, acc_type, num_copies);
+        register_task_creation(construct, task_label, current_function, called_task, structure_symbol, outline_info, acc_type, num_copies);
         _registered_tasks.insert(acc_type);
     }
 }
@@ -2087,6 +2087,7 @@ bool is_not_alnum(int charact) {
 
 void DeviceFPGA::register_task_creation(
         Nodecl::NodeclBase construct,
+        Nodecl::NodeclBase task_label,
         TL::Symbol current_function,
         TL::Symbol called_task,
         TL::Symbol structure_symbol,
@@ -2262,11 +2263,27 @@ void DeviceFPGA::register_task_creation(
             Nodecl::Utils::append_to_top_level_nodecl(outline_function_code);
 
             Source outline_src;
+            Source instrument_before, instrument_after;
+
+            if (instrumentation_enabled())
+            {
+                device->get_instrumentation_code(
+                    called_task,
+                    outline_function,
+                    outline_function_body,
+                    task_label,
+                    construct.get_locus(),
+                    instrument_before,
+                    instrument_after
+                );
+            }
 
             outline_src
                 << "{"
+                << instrument_before
                 << device_name << "_" << implementor_outline_name << "_unpacked"
                 << "(" << unpacked_arguments << ");"
+                << instrument_after
                 << "}"
             ;
 

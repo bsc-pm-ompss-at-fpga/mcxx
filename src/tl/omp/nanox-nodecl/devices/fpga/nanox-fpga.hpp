@@ -162,6 +162,7 @@ namespace TL
 
                 void register_task_creation(
                         Nodecl::NodeclBase construct,
+                        Nodecl::NodeclBase task_label,
                         TL::Symbol current_function,
                         TL::Symbol called_task,
                         TL::Symbol structure_symbol,
