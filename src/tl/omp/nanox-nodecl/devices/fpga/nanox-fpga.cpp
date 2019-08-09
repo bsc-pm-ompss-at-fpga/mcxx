@@ -1210,7 +1210,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     handle_task_execution_cmd_src
         << "  uint8_t __i, __param_id;"
         << "  ap_uint<8> __copyFlags;"
-        << "  uint64_t __param, __paramInfo;"
     ;
 
     // Go through all the data items
@@ -1263,15 +1262,14 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
             in_copies_aux
                 << "    case " << param_id << ":\n"
-                << "      __param = " << STR_INPUTSTREAM << ".read().data;"
             ;
 
             //NOTE: If the elements are const qualified they cannot be an output
             if (!elem_type.is_const())
             {
                 in_copies_aux
-                    << "      __paramInfo_out[" << n_params_out << "] = __paramInfo;"
-                    << "      __param_out[" << n_params_out << "] = __param;"
+                    << "      __paramInfo_out[" << n_params_out << "] = __paramInfo[" << param_id << "];"
+                    << "      __param_out[" << n_params_out << "] = __param[" << param_id << "];"
                 ;
 
                 out_copies_aux
@@ -1308,7 +1306,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                     << "       __j++) {"
                     << "        #pragma HLS PIPELINE\n"
                     << "        " <<  mem_ptr_type << " __tmpBuffer;"
-                    << "        __tmpBuffer = *(" << port_name << " + __param/sizeof(" << mem_ptr_type << ") + __j);"
+                    << "        __tmpBuffer = *(" << port_name << " + __param[" << param_id << "]/sizeof(" << mem_ptr_type << ") + __j);"
                     << "        for (__k=0;"
                     << "         __k<(" << n_elems_read << ") && ((__j*" << n_elems_read << "+__k) < " << n_elements_src << ");"
                     << "         __k++) {"
@@ -1350,7 +1348,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                         <<            "(__k+1)*sizeof(" << casting_sizeof << ")*8-1,"
                         <<            "__k*sizeof(" << casting_sizeof << ")*8) = cast_tmp.raw;"
                         << "        }"
-                        << "        *(" << port_name << " + __param/sizeof(" << mem_ptr_type << ") + __j) = __tmpBuffer;"
+                        << "        *(" << port_name << " + __param_out[" << param_id << "]/sizeof(" << mem_ptr_type << ") + __j) = __tmpBuffer;"
                         << "      }"
                         << "}"
                     ;
@@ -1376,14 +1374,14 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 in_copies_aux
                     << "      memcpy(" << field_name << ", "
                     <<        "(" << casting_const_pointer << ")("
-                    <<         port_name << " + __param/sizeof(" << casting_sizeof << ")), "
+                    <<         port_name << " + __param[" << param_id << "]/sizeof(" << casting_sizeof << ")), "
                     <<         n_elements_src << "*sizeof(" << casting_sizeof << "));"
                 ;
 
                 if (!elem_type.is_const())
                 {
                     out_copies_aux
-                        << "      memcpy(" << port_name <<  " + __param/sizeof(" << casting_sizeof << "), "
+                        << "      memcpy(" << port_name <<  " + __param_out[" << param_id << "]/sizeof(" << casting_sizeof << "), "
                         <<        "(" << casting_const_pointer << ")" << field_name << ", "
                         <<         n_elements_src << "*sizeof(" << casting_sizeof << "));"
                     ;
@@ -1451,9 +1449,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
             in_copies_aux
                 << "    case " << param_id << ":\n"
-                << "      __param = " << STR_INPUTSTREAM << ".read().data;"
                 << "      " << param_name << " = (" << casting_pointer << ")"
-                <<        "(" << port_name << " + __param/sizeof(" << casting_sizeof << "));"
+                <<        "(" << port_name << " + __param[" << param_id << "]/sizeof(" << casting_sizeof << "));"
                 << "      break;"
             ;
         }
@@ -1465,7 +1462,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 << "        " << unql_type.get_declaration(scope, param_name) << ";"
                 << "        uint64_t "<< param_name << "_task_arg;"
                 << "      } mcc_arg_" << param_id << ";"
-                << "      mcc_arg_" << param_id << "." << param_name << "_task_arg = " << STR_INPUTSTREAM << ".read().data;"
+                << "      mcc_arg_" << param_id << "." << param_name << "_task_arg = __param[" << param_id << "];"
                 << "      " << param_name << " = mcc_arg_" << param_id << "." << param_name << ";"
                 << "      break;"
             ;
@@ -1474,8 +1471,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         {
             in_copies_aux
                 << "    case " << param_id << ":\n"
-                << "      __param = " << STR_INPUTSTREAM << ".read().data;"
-                << "      " << param_name << " = __param;"
+                << "      " << param_name << " = __param[" << param_id << "];"
                 << "      break;"
             ;
         }
@@ -1494,11 +1490,19 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
     if (n_params_id)
     {
+
+        handle_task_execution_cmd_src
+            << "  uint64_t __param[" << n_params_id << "], __paramInfo[" << n_params_id << "];"
+        ;
         in_copies
             << "  for (__i = 0; __i < " << n_params_id << "; __i++) {"
-            << "    __paramInfo = " << STR_INPUTSTREAM << ".read().data;"
-            << "    __copyFlags = __paramInfo;"
-            << "    __param_id = __paramInfo >> 32;"
+            << "    __paramInfo[__i] = " << STR_INPUTSTREAM << ".read().data;"
+            << "    __param[__i] = " << STR_INPUTSTREAM << ".read().data;"
+            << "  }"
+            << ""
+            << "  for (__i = 0; __i < " << n_params_id << "; __i++) {"
+            << "    __copyFlags = __paramInfo[__i];"
+            << "    __param_id = __paramInfo[__i] >> 32;"
             << "    switch (__param_id) {"
             <<      in_copies_aux
             << "    default:;"
@@ -1516,10 +1520,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
         out_copies
             << "  for (__i = 0; __i < (" << n_params_out << "); __i++) {"
-            << "    __paramInfo = __paramInfo_out[__i];"
-            << "    __copyFlags = __paramInfo; "
-            << "    __param_id = __paramInfo >> 32;"
-            << "    __param = __param_out[__i];"
+            << "    __copyFlags = __paramInfo_out[__i]; "
+            << "    __param_id = __paramInfo_out[__i] >> 32;"
             << "    switch (__param_id) {"
             <<      out_copies_aux
             << "    default:;"
