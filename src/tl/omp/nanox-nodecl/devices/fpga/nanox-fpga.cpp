@@ -1020,9 +1020,9 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             << "unsigned short int " << STR_INSTRSLOTS << ", " << STR_INSTRCURRENTSLOT << ", " << STR_INSTROVERFLOW << ", " << STR_INSTRAVSLOTS ";"
 
             << "typedef struct {"
-            << "  uint64_t typeAndId;"
             << "  uint64_t value;"
             << "  uint64_t timestamp;"
+            << "  uint64_t typeAndId;"
             << "}" << STR_EVENTSTRUCT << ";"
 
             << "typedef enum {"
