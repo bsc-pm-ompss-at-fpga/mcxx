@@ -4607,8 +4607,8 @@ static void link_files(const char** file_list, int num_files,
         linker_args_fpga_contain_name |= (strstr(arg, "-n") != NULL);
     }
     int num_arguments_fpga = num_args_linker_options_fpga
+        + 1 //< FPGA wrapper shell version
         + 1 //< Mercurium version
-        //+ 1 //< Nanos FPGA API version
         + (!linker_args_fpga_contain_name) //< Auto-added -board option
         + 1; //< NULL
 
@@ -4685,8 +4685,7 @@ static void link_files(const char** file_list, int num_files,
         linker_args_fpga[j] = compilation_configuration->linker_options_fpga[j];
     }
 
-    // TODO: Get nanox version
-    //linker_args_fpga[j++] = "--nanox_version=1.2.3"; //Nanos FPGA API version
+    linker_args_fpga[j++] = strappend("--wrapper_version=", FPGA_WRAPPER_VERSION);
     linker_args_fpga[j++] = strappend("--mcxx_version=",
                             strappend("\"",
                             strappend(VERSION,
