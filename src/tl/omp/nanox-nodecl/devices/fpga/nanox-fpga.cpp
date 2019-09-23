@@ -1564,8 +1564,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
     handle_task_execution_cmd_src
         << "  uint8_t __comp_needed, __destID;"
-        << "  " << STR_PARENT_TASKID << " = " << STR_INPUTSTREAM << ".read().data;"
         << "  " << STR_TASKID << " = " << STR_INPUTSTREAM << ".read().data;"
+        << "  " << STR_PARENT_TASKID << " = " << STR_INPUTSTREAM << ".read().data;"
         << "  __comp_needed = __commandArgs>>24;"
         << "  __destID = __commandArgs>>32;"
         <<    profiling_0
@@ -1590,8 +1590,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         //Finished task command code is 0x03
         << "  header = (header << 8) | 0x03;"
         << "  write_stream(stream, header, destId, 0);"
-        << "  write_stream(stream, " << STR_PARENT_TASKID << ", destId, 0);"
         << "  write_stream(stream, " << STR_TASKID << ", destId, 1);"
+        << "  write_stream(stream, " << STR_PARENT_TASKID << ", destId, 0);"
         << "}"
     ;
 
