@@ -1143,7 +1143,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         aux_decls_src
             << "counter_t get_time() {"
             << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRCOUNTER << " offset=direct bundle=" << STR_INSTRCOUNTER << "\n"
-            << "#pragma HLS inline off\n"
+            << "#pragma HLS inline\n"
             << "return *(" << STR_INSTRCOUNTER << ");"
             << "}"
             //write events
