@@ -33,10 +33,7 @@
 #include "tl-devices.hpp"
 #include "tl-source.hpp"
 
-
-
 //#define _DEBUG_AUTOMATIC_COMPILER_ 1
-
 
 namespace TL
 {
@@ -90,10 +87,16 @@ namespace TL
                 typedef std::set<std::string> str_set_t;
 
                 struct FpgaOutlineInfo {
-                    std::string _name;
-                    std::string _num_instances;
-                    Source      _source_code;
-                    std::string _type;
+                    const std::string  _name;
+                    const std::string  _num_instances;
+                    const std::string  _type;
+                    Source             _wrapper_decls;
+                    Source             _wrapper_code;
+                    Nodecl::List       _user_code;
+
+                    FpgaOutlineInfo(const std::string name, const std::string num,
+                            const std::string type) : _name(name), _num_instances(num),
+                            _type(type), _wrapper_decls(), _wrapper_code(), _user_code() {}
 
                     std::string get_filename() const;
                     std::string get_wrapper_name() const;
@@ -125,21 +128,9 @@ namespace TL
                 void set_force_fpga_task_creation_ports_from_str(const std::string& str);
                 void set_memory_port_width_from_str(const std::string& str);
 
-                unsigned int                                   __number_of_calls;
-                Nodecl::Utils::SimpleSymbolMap                 _copied_fpga_functions;
-                TL::ObjectList<Nodecl::NodeclBase>             _stuff_to_copy;
+                Nodecl::Utils::SimpleSymbolMap                 _global_copied_fpga_symbols;
+                Nodecl::List                                   _stuff_to_copy;
                 bool                                           _onto_warn_shown;
-
-                TL::Source fpga_param_code(
-                        TL::ObjectList<OutlineDataItem*> &data_items,
-                        Nodecl::Utils::SymbolMap *,
-                        TL::Scope
-                        );
-
-                void add_hls_pragmas(
-                        Nodecl::NodeclBase &,
-                        TL::ObjectList<TL::Nanox::OutlineDataItem*>&
-                        );
 
                 void gen_hls_wrapper(
                         const TL::Symbol& func_symbol,
@@ -151,11 +142,8 @@ namespace TL
                         );
 
                 Source gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectList<OutlineDataItem*> data_items);
-                bool task_has_scalars(TL::ObjectList<OutlineDataItem*> &);
-                ObjectList<Source> get_called_functions_sources(const TL::ObjectList<Nodecl::NodeclBase>& function_code);
 
-                void add_included_fpga_files(std::ostream &hls_file);
-                void add_stuff_to_copy(std::ostream &hls_file);
+                void add_included_fpga_files(FILE* file);
 
                 std::string get_acc_type(const TL::Symbol& task, const TargetInformation& target_info);
                 std::string get_num_instances(const TargetInformation& target_info);
