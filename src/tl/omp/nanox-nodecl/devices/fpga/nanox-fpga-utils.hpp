@@ -408,9 +408,10 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
         }
     public:
         Nodecl::List                     _called_functions;
+        bool                             _calls_nanos_instrument;
 
         FpgaTaskCodeVisitor(const std::string filename, Nodecl::Utils::SimpleSymbolMap * map) :
-                _filename(filename), _symbol_map(map), _called_functions() {}
+                _filename(filename), _symbol_map(map), _called_functions(), _calls_nanos_instrument(false) {}
 
         virtual void visit(const Nodecl::Symbol& node)
         {
@@ -450,8 +451,10 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
             if (!called.is<Nodecl::Symbol>())
                 return;
             Symbol sym = called.as<Nodecl::Symbol>().get_symbol();
-            Nodecl::FunctionCode function_code =
-                sym.get_function_code().as<Nodecl::FunctionCode>();
+
+            _calls_nanos_instrument |= sym.get_name().find("nanos_instrument_") != std::string::npos;
+
+            Nodecl::FunctionCode function_code = sym.get_function_code().as<Nodecl::FunctionCode>();
             if (function_code.is_null())
                 return;
 
@@ -580,6 +583,7 @@ TL::Symbol declare_casting_union(TL::Type field_type, Nodecl::NodeclBase constru
 
 void get_hls_wrapper_decls(
   const bool instrumentation,
+  const bool user_calls_nanos_instrument,
   const bool task_creation,
   const std::string shared_memory_port_width,
   Source& wrapper_decls,
@@ -588,6 +592,9 @@ void get_hls_wrapper_decls(
     // NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
     // NOTE: The declarations of Nanos++ APIs must be coherent with the ones in the Nanos++ headers.
     //       The only declarations that changes is nanos_wd_t which is a integer type inside the FPGA
+    const bool put_instr_nanos_api =
+        (!IS_C_LANGUAGE && (instrumentation || user_calls_nanos_instrument)) ||
+        (IS_C_LANGUAGE && instrumentation && !user_calls_nanos_instrument);
 
     /*** Type declarations ***/
     wrapper_decls
@@ -595,7 +602,7 @@ void get_hls_wrapper_decls(
         << "typedef hls::stream<axiData_t> axiStream_t;"
         /*<< "typedef uint64_t nanos_wd_t;"*/;
 
-    if (!IS_C_LANGUAGE)
+    if (!IS_C_LANGUAGE || (IS_C_LANGUAGE && !task_creation && !user_calls_nanos_instrument && instrumentation))
     {
         // NOTE: The following declarations will be placed in the source by the codegen in C lang
         wrapper_decls
@@ -608,7 +615,11 @@ void get_hls_wrapper_decls(
             << "  NANOS_INVALID_PARAM = 4,"
             << "  NANOS_INVALID_REQUEST = 5"
             << "};"
-            << "typedef enum nanos_err_t nanos_err_t;"
+            << "typedef enum nanos_err_t nanos_err_t;";
+    }
+
+    if (put_instr_nanos_api) {
+        wrapper_decls
             << "typedef unsigned int nanos_event_key_t;"
             << "typedef unsigned long long int nanos_event_value_t;";
     }
@@ -719,7 +730,7 @@ void get_hls_wrapper_decls(
         << "void __mcxx_write_stream(axiStream_t &stream, uint64_t data, unsigned short dest, unsigned char last);"
         << "void __mcxx_send_finished_task_cmd(axiStream_t& stream, const uint8_t destId);";
 
-    if (!IS_C_LANGUAGE)
+    if (put_instr_nanos_api)
     {
         // NOTE: The following declarations will be placed in the source by the codegen in C lang
         wrapper_decls
@@ -852,6 +863,7 @@ void get_hls_wrapper_decls(
 
 void get_hls_wrapper_defs(
   const bool instrumentation,
+  const bool user_calls_nanos_instrument,
   const bool task_creation,
   const std::string shared_memory_port_width,
   Source& wrapper_defs)
@@ -964,7 +976,7 @@ void get_hls_wrapper_defs(
             << "  return NANOS_OK;"
             << "}";
     }
-    else
+    else if (user_calls_nanos_instrument)
     {
         //Define empty instrument calls when instrumentation is not enabled
         wrapper_defs

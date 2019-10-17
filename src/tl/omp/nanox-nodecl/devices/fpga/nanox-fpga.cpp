@@ -185,19 +185,20 @@ void DeviceFPGA::create_outline(
                     replace_ptr_decl_visitor.walk(fun_code);
                 }
 
+                FpgaTaskCodeVisitor fpga_task_code_visitor(
+                    TL::CompilationProcess::get_current_file().get_filename(/* fullpath */ true),
+                    symbol_map);
+                fpga_task_code_visitor.walk(fun_code);
+
                 // Generate the wrapper interface for the called task
                 DeviceFPGA::gen_hls_wrapper(
                     new_function,
                     info._data_items,
                     creates_children_tasks,
+                    fpga_task_code_visitor._calls_nanos_instrument,
                     to_outline_info.get_wrapper_name(),
                     to_outline_info._wrapper_decls,
                     to_outline_info._wrapper_code);
-
-                FpgaTaskCodeVisitor fpga_task_code_visitor(
-                    TL::CompilationProcess::get_current_file().get_filename(/* fullpath */ true),
-                    symbol_map);
-                fpga_task_code_visitor.walk(fun_code);
 
                 // Set the user code for the current task: called source + task user code
                 to_outline_info._user_code.append(fpga_task_code_visitor._called_functions);
@@ -860,7 +861,7 @@ static int find_parameter_position(const ObjectList<Symbol> param_list, const Sy
  *
  */
 void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDataItem*>& data_items,
-    const bool creates_children_tasks, const std::string wrapper_func_name,
+    const bool creates_children_tasks, const bool calls_nanos_instrument, const std::string wrapper_func_name,
     Source &wrapper_decls, Source &wrapper_source)
 {
     //Check that we are calling a function task (this checking may be performed earlyer in the code)
@@ -1305,7 +1306,13 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         << "  }";
 
     // Get the declarations of wrapper types, variables and functions that are non-local
-    get_hls_wrapper_decls(instrumentation_enabled(), creates_children_tasks, _memory_port_width, wrapper_decls, pragmas_src);
+    get_hls_wrapper_decls(
+        instrumentation_enabled(),
+        calls_nanos_instrument,
+        creates_children_tasks,
+        _memory_port_width,
+        wrapper_decls,
+        pragmas_src);
 
     wrapper_source
         << "void " << wrapper_func_name << "(" << params_src << ") {"
@@ -1327,7 +1334,12 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         << "}";
 
     // Get the definition of wrapper functions that are non-local
-    get_hls_wrapper_defs(instrumentation_enabled(), creates_children_tasks, _memory_port_width, wrapper_source);
+    get_hls_wrapper_defs(
+        instrumentation_enabled(),
+        calls_nanos_instrument,
+        creates_children_tasks,
+        _memory_port_width,
+        wrapper_source);
 }
 
 void DeviceFPGA::copy_stuff_to_device_file(const TL::ObjectList<Nodecl::NodeclBase>& stuff_to_be_copied)
