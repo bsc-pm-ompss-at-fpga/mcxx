@@ -136,6 +136,7 @@ namespace TL
                         const TL::Symbol& func_symbol,
                         TL::ObjectList<TL::Nanox::OutlineDataItem*>&,
                         const bool creates_children_tasks,
+                        const bool calls_nanos_instrument,
                         const std::string wrapper_func_name,
                         Source& wrapper_decls, //< out
                         Source& wrapper_source //< out
