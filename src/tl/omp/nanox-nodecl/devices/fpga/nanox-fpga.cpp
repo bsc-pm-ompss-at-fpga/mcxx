@@ -873,7 +873,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     ObjectList<Symbol> param_list = func_symbol.get_function_parameters();
     char function_parameters_passed[param_list.size()];
     Source pragmas_src, params_src, clear_components_count, user_function_args,
-        local_decls_src, reset_src, handle_task_execution_cmd_src, init_hw_instr_cmd_src;
+        local_decls_src, reset_src, handle_task_execution_cmd_src, init_hw_instr_cmd_src,
+        wrapper_decls_after_user_code;
     Source in_copies, out_copies, in_copies_switch_body, out_copies_switch_body;
     Source profiling_0, profiling_1, profiling_2, profiling_3;
     unsigned int n_params_id = 0;
@@ -892,13 +893,13 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         << "#pragma HLS INTERFACE axis port=" << STR_OUTPUTSTREAM << "\n";
 
     local_decls_src
-        << "uint64_t __command, __commandArgs, __bufferData;"
-        << "uint8_t __commandCode;"
+        << "unsigned long long int __command, __commandArgs, __bufferData;"
+        << "unsigned char __commandCode;"
         << "static ap_uint<1> __reset = 0;"
         << "#pragma HLS RESET variable=__reset\n";
 
     handle_task_execution_cmd_src
-        << "  uint8_t __i, __param_id;"
+        << "  unsigned char __i, __param_id;"
         << "  ap_uint<8> __copyFlags;";
 
     if (instrumentation_enabled())
@@ -1082,7 +1083,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                     << "         __k++) {"
                     << "          #pragma HLS UNROLL\n"
                     << "          union {"
-                    << "            uint64_t raw;"
+                    << "            unsigned long long int raw;"
                     << "            " << casting_sizeof << " typed;"
                     << "          } cast_tmp;"
                     << "          cast_tmp.raw = __tmpBuffer.range("
@@ -1109,7 +1110,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                         << "         __k++) {"
                         << "          #pragma HLS UNROLL\n"
                         << "          union {"
-                        << "            uint64_t raw;"
+                        << "            unsigned long long int raw;"
                         << "            " << casting_sizeof << " typed;"
                         << "          } cast_tmp;"
                         << "          cast_tmp.typed = " << field_name << "[__j*" << n_elems_read << "+__k];"
@@ -1220,7 +1221,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 << "    case " << param_id << ":\n"
                 << "      union {"
                 << "        " << unql_type.get_declaration(scope, param_name) << ";"
-                << "        uint64_t "<< param_name << "_task_arg;"
+                << "        unsigned long long int "<< param_name << "_task_arg;"
                 << "      } mcc_arg_" << param_id << ";"
                 << "      mcc_arg_" << param_id << "." << param_name << "_task_arg = __param[" << param_id << "];"
                 << "      " << param_name << " = mcc_arg_" << param_id << "." << param_name << ";"
@@ -1248,7 +1249,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     if (n_params_id)
     {
         handle_task_execution_cmd_src
-            << "  uint64_t __param[" << n_params_id << "], __paramInfo[" << n_params_id << "];";
+            << "  unsigned long long int __param[" << n_params_id << "], __paramInfo[" << n_params_id << "];";
 
         in_copies
             << "  for (__i = 0; __i < " << n_params_id << "; __i++) {"
@@ -1269,8 +1270,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     if (n_params_out)
     {
         handle_task_execution_cmd_src
-            << "  uint64_t __paramInfo_out[" << n_params_out << "];"
-            << "  uint64_t __param_out[" << n_params_out << "];"
+            << "  unsigned long long int __paramInfo_out[" << n_params_out << "];"
+            << "  unsigned long long int __param_out[" << n_params_out << "];"
         ;
 
         out_copies
@@ -1285,7 +1286,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     }
 
     handle_task_execution_cmd_src
-        << "  uint8_t __comp_needed, __destID;"
+        << "  unsigned char __comp_needed, __destID;"
         << "  " << STR_TASKID << " = " << STR_INPUTSTREAM << ".read().data;"
         << "  " << STR_PARENT_TASKID << " = " << STR_INPUTSTREAM << ".read().data;"
         << "  __comp_needed = __commandArgs>>24;"
@@ -1312,9 +1313,12 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         creates_children_tasks,
         _memory_port_width,
         wrapper_decls,
+        wrapper_decls_after_user_code,
         pragmas_src);
 
     wrapper_source
+        << wrapper_decls_after_user_code
+
         << "void " << wrapper_func_name << "(" << params_src << ") {"
         << pragmas_src
         << "\n"
@@ -1550,7 +1554,7 @@ void DeviceFPGA::emit_async_device(
             Source dep_value;
             TL::DataReference dep_expr(dep_it->expression);
             Nodecl::NodeclBase dep_expr_offset = dep_expr.get_offsetof_dependence();
-            dep_value << "(uintptr_t)(" << as_expression(dep_expr.get_base_address())  << ") + " << as_expression(dep_expr_offset);
+            dep_value << "(unsigned long long int)(" << as_expression(dep_expr.get_base_address())  << ") + " << as_expression(dep_expr_offset);
             deps_list.append_with_separator( dep_value, ", " );
 
             // Dependence flags
@@ -1588,7 +1592,7 @@ void DeviceFPGA::emit_async_device(
                         {
                             fatal_error("Array argument not supported yet\n");
                         }
-                        else if (sym_type.get_size() > sizeof(uintptr_t))
+                        else if (sym_type.get_size() > sizeof(unsigned long long int))
                         {
                             fatal_error("Task argument to wide when creating the task inside a FPGA device");
                         }
@@ -1599,7 +1603,7 @@ void DeviceFPGA::emit_async_device(
                             {
                                 Nodecl::NodeclBase captured = (*it)->get_captured_value();
                                 arg_value
-                                    << "(uintptr_t)(" << as_expression(captured.shallow_copy()) << ")";
+                                    << "(unsigned long long int)(" << as_expression(captured.shallow_copy()) << ")";
                             }
                             else
                             {
@@ -1683,7 +1687,7 @@ void DeviceFPGA::emit_async_device(
 
             Source copy_value;
             copy_value << "{"
-                << "  .address = (uintptr_t)(" << as_expression(address_of_object) << ")"
+                << "  .address = (unsigned long long int)(" << as_expression(address_of_object) << ")"
                 << ", .flags = ";
 
             if (input && output)
@@ -1707,15 +1711,15 @@ void DeviceFPGA::emit_async_device(
                 << ", .arg_idx = " << num_args
                 << ", ._padding = 0"
                 << ", .size = "
-                << "((uint32_t)(" << as_expression(dims_sizes[0].shallow_copy()) << ") *"
-                << " (uint32_t)sizeof(" << as_type(base_type) << "))"
+                << "((unsigned int)(" << as_expression(dims_sizes[0].shallow_copy()) << ") *"
+                << " (unsigned int)sizeof(" << as_type(base_type) << "))"
                 << ", .offset = "
-                << "((uint32_t)(" << as_expression(lower_bounds[0].shallow_copy()) << ") *"
-                << " (uint32_t)sizeof(" << as_type(base_type) << "))"
+                << "((unsigned int)(" << as_expression(lower_bounds[0].shallow_copy()) << ") *"
+                << " (unsigned int)sizeof(" << as_type(base_type) << "))"
                 << ", .accessed_length = "
-                << "((uint32_t)((" << as_expression(upper_bounds[0].shallow_copy()) << ") - ("
+                << "((unsigned int)((" << as_expression(upper_bounds[0].shallow_copy()) << ") - ("
                 << as_expression(lower_bounds[0].shallow_copy()) << ") + 1) *"
-                << " (uint32_t)sizeof(" << as_type(base_type) << "))"
+                << " (unsigned int)sizeof(" << as_type(base_type) << "))"
                 << "}";
 
             copies_list.append_with_separator( copy_value, ", " );
@@ -1725,13 +1729,13 @@ void DeviceFPGA::emit_async_device(
         ++num_args;
     }
 
-    if (!Nanos::Version::interface_is_at_least("fpga", 7))
+    if (!Nanos::Version::interface_is_at_least("fpga", 8))
         fatal_error("Your Nanos version is not supported for cration of tasks inside the FPGA. Please update your Nanos installation\n");
 
     if (num_args > 0)
     {
         spawn_code
-            << "uint64_t mcxx_args[] = {"
+            << "unsigned long long int mcxx_args[] = {"
             << args_list
             << "};";
     }
@@ -1739,10 +1743,10 @@ void DeviceFPGA::emit_async_device(
     if (num_deps > 0)
     {
         spawn_code
-            << "uint64_t mcxx_deps[] = {"
+            << "unsigned long long int mcxx_deps[] = {"
             << deps_list
             << "};"
-            << "uint8_t mcxx_deps_flags[] = {"
+            << "unsigned char mcxx_deps_flags[] = {"
             << deps_flags_list
             << "};";
     }
@@ -1757,8 +1761,8 @@ void DeviceFPGA::emit_async_device(
 
     spawn_code
         << "nanos_fpga_create_wd_async(" << arch_mask << ", " << acc_type << ", "
-        << num_args << ", " << (num_args > 0 ? "mcxx_args" : "(uint64_t *)0") << ", "
-        << num_deps << ", " << (num_deps > 0 ? "mcxx_deps, mcxx_deps_flags" : "(uint64_t *)0, (uint8_t *)0") << ", "
+        << num_args << ", " << (num_args > 0 ? "mcxx_args" : "(unsigned long long int *)0") << ", "
+        << num_deps << ", " << (num_deps > 0 ? "mcxx_deps, mcxx_deps_flags" : "(unsigned long long int *)0, (unsigned char *)0") << ", "
         << num_copies << ", " << (num_copies > 0 ? "mcxx_copies" : "(nanos_fpga_copyinfo_t *)0") << ");";
 
     Nodecl::NodeclBase spawn_code_tree = spawn_code.parse_statement(construct);
