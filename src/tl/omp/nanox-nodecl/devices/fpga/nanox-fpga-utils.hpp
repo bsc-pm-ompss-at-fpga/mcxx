@@ -173,7 +173,6 @@ void add_fpga_header(FILE* file, const std::string name, const std::string type,
 ///////////////////\n\
 #define __HLS_AUTOMATIC_MCXX__ 1\n\n\
 #include <cstring>\n\
-#include <stdint.h> \n\
 #include <hls_stream.h>\n\
 #include <ap_axi_sdata.h>\n\n"
     );
@@ -334,7 +333,7 @@ struct ReplaceTaskCreatorSymbolsVisitor : public Nodecl::ExhaustiveVisitor<void>
                     type_decl.find("nanos_wg_t") != std::string::npos))
             {
                 // NOTE: nanos_wd_t and nanos_wg_t are defined as void pointers but this is not posible
-                // inside the FPGA. Therefore, we replace the type of variables by uint64_t
+                // inside the FPGA. Therefore, we replace the type of variables by unsigned long long int
                 sym.set_type(TL::Type::get_unsigned_long_long_int_type()/*uint64_t*/);
             }
         }
@@ -519,7 +518,7 @@ TL::Symbol declare_casting_union(TL::Type field_type, Nodecl::NodeclBase constru
     new_class_symbol.get_internal_symbol()->type_information = new_class_type;
     TL::Type union_class_type(new_class_type);
 
-    //Add the uint64_t raw member
+    //Add the unsigned long long int raw member
     TL::Symbol field_raw = class_scope.new_symbol("raw");
     field_raw.get_internal_symbol()->kind = SK_VARIABLE;
     symbol_entity_specs_set_is_user_declared(field_raw.get_internal_symbol(), 1);
@@ -586,7 +585,8 @@ void get_hls_wrapper_decls(
   const bool user_calls_nanos_instrument,
   const bool task_creation,
   const std::string shared_memory_port_width,
-  Source& wrapper_decls,
+  Source& wrapper_decls_before_user_code,
+  Source& wrapper_decls_after_user_code,
   Source& wrapper_body_pragmas)
 {
     // NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
@@ -595,17 +595,18 @@ void get_hls_wrapper_decls(
     const bool put_instr_nanos_api =
         (!IS_C_LANGUAGE && (instrumentation || user_calls_nanos_instrument)) ||
         (IS_C_LANGUAGE && instrumentation && !user_calls_nanos_instrument);
+    bool is_nanos_err_declared = false;
 
     /*** Type declarations ***/
-    wrapper_decls
+    wrapper_decls_before_user_code
         << "typedef ap_axis<64,1,8,5> axiData_t;"
         << "typedef hls::stream<axiData_t> axiStream_t;"
-        /*<< "typedef uint64_t nanos_wd_t;"*/;
+        /*<< "typedef unsigned long long int nanos_wd_t;"*/;
 
     if (!IS_C_LANGUAGE || (IS_C_LANGUAGE && !task_creation && !user_calls_nanos_instrument && instrumentation))
     {
         // NOTE: The following declarations will be placed in the source by the codegen in C lang
-        wrapper_decls
+        wrapper_decls_before_user_code
             << "enum nanos_err_t"
             << "{"
             << "  NANOS_OK = 0,"
@@ -616,23 +617,25 @@ void get_hls_wrapper_decls(
             << "  NANOS_INVALID_REQUEST = 5"
             << "};"
             << "typedef enum nanos_err_t nanos_err_t;";
+
+        is_nanos_err_declared = true;
     }
 
     if (put_instr_nanos_api) {
-        wrapper_decls
+        wrapper_decls_before_user_code
             << "typedef unsigned int nanos_event_key_t;"
             << "typedef unsigned long long int nanos_event_value_t;";
     }
 
     if (instrumentation)
     {
-        wrapper_decls
-            << "typedef uint64_t counter_t;"
+        wrapper_decls_before_user_code
+            << "typedef unsigned long long int counter_t;"
             << "struct " << STR_EVENTSTRUCT
             << "{"
-            << "  uint64_t value;"
-            << "  uint64_t timestamp;"
-            << "  uint64_t typeAndId;"
+            << "  unsigned long long int value;"
+            << "  unsigned long long int timestamp;"
+            << "  unsigned long long int typeAndId;"
             << "};"
             << "typedef struct " << STR_EVENTSTRUCT << " " << STR_EVENTSTRUCT << ";"
             << "enum " << STR_EVENTTYPE
@@ -647,14 +650,14 @@ void get_hls_wrapper_decls(
 
     if (task_creation)
     {
-        wrapper_decls
+        wrapper_decls_before_user_code
             << "template <typename T>struct mcxx_ptr_t;"
             << "template <typename T>struct mcxx_ref_t;";
 
         if (!IS_C_LANGUAGE)
         {
             // NOTE: The following declarations will be placed in the source by the codegen in C lang
-            wrapper_decls
+            wrapper_decls_before_user_code
                 /*<< "typedef nanos_wd_t nanos_wg_t;"*/
                 << "enum"
                 << "{"
@@ -671,28 +674,28 @@ void get_hls_wrapper_decls(
                 << "};"
                 << "struct __attribute__ ((__packed__)) nanos_fpga_copyinfo_t"
                 << "{"
-                << "  uint64_t address;"
-                << "  uint8_t  flags;"
-                << "  uint8_t  arg_idx;"
-                << "  uint16_t _padding;"
-                << "  uint32_t size;"
-                << "  uint32_t offset;"
-                << "  uint32_t accessed_length;"
+                << "  unsigned long long int address;"
+                << "  unsigned char flags;"
+                << "  unsigned char arg_idx;"
+                << "  unsigned short _padding;"
+                << "  unsigned int size;"
+                << "  unsigned int offset;"
+                << "  unsigned int accessed_length;"
                 << "};"
                 << "typedef struct nanos_fpga_copyinfo_t nanos_fpga_copyinfo_t;";
         }
     }
 
     /*** Variable declarations ***/
-    wrapper_decls
-        << "extern const uint8_t " << STR_FULL_ACCID << ";"
-        << "static uint64_t " << STR_TASKID << ";"
-        << "static uint64_t " << STR_PARENT_TASKID << ";";
+    wrapper_decls_before_user_code
+        << "extern const unsigned char " << STR_FULL_ACCID << ";"
+        << "static unsigned long long int " << STR_TASKID << ";"
+        << "static unsigned long long int " << STR_PARENT_TASKID << ";";
 
     if (instrumentation)
     {
-        wrapper_decls
-            << "uint64_t " << STR_INSTRBUFFER_OFFSET << ";"
+        wrapper_decls_before_user_code
+            << "unsigned long long int " << STR_INSTRBUFFER_OFFSET << ";"
             << "extern volatile counter_t * " << STR_INSTRCOUNTER << ";"
             << "extern volatile counter_t * " << STR_INSTRBUFFER << ";"
             << "unsigned short int " << STR_INSTRSLOTS << ", " << STR_INSTRCURRENTSLOT << ", " << STR_INSTROVERFLOW
@@ -706,7 +709,7 @@ void get_hls_wrapper_decls(
 
     if (task_creation)
     {
-        wrapper_decls
+        wrapper_decls_before_user_code
             << "extern ap_uint<72> " << STR_GLOB_OUTPORT << ";"
             << "extern volatile ap_uint<2> " << STR_GLOB_TWPORT << ";"
             << "static ap_uint<32> " << STR_COMPONENTS_COUNT << ";";
@@ -717,7 +720,7 @@ void get_hls_wrapper_decls(
 
         if (shared_memory_port_width != "")
         {
-            wrapper_decls
+            wrapper_decls_before_user_code
                 << "extern volatile ap_uint<" + shared_memory_port_width + "> * " + STR_WRAPPERDATA << ";";
 
             wrapper_body_pragmas
@@ -726,14 +729,15 @@ void get_hls_wrapper_decls(
     }
 
     /*** Function declarations ***/
-    wrapper_decls
-        << "void __mcxx_write_stream(axiStream_t &stream, uint64_t data, unsigned short dest, unsigned char last);"
-        << "void __mcxx_send_finished_task_cmd(axiStream_t& stream, const uint8_t destId);";
+    wrapper_decls_before_user_code
+        << "void __mcxx_write_stream(axiStream_t &stream, const unsigned long long int data, const unsigned short dest, const unsigned char last);"
+        << "void __mcxx_send_finished_task_cmd(axiStream_t& stream, const unsigned char destId);";
 
     if (put_instr_nanos_api)
     {
-        // NOTE: The following declarations will be placed in the source by the codegen in C lang
-        wrapper_decls
+        // NOTE: Postpone the declarations if nanos_err_t is not yet defined
+        Source& src = is_nanos_err_declared ? wrapper_decls_before_user_code : wrapper_decls_after_user_code;
+        src
             << "nanos_err_t nanos_instrument_burst_begin(nanos_event_key_t event, nanos_event_value_t value);"
             << "nanos_err_t nanos_instrument_burst_end(nanos_event_key_t event, nanos_event_value_t value);"
             << "nanos_err_t nanos_instrument_point_event(nanos_event_key_t event, nanos_event_value_t value);";
@@ -741,10 +745,10 @@ void get_hls_wrapper_decls(
 
     if (instrumentation)
     {
-        wrapper_decls
+        wrapper_decls_before_user_code
             << "counter_t __mcxx_instr_get_time();"
             << "void __mcxx_instr_wait();"
-            << "void __mcxx_instr_write(uint32_t event, uint64_t val, uint32_t type, const counter_t timestamp);";
+            << "void __mcxx_instr_write(unsigned int event, unsigned long long int val, unsigned int type, const counter_t timestamp);";
     }
 
     if (task_creation)
@@ -752,16 +756,16 @@ void get_hls_wrapper_decls(
         if (!IS_C_LANGUAGE)
         {
             // NOTE: The following declarations will be placed in the source by the codegen in C lang
-            wrapper_decls
-                << "void __mcxx_write_outstream(const uint64_t data, const unsigned short dest, const unsigned char last);"
+            wrapper_decls_before_user_code
+                << "void __mcxx_write_outstream(const unsigned long long int data, const unsigned short dest, const unsigned char last);"
                 << "void __mcxx_wait_tw_signal();"
                 << "unsigned long long int nanos_fpga_current_wd();"
                 << "void nanos_handle_error(nanos_err_t err);"
                 << "nanos_err_t nanos_fpga_wg_wait_completion(unsigned long long int uwg, unsigned char avoid_flush);"
-                << "void nanos_fpga_create_wd_async(uint32_t archMask, uint64_t type,"
-                << "    uint8_t numArgs, uint64_t * args,"
-                << "    uint8_t numDeps, uint64_t * deps, uint8_t * depsFlags,"
-                << "    uint8_t numCopies, nanos_fpga_copyinfo_t * copies);";
+                << "void nanos_fpga_create_wd_async(const unsigned int archMask, const unsigned long long int type,"
+                << "    const unsigned char numArgs, const unsigned long long int * args,"
+                << "    const unsigned char numDeps, const unsigned long long int * deps, const unsigned char * depsFlags,"
+                << "    const unsigned char numCopies, const nanos_fpga_copyinfo_t * copies);";
         }
     }
 
@@ -772,13 +776,13 @@ void get_hls_wrapper_decls(
         Source ptr_ops;
         if (shared_memory_port_width != "")
         {
-            wrapper_decls
+            wrapper_decls_before_user_code
                 << "template <typename T>"
                 << "struct mcxx_ref_t"
                 << "{"
-                << "  uintptr_t offset;"
+                << "  unsigned long long int offset;"
                 << "  ap_uint<" << shared_memory_port_width << "> buffer;"
-                << "  mcxx_ref_t(const uintptr_t offset)"
+                << "  mcxx_ref_t(const unsigned long long int offset)"
                 << "  {"
                 << "#pragma HLS INTERFACE m_axi port=" << STR_WRAPPERDATA << "\n"
                 << "    this->buffer = *(" << STR_WRAPPERDATA << " + offset/sizeof(ap_uint<" << shared_memory_port_width << ">));"
@@ -786,7 +790,7 @@ void get_hls_wrapper_decls(
                 << "  }"
                 << "  operator T() const"
                 << "  {"
-                << "    union { uint64_t raw; const T typed; } cast_tmp;"
+                << "    union { unsigned long long int raw; const T typed; } cast_tmp;"
                 << "    const size_t off = this->offset%sizeof(ap_uint<" << shared_memory_port_width << ">);"
                 << "    cast_tmp.raw = this->buffer.range((off+1)*sizeof(const T)*8-1,off*sizeof(const T)*8);"
                 << "    return cast_tmp.typed;"
@@ -794,7 +798,7 @@ void get_hls_wrapper_decls(
                 << "  mcxx_ref_t<T>& operator=(const T value)"
                 << "  {"
                 << "#pragma HLS INTERFACE m_axi port=" << STR_WRAPPERDATA << "\n"
-                << "    union { uint64_t raw; T typed; } cast_tmp;"
+                << "    union { unsigned long long int raw; T typed; } cast_tmp;"
                 << "    cast_tmp.typed = value;"
                 << "    const size_t off = this->offset%sizeof(ap_uint<" << shared_memory_port_width << ">);"
                 << "    this->buffer.range((off+1)*sizeof(T)*8-1,off*sizeof(T)*8) = cast_tmp.raw;"
@@ -824,18 +828,18 @@ void get_hls_wrapper_decls(
                 << "  }";
         }
 
-        wrapper_decls
+        wrapper_decls_before_user_code
             << "template <typename T>"
             << "struct mcxx_ptr_t"
             << "{"
-            << "  uintptr_t val;"
+            << "  unsigned long long int val;"
             << "  mcxx_ptr_t() : val(0) {}"
-            << "  mcxx_ptr_t(uintptr_t val) { this->val = val; }"
-            << "  mcxx_ptr_t(T* ptr) { this->val = (uintptr_t)ptr; }"
+            << "  mcxx_ptr_t(unsigned long long int val) { this->val = val; }"
+            << "  mcxx_ptr_t(T* ptr) { this->val = (unsigned long long int)ptr; }"
             << "  template <typename V>"
             << "  mcxx_ptr_t(mcxx_ptr_t<V> const &ref) { this->val = ref.val; }"
             << "  operator T*() const { return (T *)this->val; }"
-            << "  operator uintptr_t() const { return this->val; }"
+            << "  operator unsigned long long int() const { return this->val; }"
             << "  operator mcxx_ptr_t<const T>() const"
             << "  {"
             << "    mcxx_ptr_t<const T> ret;"
@@ -871,7 +875,7 @@ void get_hls_wrapper_defs(
     //NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
 
     wrapper_defs
-        << "void __mcxx_write_stream(axiStream_t &stream, uint64_t data, unsigned short dest, unsigned char last)"
+        << "void __mcxx_write_stream(axiStream_t &stream, const unsigned long long int data, const unsigned short dest, const unsigned char last)"
         << "{"
         << "#pragma HLS INLINE\n"
         << "#pragma HLS INTERFACE axis port=stream\n"
@@ -884,10 +888,10 @@ void get_hls_wrapper_defs(
         << "  stream.write(__data);"
         << "}"
 
-        << "void __mcxx_send_finished_task_cmd(axiStream_t& stream, const uint8_t destId)"
+        << "void __mcxx_send_finished_task_cmd(axiStream_t& stream, const unsigned char destId)"
         << "{"
         << "#pragma HLS INTERFACE axis port=stream\n"
-        << "  uint64_t header = " << STR_GLB_ACCID << ";"
+        << "  unsigned long long int header = " << STR_GLB_ACCID << ";"
         << "  header = (header << 8) | 0x03;"
         << "  __mcxx_write_stream(stream, header, destId, 0);"
         << "  __mcxx_write_stream(stream, " << STR_TASKID << ", destId, 0);"
@@ -910,14 +914,14 @@ void get_hls_wrapper_defs(
             << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRBUFFER << "\n"
             << "  if (" << STR_INSTRAVSLOTS << " == 1) {"
             << "    unsigned short int i = (" << STR_INSTRCURRENTSLOT << " + 1)%" << STR_INSTRSLOTS << ";"
-            << "    uint64_t typeAndId = *((uint64_t*)(" << STR_INSTRBUFFER << " + ((" << STR_INSTRBUFFER_OFFSET
-            <<     " + i*sizeof(" << STR_EVENTSTRUCT << ") + offsetof(" << STR_EVENTSTRUCT << ", typeAndId))/sizeof(uint64_t))));"
+            << "    unsigned long long int typeAndId = *((unsigned long long int*)(" << STR_INSTRBUFFER << " + ((" << STR_INSTRBUFFER_OFFSET
+            <<     " + i*sizeof(" << STR_EVENTSTRUCT << ") + offsetof(" << STR_EVENTSTRUCT << ", typeAndId))/sizeof(unsigned long long int))));"
             << "    while (((typeAndId >> 32) == MCXX_EVENT_TYPE_INVALID) && (" << STR_INSTRAVSLOTS
             <<     " < " <<  STR_INSTRSLOTS << ")) {"
             << "      " << STR_INSTRAVSLOTS << "++;"
             << "      i = (i+1)%" << STR_INSTRSLOTS << ";"
-            << "      typeAndId = *((uint64_t*)(" << STR_INSTRBUFFER << " + ((" << STR_INSTRBUFFER_OFFSET
-            <<     " + i*sizeof(" << STR_EVENTSTRUCT << ") + offsetof(" << STR_EVENTSTRUCT << ", typeAndId))/sizeof(uint64_t))));"
+            << "      typeAndId = *((unsigned long long int*)(" << STR_INSTRBUFFER << " + ((" << STR_INSTRBUFFER_OFFSET
+            <<     " + i*sizeof(" << STR_EVENTSTRUCT << ") + offsetof(" << STR_EVENTSTRUCT << ", typeAndId))/sizeof(unsigned long long int))));"
             << "    }"
             << "    if (" << STR_INSTRAVSLOTS << " > 1 && " << STR_INSTROVERFLOW << " > 0) {"
             << "      " << STR_INSTROVERFLOW << " = 0;"
@@ -926,25 +930,25 @@ void get_hls_wrapper_defs(
             << "  }"
             << "}"
 
-            << "void __mcxx_instr_write(uint32_t event, uint64_t val, uint32_t type, const counter_t timestamp)"
+            << "void __mcxx_instr_write(unsigned int event, unsigned long long int val, unsigned int type, const counter_t timestamp)"
             << "{"
             //NOTE: This function must be inline to avoid issue: https://pm.bsc.es/gitlab/ompss-at-fpga/mcxx/issues/19
             << "#pragma HLS inline\n"
             << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRBUFFER << "\n"
             << "  if (" << STR_INSTRSLOTS << " > 0) {"
             << "    __mcxx_instr_wait();"
-            << "    const uint64_t slot_offset = (" << STR_INSTRBUFFER_OFFSET << " + "
-            <<         STR_INSTRCURRENTSLOT << "*sizeof(" << STR_EVENTSTRUCT << "))/sizeof(uint64_t);"
+            << "    const unsigned long long int slot_offset = (" << STR_INSTRBUFFER_OFFSET << " + "
+            <<         STR_INSTRCURRENTSLOT << "*sizeof(" << STR_EVENTSTRUCT << "))/sizeof(unsigned long long int);"
             << "    " << STR_EVENTSTRUCT << " fpga_event;"
             << "    if (" << STR_INSTRAVSLOTS << " > 1) {"
             << "      " << STR_INSTRCURRENTSLOT << " = (" << STR_INSTRCURRENTSLOT << " + 1)%" << STR_INSTRSLOTS << ";"
             << "      " << STR_INSTRAVSLOTS << "--;"
-            << "      fpga_event.typeAndId = ((uint64_t)type<<32) | event;"
+            << "      fpga_event.typeAndId = ((unsigned long long int)type<<32) | event;"
             << "      fpga_event.value = val;"
             << "      fpga_event.timestamp = timestamp;"
             << "    }"
             << "    else if (" << STR_INSTRAVSLOTS << " == 1) {"
-            << "      fpga_event.typeAndId = (((uint64_t)MCXX_EVENT_TYPE_POINT)<<32) | "
+            << "      fpga_event.typeAndId = (((unsigned long long int)MCXX_EVENT_TYPE_POINT)<<32) | "
             <<     EV_INSTEVLOST << ";"
             << "      fpga_event.value = ++" << STR_INSTROVERFLOW << ";"
             << "      fpga_event.timestamp = timestamp;"
@@ -998,7 +1002,7 @@ void get_hls_wrapper_defs(
     if (task_creation)
     {
         wrapper_defs
-            << "void __mcxx_write_outstream(const uint64_t data, const unsigned short dest, const unsigned char last)"
+            << "void __mcxx_write_outstream(const unsigned long long int data, const unsigned short dest, const unsigned char last)"
             << "{"
             << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_OUTPORT << " register\n"
             // NOTE: Pack the axiData_t info: data(64bits) + dest(6bits) + last(2bit). It can be done
@@ -1026,7 +1030,7 @@ void get_hls_wrapper_defs(
             << "{"
             << "  if (" << STR_COMPONENTS_COUNT << " == 0) { return NANOS_OK; }"
             << "  const unsigned short TM_TW = 0x13;"
-            << "  uint64_t tmp = " << STR_EXT_ACCID << ";"
+            << "  unsigned long long int tmp = " << STR_EXT_ACCID << ";"
             << "  tmp = tmp << 48 /*ACC_ID info uses bits [48:55]*/;"
             << "  tmp = 0x8000000100000000 | tmp | " << STR_COMPONENTS_COUNT << ";"
             << "  __mcxx_write_outstream(tmp /*TASKWAIT_DATA_BLOCK*/, TM_TW, 0 /*last*/);"
@@ -1039,10 +1043,10 @@ void get_hls_wrapper_defs(
             << "  return NANOS_OK;"
             << "}"
 
-            << "void nanos_fpga_create_wd_async(uint32_t archMask, uint64_t type,"
-            << "    uint8_t numArgs, uint64_t * args,"
-            << "    uint8_t numDeps, uint64_t * deps, uint8_t * depsFlags,"
-            << "    uint8_t numCopies, nanos_fpga_copyinfo_t * copies)"
+            << "void nanos_fpga_create_wd_async(const unsigned int archMask, const unsigned long long int type,"
+            << "    const unsigned char numArgs, const unsigned long long int * args,"
+            << "    const unsigned char numDeps, const unsigned long long int * deps, const unsigned char * depsFlags,"
+            << "    const unsigned char numCopies, const nanos_fpga_copyinfo_t * copies)"
             << "{"
             << "#pragma HLS inline\n"
             << "  ++" << STR_COMPONENTS_COUNT << ";"
@@ -1051,7 +1055,7 @@ void get_hls_wrapper_defs(
             << "  const unsigned char hasSmpArch = (archMask & NANOS_FPGA_ARCH_SMP) != 0;"
             << "  const unsigned short destId = (numDeps == 0 && !hasSmpArch) ? TM_SCHED : TM_NEW;"
             //1st word: [ valid (8b) | arch_mask (24b) | num_copies (8b) | num_deps (8b) | num_args (8b) | (8b) ]
-            << "  uint64_t tmp = archMask;"
+            << "  unsigned long long int tmp = archMask;"
             << "  tmp = (tmp << 8) | numCopies;"
             << "  tmp = (tmp << 8) | numDeps;"
             << "  tmp = (tmp << 8) | numArgs;"
@@ -1062,7 +1066,7 @@ void get_hls_wrapper_defs(
             //3rd word: [ type_value (64b) ]
             << "  __mcxx_write_outstream(type, destId, 0);"
             //copy words
-            << "  for (uint8_t idx = 0; idx < numCopies; ++idx) {"
+            << "  for (unsigned char idx = 0; idx < numCopies; ++idx) {"
             //1st copy word: [ address (64b) ]
             << "    tmp = copies[idx].address;"
             << "    __mcxx_write_outstream(tmp, destId, 0);"
@@ -1076,13 +1080,13 @@ void get_hls_wrapper_defs(
             << "    tmp = (tmp << 32) | copies[idx].offset;"
             << "    __mcxx_write_outstream(tmp, destId, idx == (numCopies - 1)&&(numDeps == 0)&&(numCopies == 0));"
             << "  }"
-            << "  for (uint8_t idx = 0; idx < numDeps; ++idx) {"
+            << "  for (unsigned char idx = 0; idx < numDeps; ++idx) {"
             << "    tmp = depsFlags[idx];"
             << "    tmp = (tmp << 56) | deps[idx];"
             //dep words: [ arg_flags (8b) | arg_value (56b) ]
             << "    __mcxx_write_outstream(tmp, destId, (idx == (numDeps - 1))&&(numArgs == 0));"
             << "  }"
-            << "  for (uint8_t idx = 0; idx < numArgs; ++idx) {"
+            << "  for (unsigned char idx = 0; idx < numArgs; ++idx) {"
             //arg words: [ arg_value (64b) ]
             << "    __mcxx_write_outstream(args[idx], destId, idx == (numArgs - 1));"
             << "  }"
