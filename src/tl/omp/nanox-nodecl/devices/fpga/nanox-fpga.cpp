@@ -920,18 +920,11 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
         init_hw_instr_cmd_src
             << "else if (__commandCode == 2) {"
-            << "  " << STR_INSTRSLOTS << " = __commandArgs&0xFFFFFF;"
-            << "  " << STR_INSTRAVSLOTS << " = __commandArgs&0xFFFFFF;"
-            << "  " << STR_INSTRBUFFER_OFFSET << " = " << STR_INPUTSTREAM << ".read().data;"
-            << "  " << STR_INSTROVERFLOW << " = 0;"
-            << "  " << STR_INSTRCURRENTSLOT << " = 0;"
+            << "  ap_uint<80> tmpSetup;"
+            << "  tmpSetup.range(63,0) = " << STR_INPUTSTREAM << ".read().data;"
+            << "  tmpSetup.range(79,64) = __commandArgs&0xFFFFFF;"
+            << "  " << STR_INSTR_SETUPPORT << ".write(tmpSetup);"
             << "}";
-
-        reset_src
-            << "  " << STR_INSTRSLOTS << " = 0;"
-            << "  " << STR_INSTRAVSLOTS << " = 0;"
-            << "  " << STR_INSTRCURRENTSLOT << " = 0;"
-            << "  " << STR_INSTROVERFLOW << " = 0;";
     }
 
     if (creates_children_tasks)
