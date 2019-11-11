@@ -920,10 +920,11 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
         init_hw_instr_cmd_src
             << "else if (__commandCode == 2) {"
-            << "  ap_uint<80> tmpSetup;"
+            << "  __mcxx_instrData_t tmpSetup;"
             << "  tmpSetup.range(63,0) = " << STR_INPUTSTREAM << ".read().data;"
             << "  tmpSetup.range(79,64) = __commandArgs&0xFFFFFF;"
-            << "  " << STR_INSTR_SETUPPORT << ".write(tmpSetup);"
+            << "  tmpSetup.bit(104) = 0;"
+            << "  " << STR_INSTR_PORT << ".write(tmpSetup);"
             << "}";
     }
 

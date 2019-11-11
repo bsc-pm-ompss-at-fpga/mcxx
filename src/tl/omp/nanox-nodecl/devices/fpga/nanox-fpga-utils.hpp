@@ -49,8 +49,7 @@
 #define STR_WRAPPERDATA        "mcxx_wrapper_data"
 #define STR_OUTPUTSTREAM       "outStream"
 #define STR_INPUTSTREAM        "inStream"
-#define STR_INSTR_EVENTPORT    "mcxx_instr_event"
-#define STR_INSTR_SETUPPORT    "mcxx_instr_setup"
+#define STR_INSTR_PORT         "mcxx_instr"
 
 //Default instrumentation events codes
 #define EV_DEVCOPYIN            78
@@ -631,8 +630,7 @@ void get_hls_wrapper_decls(
             << "  MCXX_EVENT_TYPE_INVALID = 0XFFFFFFFF\n"
             << "};"
             << "typedef enum __mcxx_eventType_t __mcxx_eventType_t;"
-            << "typedef hls::stream< ap_uint<128> > __mcxx_axiStream_InstrEvent_t;"
-            << "typedef hls::stream< ap_uint<80> > __mcxx_axiStream_InstrSetup_t;";
+            << "typedef ap_uint<105> __mcxx_instrData_t;";
     }
 
     if (task_creation)
@@ -682,12 +680,10 @@ void get_hls_wrapper_decls(
     if (instrumentation)
     {
         wrapper_decls_before_user_code
-            << "extern __mcxx_axiStream_InstrEvent_t " << STR_INSTR_EVENTPORT << ";"
-            << "extern __mcxx_axiStream_InstrSetup_t " << STR_INSTR_SETUPPORT << ";";
+            << "extern __mcxx_instrData_t " << STR_INSTR_PORT << ";";
 
         wrapper_body_pragmas
-            << "#pragma HLS INTERFACE ap_hs port=" << STR_INSTR_EVENTPORT << "\n"
-            << "#pragma HLS INTERFACE ap_hs port=" << STR_INSTR_SETUPPORT << "\n";
+            << "#pragma HLS INTERFACE ap_hs port=" << STR_INSTR_PORT << "\n";
     }
 
     if (task_creation)
@@ -885,12 +881,13 @@ void get_hls_wrapper_defs(
             << "void __mcxx_instr_write(const unsigned int event, const unsigned long long int val, const unsigned int type)"
             << "{"
             << "#pragma HLS inline\n"
-            << "#pragma HLS INTERFACE ap_hs port=" << STR_INSTR_EVENTPORT << "\n"
-            << "  ap_uint<128> tmp;"
-            << "  tmp.range(127, 64) = val;"
-            << "  tmp.range(63, 32) = type;"
-            << "  tmp.range(31, 0) = event;"
-            << "  " << STR_INSTR_EVENTPORT << ".write(tmp);"
+            << "#pragma HLS INTERFACE ap_hs port=" << STR_INSTR_PORT << "\n"
+            << "  __mcxx_instrData_t tmp;"
+            << "  tmp.range(63, 0) = val;"
+            << "  tmp.range(95, 64) = event;"
+            << "  tmp.range(103, 96) = type;"
+            << "  tmp.bit(104) = 1;"
+            << "  " << STR_INSTR_PORT << ".write(tmp);"
             << "}"
 
             << "nanos_err_t nanos_instrument_burst_begin(nanos_event_key_t event, nanos_event_value_t value)"
