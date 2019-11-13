@@ -45,19 +45,11 @@
 #define STR_GLOB_OUTPORT       "__mcxx_outPort"
 #define STR_GLOB_TWPORT        "__mcxx_twPort"
 #define STR_TASKID             "__mcxx_taskId"
+#define STR_PARENT_TASKID      "__mcxx_parent_taskId"
 #define STR_WRAPPERDATA        "mcxx_wrapper_data"
 #define STR_OUTPUTSTREAM       "outStream"
 #define STR_INPUTSTREAM        "inStream"
-#define STR_INSTRCOUNTER       "mcxx_instr_counter"
-#define STR_INSTRBUFFER        "mcxx_instr_buffer"
-#define STR_INSTRBUFFER_OFFSET "__mcxx_instr_buffOffset"
-#define STR_INSTRAVSLOTS       "__mcxx_instr_avSlots"
-#define STR_INSTRSLOTS         "__mcxx_instr_slots"
-#define STR_INSTRCURRENTSLOT   "__mcxx_instr_currentSlot"
-#define STR_INSTROVERFLOW      "__mcxx_instr_numOverflow"
-#define STR_EVENTTYPE          "__mcxx_eventType_t"
-#define STR_EVENTSTRUCT        "__mcxx_event_t"
-#define STR_PARENT_TASKID      "__mcxx_parent_taskId"
+#define STR_INSTR_PORT         "mcxx_instr"
 
 //Default instrumentation events codes
 #define EV_DEVCOPYIN            78
@@ -630,22 +622,15 @@ void get_hls_wrapper_decls(
     if (instrumentation)
     {
         wrapper_decls_before_user_code
-            << "typedef unsigned long long int counter_t;"
-            << "struct " << STR_EVENTSTRUCT
-            << "{"
-            << "  unsigned long long int value;"
-            << "  unsigned long long int timestamp;"
-            << "  unsigned long long int typeAndId;"
-            << "};"
-            << "typedef struct " << STR_EVENTSTRUCT << " " << STR_EVENTSTRUCT << ";"
-            << "enum " << STR_EVENTTYPE
+            << "enum __mcxx_eventType_t"
             << "{"
             << "  MCXX_EVENT_TYPE_BURST_OPEN = 0,\n"
             << "  MCXX_EVENT_TYPE_BURST_CLOSE = 1,\n"
             << "  MCXX_EVENT_TYPE_POINT = 2,\n"
             << "  MCXX_EVENT_TYPE_INVALID = 0XFFFFFFFF\n"
             << "};"
-            << "typedef enum " << STR_EVENTTYPE << " " << STR_EVENTTYPE << ";";
+            << "typedef enum __mcxx_eventType_t __mcxx_eventType_t;"
+            << "typedef ap_uint<105> __mcxx_instrData_t;";
     }
 
     if (task_creation)
@@ -695,16 +680,10 @@ void get_hls_wrapper_decls(
     if (instrumentation)
     {
         wrapper_decls_before_user_code
-            << "unsigned long long int " << STR_INSTRBUFFER_OFFSET << ";"
-            << "extern volatile counter_t * " << STR_INSTRCOUNTER << ";"
-            << "extern volatile counter_t * " << STR_INSTRBUFFER << ";"
-            << "unsigned short int " << STR_INSTRSLOTS << ", " << STR_INSTRCURRENTSLOT << ", " << STR_INSTROVERFLOW
-            <<     ", " << STR_INSTRAVSLOTS ";";
+            << "extern __mcxx_instrData_t " << STR_INSTR_PORT << ";";
 
         wrapper_body_pragmas
-            << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRCOUNTER << " offset=direct "
-            <<     "bundle=" << STR_INSTRCOUNTER << "\n"
-            << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRBUFFER << "\n";
+            << "#pragma HLS INTERFACE ap_hs port=" << STR_INSTR_PORT << "\n";
     }
 
     if (task_creation)
@@ -746,9 +725,7 @@ void get_hls_wrapper_decls(
     if (instrumentation)
     {
         wrapper_decls_before_user_code
-            << "counter_t __mcxx_instr_get_time();"
-            << "void __mcxx_instr_wait();"
-            << "void __mcxx_instr_write(unsigned int event, unsigned long long int val, unsigned int type, const counter_t timestamp);";
+            << "void __mcxx_instr_write(const unsigned int event, const unsigned long long int val, const unsigned int type);";
     }
 
     if (task_creation)
@@ -901,81 +878,36 @@ void get_hls_wrapper_defs(
     if (instrumentation)
     {
         wrapper_defs
-            << "counter_t __mcxx_instr_get_time()"
+            << "void __mcxx_instr_write(const unsigned int event, const unsigned long long int val, const unsigned int type)"
             << "{"
-            << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRCOUNTER << " offset=direct bundle=" << STR_INSTRCOUNTER << "\n"
             << "#pragma HLS inline\n"
-            << "  return *(" << STR_INSTRCOUNTER << ");"
-            << "}"
-
-            << "void __mcxx_instr_wait()"
-            << "{"
-            << "#pragma HLS inline off\n"
-            << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRBUFFER << "\n"
-            << "  if (" << STR_INSTRAVSLOTS << " == 1) {"
-            << "    unsigned short int i = (" << STR_INSTRCURRENTSLOT << " + 1)%" << STR_INSTRSLOTS << ";"
-            << "    unsigned long long int typeAndId = *((unsigned long long int*)(" << STR_INSTRBUFFER << " + ((" << STR_INSTRBUFFER_OFFSET
-            <<     " + i*sizeof(" << STR_EVENTSTRUCT << ") + offsetof(" << STR_EVENTSTRUCT << ", typeAndId))/sizeof(unsigned long long int))));"
-            << "    while (((typeAndId >> 32) == MCXX_EVENT_TYPE_INVALID) && (" << STR_INSTRAVSLOTS
-            <<     " < " <<  STR_INSTRSLOTS << ")) {"
-            << "      " << STR_INSTRAVSLOTS << "++;"
-            << "      i = (i+1)%" << STR_INSTRSLOTS << ";"
-            << "      typeAndId = *((unsigned long long int*)(" << STR_INSTRBUFFER << " + ((" << STR_INSTRBUFFER_OFFSET
-            <<     " + i*sizeof(" << STR_EVENTSTRUCT << ") + offsetof(" << STR_EVENTSTRUCT << ", typeAndId))/sizeof(unsigned long long int))));"
-            << "    }"
-            << "    if (" << STR_INSTRAVSLOTS << " > 1 && " << STR_INSTROVERFLOW << " > 0) {"
-            << "      " << STR_INSTROVERFLOW << " = 0;"
-            << "      " << STR_INSTRCURRENTSLOT << "++;"
-            << "    }"
-            << "  }"
-            << "}"
-
-            << "void __mcxx_instr_write(unsigned int event, unsigned long long int val, unsigned int type, const counter_t timestamp)"
-            << "{"
-            //NOTE: This function must be inline to avoid issue: https://pm.bsc.es/gitlab/ompss-at-fpga/mcxx/issues/19
-            << "#pragma HLS inline\n"
-            << "#pragma HLS INTERFACE m_axi port=" << STR_INSTRBUFFER << "\n"
-            << "  if (" << STR_INSTRSLOTS << " > 0) {"
-            << "    __mcxx_instr_wait();"
-            << "    const unsigned long long int slot_offset = (" << STR_INSTRBUFFER_OFFSET << " + "
-            <<         STR_INSTRCURRENTSLOT << "*sizeof(" << STR_EVENTSTRUCT << "))/sizeof(unsigned long long int);"
-            << "    " << STR_EVENTSTRUCT << " fpga_event;"
-            << "    if (" << STR_INSTRAVSLOTS << " > 1) {"
-            << "      " << STR_INSTRCURRENTSLOT << " = (" << STR_INSTRCURRENTSLOT << " + 1)%" << STR_INSTRSLOTS << ";"
-            << "      " << STR_INSTRAVSLOTS << "--;"
-            << "      fpga_event.typeAndId = ((unsigned long long int)type<<32) | event;"
-            << "      fpga_event.value = val;"
-            << "      fpga_event.timestamp = timestamp;"
-            << "    }"
-            << "    else if (" << STR_INSTRAVSLOTS << " == 1) {"
-            << "      fpga_event.typeAndId = (((unsigned long long int)MCXX_EVENT_TYPE_POINT)<<32) | "
-            <<     EV_INSTEVLOST << ";"
-            << "      fpga_event.value = ++" << STR_INSTROVERFLOW << ";"
-            << "      fpga_event.timestamp = timestamp;"
-            << "    }"
-            << "    memcpy((void *)(" << STR_INSTRBUFFER << " + slot_offset), &fpga_event, sizeof("
-            <<     STR_EVENTSTRUCT << "));"
-            << "  }"
+            << "#pragma HLS INTERFACE ap_hs port=" << STR_INSTR_PORT << "\n"
+            << "  __mcxx_instrData_t tmp;"
+            << "  tmp.range(63, 0) = val;"
+            << "  tmp.range(95, 64) = event;"
+            << "  tmp.range(103, 96) = type;"
+            << "  tmp.bit(104) = 1;"
+            << "  " << STR_INSTR_PORT << ".write(tmp);"
             << "}"
 
             << "nanos_err_t nanos_instrument_burst_begin(nanos_event_key_t event, nanos_event_value_t value)"
             << "{"
             << "#pragma HLS inline\n"
-            << "  __mcxx_instr_write(event, value, MCXX_EVENT_TYPE_BURST_OPEN, __mcxx_instr_get_time() );"
+            << "  __mcxx_instr_write(event, value, MCXX_EVENT_TYPE_BURST_OPEN);"
             << "  return NANOS_OK;"
             << "}"
 
             << "nanos_err_t nanos_instrument_burst_end(nanos_event_key_t event, nanos_event_value_t value)"
             << "{"
             << "#pragma HLS inline\n"
-            << "  __mcxx_instr_write(event, value, MCXX_EVENT_TYPE_BURST_CLOSE, __mcxx_instr_get_time() );"
+            << "  __mcxx_instr_write(event, value, MCXX_EVENT_TYPE_BURST_CLOSE);"
             << "  return NANOS_OK;"
             << "}"
 
             << "nanos_err_t nanos_instrument_point_event(nanos_event_key_t event, nanos_event_value_t value)"
             << "{"
             << "#pragma HLS inline\n"
-            << "  __mcxx_instr_write(event, value, MCXX_EVENT_TYPE_POINT, __mcxx_instr_get_time() );"
+            << "  __mcxx_instr_write(event, value, MCXX_EVENT_TYPE_POINT);"
             << "  return NANOS_OK;"
             << "}";
     }
