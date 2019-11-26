@@ -784,7 +784,7 @@ void get_hls_wrapper_decls(
                 << "  }"
                 << "  mcxx_ptr_t<T> operator&()"
                 << "  {"
-                << "    return new mcxx_ptr_t<T>(this->offset);"
+                << "    return mcxx_ptr_t<T>(this->offset);"
                 << "  }"
                 << "};";
 
