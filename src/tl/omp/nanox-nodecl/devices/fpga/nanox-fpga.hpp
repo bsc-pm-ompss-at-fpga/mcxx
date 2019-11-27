@@ -137,6 +137,7 @@ namespace TL
                         TL::ObjectList<TL::Nanox::OutlineDataItem*>&,
                         const bool creates_children_tasks,
                         const bool calls_nanos_instrument,
+                        const bool calls_mcxx_memcpy,
                         const std::string wrapper_func_name,
                         Source& wrapper_decls, //< out
                         Source& wrapper_source //< out

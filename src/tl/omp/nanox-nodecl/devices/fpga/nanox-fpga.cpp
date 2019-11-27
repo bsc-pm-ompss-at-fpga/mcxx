@@ -196,6 +196,7 @@ void DeviceFPGA::create_outline(
                     info._data_items,
                     creates_children_tasks,
                     fpga_task_code_visitor._calls_nanos_instrument,
+                    fpga_task_code_visitor._calls_mcxx_memcpy,
                     to_outline_info.get_wrapper_name(),
                     to_outline_info._wrapper_decls,
                     to_outline_info._wrapper_code);
@@ -861,8 +862,8 @@ static int find_parameter_position(const ObjectList<Symbol> param_list, const Sy
  *
  */
 void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDataItem*>& data_items,
-    const bool creates_children_tasks, const bool calls_nanos_instrument, const std::string wrapper_func_name,
-    Source &wrapper_decls, Source &wrapper_source)
+    const bool creates_children_tasks, const bool calls_nanos_instrument, const bool calls_mcxx_memcpy,
+    const std::string wrapper_func_name, Source &wrapper_decls, Source &wrapper_source)
 {
     //Check that we are calling a function task (this checking may be performed earlyer in the code)
     if (!func_symbol.is_function()) {
@@ -1304,6 +1305,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     get_hls_wrapper_decls(
         instrumentation_enabled(),
         calls_nanos_instrument,
+        calls_mcxx_memcpy,
         creates_children_tasks,
         _memory_port_width,
         wrapper_decls,
@@ -1335,6 +1337,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     get_hls_wrapper_defs(
         instrumentation_enabled(),
         calls_nanos_instrument,
+        calls_mcxx_memcpy,
         creates_children_tasks,
         _memory_port_width,
         wrapper_source);
