@@ -1298,8 +1298,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             << "  unsigned int __task_period = 0, __task_num_reps = 1;"
             << "  if (__commandCode == 3) {"
             << "    __bufferData = " << STR_INPUTSTREAM << ".read().data;"
-            << "    __task_period = __bufferData;"
-            << "    __task_num_reps = __bufferData>>32;"
+            << "    __task_num_reps = __bufferData;"
+            << "    __task_period = __bufferData>>32;"
             << "  }";
 
         periodic_command_pre
