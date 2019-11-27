@@ -1,7 +1,7 @@
 # fpgacc (FPGA-Zynq)
 [fpgacc: omp-base]
 language = C
-options = --native-vendor=gnu
+options = --native-vendor=gnu --variable=disable_final_clause_transformation:1
 preprocessor_options =-include nanos-fpga.h
 linker_options = -lnanox-fpga-api
 compiler_phase = libtlnanox-fpga.so
@@ -12,7 +12,7 @@ compiler_phase = libtlnanox-fpga.so
 
 [fpgacxx: omp-base]
 language = C++
-options = --native-vendor=gnu
+options = --native-vendor=gnu --variable=disable_final_clause_transformation:1
 preprocessor_options =-include nanos-fpga.h
 linker_options = -lnanox-fpga-api
 compiler_phase = libtlnanox-fpga.so
