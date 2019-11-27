@@ -494,6 +494,11 @@ DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_gener
         "Defines the width (in bits) of memory ports (only for wrapper localmem data) for fpga accelerators",
         _memory_port_width,
         "").connect(std::bind(&DeviceFPGA::set_memory_port_width_from_str, this, std::placeholders::_1));
+
+    register_parameter("fpga_periodic_support",
+        "Enables/disables the periodic tasks support in FPGA accelerators",
+        _periodic_support_str,
+        "0").connect(std::bind(&DeviceFPGA::set_periodic_support_from_str, this, std::placeholders::_1));
 }
 
 void DeviceFPGA::pre_run(DTO& dto) {
@@ -875,7 +880,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     char function_parameters_passed[param_list.size()];
     Source pragmas_src, params_src, clear_components_count, user_function_args,
         local_decls_src, reset_src, handle_task_execution_cmd_src, init_hw_instr_cmd_src,
-        wrapper_decls_after_user_code;
+        wrapper_decls_after_user_code, condition_task_execution_cmd_src;
+    Source periodic_command_read, periodic_command_pre, periodic_command_post;
     Source in_copies, out_copies, in_copies_switch_body, out_copies_switch_body;
     Source profiling_0, profiling_1, profiling_2, profiling_3;
     unsigned int n_params_id = 0;
@@ -894,7 +900,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         << "#pragma HLS INTERFACE axis port=" << STR_OUTPUTSTREAM << "\n";
 
     local_decls_src
-        << "unsigned long long int __command, __commandArgs, __bufferData;"
+        << "unsigned long long int __commandArgs, __bufferData;"
         << "unsigned char __commandCode;"
         << "static ap_uint<1> __reset = 0;"
         << "#pragma HLS RESET variable=__reset\n";
@@ -1280,18 +1286,45 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             << "  }";
     }
 
+    condition_task_execution_cmd_src
+        << "__commandCode == 1";
+
+    if (_periodic_support)
+    {
+        condition_task_execution_cmd_src
+            << " || __commandCode == 3";
+
+        periodic_command_read
+            << "  unsigned int __task_period = 0, __task_num_reps = 1;"
+            << "  if (__commandCode == 3) {"
+            << "    __bufferData = " << STR_INPUTSTREAM << ".read().data;"
+            << "    __task_period = __bufferData;"
+            << "    __task_num_reps = __bufferData>>32;"
+            << "  }";
+
+        periodic_command_pre
+            << "  for (; __task_num_reps > 0; __task_num_reps--) {";
+
+        periodic_command_post
+            << "    for (volatile unsigned int lose_time = 0; lose_time < __task_period; lose_time++) lose_time = lose_time;"
+            << "  }";
+    }
+
     handle_task_execution_cmd_src
         << "  unsigned char __comp_needed, __destID;"
         << "  " << STR_TASKID << " = " << STR_INPUTSTREAM << ".read().data;"
         << "  " << STR_PARENT_TASKID << " = " << STR_INPUTSTREAM << ".read().data;"
         << "  __comp_needed = __commandArgs>>24;"
         << "  __destID = __commandArgs>>32;"
+        <<    periodic_command_read
         <<    profiling_0
         <<    in_copies
         <<    profiling_1
         << "  if (__comp_needed) {"
         <<      clear_components_count
+        <<      periodic_command_pre
         << "    " << func_symbol.get_name() << "(" << user_function_args << ");"
+        <<      periodic_command_post
         << "  }"
         <<    profiling_2
         <<    out_copies
@@ -1324,10 +1357,10 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         << "  __reset = 1;"
         <<    reset_src
         << "}"
-        << "__command = " << STR_INPUTSTREAM << ".read().data;"
-        << "__commandCode = __command;"
-        << "__commandArgs = __command>>8;"
-        << "if (__commandCode == 1) {"
+        << "__bufferData = " << STR_INPUTSTREAM << ".read().data;"
+        << "__commandCode = __bufferData;"
+        << "__commandArgs = __bufferData>>8;"
+        << "if (" << condition_task_execution_cmd_src << ") {"
         <<    handle_task_execution_cmd_src
         << "}"
         << init_hw_instr_cmd_src
@@ -2163,6 +2196,11 @@ void DeviceFPGA::set_force_fpga_task_creation_ports_from_str(const std::string& 
 void DeviceFPGA::set_memory_port_width_from_str(const std::string& in_str)
 {
     _memory_port_width = in_str;
+}
+
+void DeviceFPGA::set_periodic_support_from_str(const std::string& str)
+{
+    TL::parse_boolean_option("fpga_periodic_support", str, _periodic_support, "Assuming false.");
 }
 
 std::string DeviceFPGA::FpgaOutlineInfo::get_filename() const

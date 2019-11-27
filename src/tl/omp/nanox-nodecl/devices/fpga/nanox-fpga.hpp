@@ -111,14 +111,16 @@ namespace TL
                 std::string _device_name;
                 std::string _frequency;
                 std::string _bitstream_generation_str;
+                bool        _bitstream_generation;
                 std::string _vivado_design_path;
                 std::string _vivado_project_name;
                 std::string _ip_cache_path;
                 std::string _dataflow;
                 std::string _force_fpga_task_creation_ports_str;
-                bool        _bitstream_generation;
                 str_set_t   _force_fpga_task_creation_ports;
                 std::string _memory_port_width;
+                std::string _periodic_support_str;
+                bool        _periodic_support;
                 str_set_t   _registered_tasks;
                 Nodecl::NodeclBase _root;
                 TL::ObjectList< struct FpgaOutlineInfo >       _outlines;
@@ -127,6 +129,7 @@ namespace TL
                 void set_bitstream_generation_from_str(const std::string& str);
                 void set_force_fpga_task_creation_ports_from_str(const std::string& str);
                 void set_memory_port_width_from_str(const std::string& str);
+                void set_periodic_support_from_str(const std::string& str);
 
                 Nodecl::Utils::SimpleSymbolMap                 _global_copied_fpga_symbols;
                 Nodecl::List                                   _stuff_to_copy;
