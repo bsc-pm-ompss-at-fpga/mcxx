@@ -178,17 +178,18 @@ void DeviceFPGA::create_outline(
                 new_function.set_value(fun_code);
                 symbol_entity_specs_set_is_static(new_function.get_internal_symbol(), 1);
 
+                FpgaTaskCodeVisitor fpga_task_code_visitor(
+                    acc_type,
+                    TL::CompilationProcess::get_current_file().get_filename(/* fullpath */ true),
+                    symbol_map);
+                fpga_task_code_visitor.walk(fun_code);
+
                 if (creates_children_tasks)
                 {
                     // If the task creates more tasks, replace the pointers by mcxx_ptr_t variables
                     ReplaceTaskCreatorSymbolsVisitor replace_ptr_decl_visitor(symbol_map);
                     replace_ptr_decl_visitor.walk(fun_code);
                 }
-
-                FpgaTaskCodeVisitor fpga_task_code_visitor(
-                    TL::CompilationProcess::get_current_file().get_filename(/* fullpath */ true),
-                    symbol_map);
-                fpga_task_code_visitor.walk(fun_code);
 
                 // Generate the wrapper interface for the called task
                 DeviceFPGA::gen_hls_wrapper(

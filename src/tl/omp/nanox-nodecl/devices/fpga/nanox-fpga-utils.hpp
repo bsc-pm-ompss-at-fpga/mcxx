@@ -372,6 +372,7 @@ struct ReplaceTaskCreatorSymbolsVisitor : public Nodecl::ExhaustiveVisitor<void>
 struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
 {
     private:
+        const std::string                _unique_suffix;
         const std::string                _filename;
         TL::Symbol                       _mcxx_memcpy_sym;
         Nodecl::Utils::SimpleSymbolMap*  _symbol_map;
@@ -432,8 +433,8 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
         bool                             _calls_nanos_instrument;
         bool                             _calls_mcxx_memcpy;
 
-        FpgaTaskCodeVisitor(const std::string filename, Nodecl::Utils::SimpleSymbolMap * map) :
-                _filename(filename), _mcxx_memcpy_sym(), _symbol_map(map), _called_functions(),
+        FpgaTaskCodeVisitor(const std::string suffix, const std::string filename, Nodecl::Utils::SimpleSymbolMap * map) :
+                _unique_suffix("_" + suffix), _filename(filename), _mcxx_memcpy_sym(), _symbol_map(map), _called_functions(),
                 _calls_nanos_instrument(false), _calls_mcxx_memcpy(false) {}
 
         virtual void visit(const Nodecl::Symbol& node)
@@ -489,15 +490,12 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
             if (function_code.is_null())
                 return;
 
-            Nodecl::NodeclBase function_statements = function_code.get_statements();
-            walk(function_statements);
-
             if (_filename == function_code.get_filename() && _symbol_map->map(sym) == sym)
             {
                 // Duplicate the symbol and append the function code to the list
                 // FIXME: Change the name of the new symbol and replace all needed symbol calls
                 TL::Symbol new_function = SymbolUtils::new_function_symbol_for_deep_copy(
-                    sym, sym.get_name() /*+ "_moved"*/);
+                    sym, sym.get_name() + _unique_suffix);
                 _symbol_map->add_map(sym, new_function);
 
                 Nodecl::NodeclBase fun_code = Nodecl::Utils::deep_copy(
@@ -506,8 +504,13 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
                     *_symbol_map);
                 new_function.set_value(fun_code);
                 symbol_entity_specs_set_is_static(new_function.get_internal_symbol(), 1);
+                called.set_symbol(new_function);
 
                 _called_functions.append(fun_code);
+                walk(fun_code);
+            } else {
+                Nodecl::NodeclBase function_statements = function_code.get_statements();
+                walk(function_statements);
             }
         }
 };
