@@ -434,7 +434,7 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
         bool                             _calls_mcxx_memcpy;
 
         FpgaTaskCodeVisitor(const std::string suffix, const std::string filename, Nodecl::Utils::SimpleSymbolMap * map) :
-                _unique_suffix("_" + suffix), _filename(filename), _mcxx_memcpy_sym(), _symbol_map(map), _called_functions(),
+                _unique_suffix(suffix), _filename(filename), _mcxx_memcpy_sym(), _symbol_map(map), _called_functions(),
                 _calls_nanos_instrument(false), _calls_mcxx_memcpy(false) {}
 
         virtual void visit(const Nodecl::Symbol& node)

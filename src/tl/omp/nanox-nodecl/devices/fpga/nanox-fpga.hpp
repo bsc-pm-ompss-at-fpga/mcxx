@@ -121,6 +121,7 @@ namespace TL
                 std::string _memory_port_width;
                 std::string _periodic_support_str;
                 bool        _periodic_support;
+                std::string _function_copy_suffix;
                 str_set_t   _registered_tasks;
                 Nodecl::NodeclBase _root;
                 TL::ObjectList< struct FpgaOutlineInfo >       _outlines;
@@ -130,6 +131,7 @@ namespace TL
                 void set_force_fpga_task_creation_ports_from_str(const std::string& str);
                 void set_memory_port_width_from_str(const std::string& str);
                 void set_periodic_support_from_str(const std::string& str);
+                void set_funcion_copy_suffix_from_str(const std::string& str);
 
                 Nodecl::Utils::SimpleSymbolMap                 _global_copied_fpga_symbols;
                 Nodecl::List                                   _stuff_to_copy;
