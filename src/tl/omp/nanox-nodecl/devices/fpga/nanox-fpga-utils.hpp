@@ -374,7 +374,6 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
     private:
         const std::string                _unique_suffix;
         const std::string                _filename;
-        TL::Symbol                       _mcxx_memcpy_sym;
         Nodecl::Utils::SimpleSymbolMap*  _symbol_map;
 
         void checkSymTypeAndEmitWarning(const TL::Symbol& sym, const Nodecl::NodeclBase& node)
@@ -399,43 +398,13 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
                 warning_already_shown = true;
             }
         }
-
-        TL::Symbol get_mcxx_memcpy_symbol(const TL::Symbol& host_sym)
-        {
-            if (_symbol_map->map(host_sym) == host_sym)
-            {
-                ObjectList<std::string> param_names;
-                ObjectList<TL::Type> param_types;
-
-                param_names.append("dest");
-                param_types.append(TL::Type::get_void_type().get_pointer_to());
-
-                param_names.append("src");
-                param_types.append(TL::Type::get_void_type().get_const_type().get_pointer_to());
-
-                param_names.append("n");
-                param_types.append(TL::Type::get_unsigned_int_type().get_const_type());
-
-                _mcxx_memcpy_sym = SymbolUtils::new_function_symbol(
-                    host_sym.get_scope(),
-                    "__mcxx_memcpy",
-                    host_sym.get_type().returns(),
-                    param_names,
-                    param_types);
-
-                _symbol_map->add_map(host_sym, _mcxx_memcpy_sym);
-            }
-
-            return _mcxx_memcpy_sym;
-        }
     public:
         Nodecl::List                     _called_functions;
-        bool                             _calls_nanos_instrument;
-        bool                             _calls_mcxx_memcpy;
+        std::set<std::string>            _user_calls_set;
 
         FpgaTaskCodeVisitor(const std::string suffix, const std::string filename, Nodecl::Utils::SimpleSymbolMap * map) :
-                _unique_suffix(suffix), _filename(filename), _mcxx_memcpy_sym(), _symbol_map(map), _called_functions(),
-                _calls_nanos_instrument(false), _calls_mcxx_memcpy(false) {}
+                _unique_suffix(suffix), _filename(filename), _symbol_map(map), _called_functions(),
+                _user_calls_set() {}
 
         virtual void visit(const Nodecl::Symbol& node)
         {
@@ -476,19 +445,46 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
                 return;
             Symbol sym = called.as<Nodecl::Symbol>().get_symbol();
 
-            _calls_nanos_instrument |= sym.get_name().find("nanos_instrument_") != std::string::npos;
-
-            if (sym.get_name() == "memcpy")
-            {
-                //NOTE: Replace the called symbol: memcpy --> mcxx_memcpy
-                TL::Symbol new_sym = get_mcxx_memcpy_symbol(sym);
-                called.set_symbol(new_sym);
-                _calls_mcxx_memcpy = true;
-            }
-
             Nodecl::FunctionCode function_code = sym.get_function_code().as<Nodecl::FunctionCode>();
             if (function_code.is_null())
+            {
+
+                if (sym.get_name() == "memcpy")
+                {
+                    if (_symbol_map->map(sym) == sym)
+                    {
+                        // This is the first occurence of memcpy, create the __mcxx_memcpy symbol
+                        ObjectList<std::string> param_names;
+                        ObjectList<TL::Type> param_types;
+
+                        param_names.append("dest");
+                        param_types.append(TL::Type::get_void_type().get_pointer_to());
+
+                        param_names.append("src");
+                        param_types.append(TL::Type::get_void_type().get_const_type().get_pointer_to());
+
+                        param_names.append("n");
+                        param_types.append(TL::Type::get_unsigned_int_type().get_const_type());
+
+                        _symbol_map->add_map(sym, SymbolUtils::new_function_symbol(
+                            sym.get_scope(),
+                            "__mcxx_memcpy",
+                            sym.get_type().returns(),
+                            param_names,
+                            param_types));
+                        _user_calls_set.insert("mcxx_memcpy");
+                    }
+
+                    //NOTE: Replace the called symbol: memcpy --> __mcxx_memcpy
+                    called.set_symbol(_symbol_map->map(sym));
+                }
+                else if (sym.get_name().find("nanos_instrument_") != std::string::npos)
+                {
+                    _user_calls_set.insert("nanos_instrument");
+                }
+
                 return;
+            }
 
             if (_filename == function_code.get_filename() && _symbol_map->map(sym) == sym)
             {
@@ -617,10 +613,9 @@ TL::Symbol declare_casting_union(TL::Type field_type, Nodecl::NodeclBase constru
 
 void get_hls_wrapper_decls(
   const bool instrumentation,
-  const bool user_calls_nanos_instrument,
-  const bool user_calls_mcxx_memcpy,
   const bool task_creation,
   const std::string shared_memory_port_width,
+  const std::set<std::string> user_calls_set,
   Source& wrapper_decls_before_user_code,
   Source& wrapper_decls_after_user_code,
   Source& wrapper_body_pragmas)
@@ -628,9 +623,11 @@ void get_hls_wrapper_decls(
     // NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
     // NOTE: The declarations of Nanos++ APIs must be coherent with the ones in the Nanos++ headers.
     //       The only declarations that changes is nanos_wd_t which is a integer type inside the FPGA
+    const bool user_calls_nanos_instrument = user_calls_set.count("nanos_instrument") > 0;
     const bool put_instr_nanos_api =
         (!IS_C_LANGUAGE && (instrumentation || user_calls_nanos_instrument)) ||
         (IS_C_LANGUAGE && instrumentation && !user_calls_nanos_instrument);
+    const bool user_calls_mcxx_memcpy = user_calls_set.count("mcxx_memcpy") > 0;
     bool is_nanos_err_declared = false;
 
     /*** Type declarations ***/
@@ -895,9 +892,8 @@ void get_hls_wrapper_decls(
 
 void get_hls_wrapper_defs(
   const bool instrumentation,
-  const bool user_calls_nanos_instrument,
-  const bool user_calls_mcxx_memcpy,
   const bool task_creation,
+  const std::set<std::string> user_calls_set,
   const std::string shared_memory_port_width,
   Source& wrapper_defs)
 {
@@ -927,7 +923,7 @@ void get_hls_wrapper_defs(
         << "  __mcxx_write_stream(stream, " << STR_PARENT_TASKID << ", destId, 1);"
         << "}";
 
-    if (user_calls_mcxx_memcpy)
+    if (user_calls_set.count("mcxx_memcpy") > 0)
     {
         wrapper_defs
             << "void *__mcxx_memcpy(void *dest, const void *src, const unsigned int n)"
@@ -973,7 +969,7 @@ void get_hls_wrapper_defs(
             << "  return NANOS_OK;"
             << "}";
     }
-    else if (user_calls_nanos_instrument)
+    else if (user_calls_set.count("nanos_instrument") > 0)
     {
         //Define empty instrument calls when instrumentation is not enabled
         wrapper_defs
