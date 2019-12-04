@@ -4608,7 +4608,6 @@ static void link_files(const char** file_list, int num_files,
     }
     int num_arguments_fpga = num_args_linker_options_fpga
         + 1 //< FPGA wrapper shell version
-        + 1 //< Mercurium version
         + (!linker_args_fpga_contain_name) //< Auto-added -board option
         + 1; //< NULL
 
@@ -4686,11 +4685,6 @@ static void link_files(const char** file_list, int num_files,
     }
 
     linker_args_fpga[j++] = strappend("--wrapper_version=", FPGA_WRAPPER_VERSION);
-    linker_args_fpga[j++] = strappend("--mcxx_version=",
-                            strappend("\"",
-                            strappend(VERSION,
-                            strappend(" ",
-                            strappend(MCXX_BUILD_VERSION, "\""))))); //Mercurium version
     if (!linker_args_fpga_contain_name && linked_output_filename)
     {
         //Auto-add the name option
