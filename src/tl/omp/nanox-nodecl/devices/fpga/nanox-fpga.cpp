@@ -1792,6 +1792,12 @@ void DeviceFPGA::emit_async_device(
             << copies_list
             << "};";
     }
+    else if (/*num_copies == 0 &&*/ IS_C_LANGUAGE)
+    {
+        spawn_code
+            << "nanos_fpga_copyinfo_t __mcxx_fix_element_nanos_fpga_copyinfo_t;"
+            << "__mcxx_fix_element_nanos_fpga_copyinfo_t._padding = 1;";
+    }
 
     spawn_code
         << "nanos_fpga_create_wd_async(" << arch_mask << ", " << acc_type << ", "
