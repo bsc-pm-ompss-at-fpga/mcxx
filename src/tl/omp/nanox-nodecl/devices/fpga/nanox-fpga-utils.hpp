@@ -477,6 +477,35 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
                     //NOTE: Replace the called symbol: memcpy --> __mcxx_memcpy
                     called.set_symbol(_symbol_map->map(sym));
                 }
+                else if (sym.get_name() == "memset")
+                {
+                    if (_symbol_map->map(sym) == sym)
+                    {
+                        // This is the first occurence of memset, create the __mcxx_memset symbol
+                        ObjectList<std::string> param_names;
+                        ObjectList<TL::Type> param_types;
+
+                        param_names.append("s");
+                        param_types.append(TL::Type::get_void_type().get_pointer_to());
+
+                        param_names.append("c");
+                        param_types.append(TL::Type::get_int_type());
+
+                        param_names.append("n");
+                        param_types.append(TL::Type::get_unsigned_int_type());
+
+                        _symbol_map->add_map(sym, SymbolUtils::new_function_symbol(
+                            sym.get_scope(),
+                            "__mcxx_memset",
+                            sym.get_type().returns(),
+                            param_names,
+                            param_types));
+                        _user_calls_set.insert("mcxx_memset");
+                    }
+
+                    //NOTE: Replace the called symbol: memset --> __mcxx_memset
+                    called.set_symbol(_symbol_map->map(sym));
+                }
                 else if (sym.get_name() == "sqrtf")
                 {
                     if (_symbol_map->map(sym) == sym)
@@ -781,6 +810,13 @@ void get_hls_wrapper_decls(
             << "void *__mcxx_memcpy(void *dest, const void *src, const unsigned int n);";
     }
 
+    if (user_calls_set.count("mcxx_memset") > 0 && !IS_C_LANGUAGE)
+    {
+        // NOTE: The following declaration will be placed in the source by the codegen in C lang
+        wrapper_decls_before_user_code
+            << "void *__mcxx_memset(void *s, int c, unsigned int n);";
+    }
+
     if (user_calls_set.count("mcxx_sqrtf") > 0 && !IS_C_LANGUAGE)
     {
         // NOTE: The following declaration will be placed in the source by the codegen in C lang
@@ -958,6 +994,16 @@ void get_hls_wrapper_defs(
             << "{"
             << "#pragma HLS INLINE\n"
             << "  return memcpy(dest, src, n);"
+            << "}";
+    }
+
+    if (user_calls_set.count("mcxx_memset") > 0)
+    {
+        wrapper_defs
+            << "void *__mcxx_memset(void *s, int c, unsigned int n)"
+            << "{"
+            << "#pragma HLS INLINE\n"
+            << "  return memset(s, c, n);"
             << "}";
     }
 
