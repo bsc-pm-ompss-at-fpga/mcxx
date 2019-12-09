@@ -553,8 +553,8 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
                 symbol_entity_specs_set_is_static(new_function.get_internal_symbol(), 1);
                 called.set_symbol(new_function);
 
-                _called_functions.append(fun_code);
                 walk(fun_code);
+                _called_functions.append(fun_code);
             } else {
                 Nodecl::NodeclBase function_statements = function_code.get_statements();
                 walk(function_statements);
