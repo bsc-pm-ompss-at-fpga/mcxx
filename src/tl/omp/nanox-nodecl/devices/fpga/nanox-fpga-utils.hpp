@@ -150,7 +150,12 @@ std::string get_mcxx_ptr_declaration(const TL::Type& type_to_point)
     return "mcxx_ptr_t<" + type_to_point.print_declarator() + ">";
 }
 
-void add_fpga_header(FILE* file, const std::string name, const std::string type, const std::string num_instances)
+void add_fpga_header(
+    FILE* file,
+    const bool instrumentation,
+    const std::string name,
+    const std::string type,
+    const std::string num_instances)
 {
     fprintf(file, "\
 ///////////////////\n\
@@ -167,7 +172,14 @@ void add_fpga_header(FILE* file, const std::string name, const std::string type,
     fprintf(file, "// Wrapper version: %s\n", FPGA_WRAPPER_VERSION);
     fprintf(file, "\
 ///////////////////\n\
-#define __HLS_AUTOMATIC_MCXX__ 1\n\n\
+#define __HLS_AUTOMATIC_MCXX__ 1\n\n"
+    );
+
+    if (instrumentation)
+    {
+        fprintf(file, "#include <systemc.h>\n");
+    }
+    fprintf(file, "\
 #include <cstring>\n\
 #include <hls_stream.h>\n\
 #include <ap_axi_sdata.h>\n\n"
@@ -1023,17 +1035,21 @@ void get_hls_wrapper_defs(
 
     if (instrumentation)
     {
+        //NOTE: Putting the systemc.h include here to avoid potential collisiong with the user code
         wrapper_defs
             << "void __mcxx_instr_write(const unsigned int event, const unsigned long long int val, const unsigned int type)"
             << "{"
             << "#pragma HLS inline\n"
+            << "#pragma HLS protocol fixed\n"
             << "#pragma HLS INTERFACE ap_hs port=" << STR_INSTR_PORT << "\n"
             << "  __mcxx_instrData_t tmp;"
             << "  tmp.range(63, 0) = val;"
             << "  tmp.range(95, 64) = event;"
             << "  tmp.range(103, 96) = type;"
             << "  tmp.bit(104) = 1;"
+            << "  wait();"
             << "  " << STR_INSTR_PORT << ".write(tmp);"
+            << "  wait();"
             << "}"
 
             << "nanos_err_t nanos_instrument_burst_begin(nanos_event_key_t event, nanos_event_value_t value)"

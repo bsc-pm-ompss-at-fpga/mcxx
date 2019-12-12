@@ -666,7 +666,7 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
                 ::mark_file_for_cleanup(new_filename.c_str());
             }
 
-            add_fpga_header(ancillary_file, it->get_wrapper_name(), it->_type, it->_num_instances);
+            add_fpga_header(ancillary_file, instrumentation_enabled(), it->get_wrapper_name(), it->_type, it->_num_instances);
             add_included_fpga_files(ancillary_file);
 
             fprintf(ancillary_file, "%s\n", it->_wrapper_decls.get_source(true).c_str());
