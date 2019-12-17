@@ -165,8 +165,7 @@ void DeviceFPGA::create_outline(
                 FpgaOutlineInfo to_outline_info(
                     called_task.get_name(),
                     get_num_instances(info._target_info),
-                    acc_type,
-                    std::to_string(data_items.size()));
+                    acc_type);
 
                 // Duplicate the called task into the fpga source
                 TL::Symbol new_function = SymbolUtils::new_function_symbol_for_deep_copy(
@@ -2220,7 +2219,7 @@ void DeviceFPGA::set_funcion_copy_suffix_from_str(const std::string& in_str)
 
 std::string DeviceFPGA::FpgaOutlineInfo::get_filename() const
 {
-    return _type + ":" + _num_instances + ":" + _num_args + ":" + _name + "_hls_automatic_mcxx.cpp";
+    return _type + ":" + _num_instances + ":" + _name + "_hls_automatic_mcxx.cpp";
 }
 
 std::string DeviceFPGA::FpgaOutlineInfo::get_wrapper_name() const
