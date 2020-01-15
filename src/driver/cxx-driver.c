@@ -4716,7 +4716,7 @@ static void link_files(const char** file_list, int num_files,
         // FPGA linker
         timing_t timing_link_automatic;
         timing_start(&timing_link_automatic);
-        if (execute_program("autoVivado", linker_args_fpga) != 0)
+        if (execute_program("ait", linker_args_fpga) != 0)
         {
             fatal_error("Link fpga failed");
         }
