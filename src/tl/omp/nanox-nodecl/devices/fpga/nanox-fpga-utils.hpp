@@ -434,7 +434,7 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
             checkSymTypeAndEmitWarning(sym, node);
         }
 
-        virtual void visit(const Nodecl::ObjectInit& node)
+        /*virtual void visit(const Nodecl::ObjectInit& node)
         {
             TL::Symbol sym = node.get_symbol();
             if (!sym.get_value().is_null())
@@ -443,7 +443,7 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
             }
 
             checkSymTypeAndEmitWarning(sym, node);
-        }
+        }*/
 
         virtual void visit(const Nodecl::FunctionCall& node)
         {
@@ -553,10 +553,12 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
                 return;
             }
 
+            Nodecl::NodeclBase function_statements = function_code.get_statements();
+            walk(function_statements);
+
             if (_filename == function_code.get_filename() && _symbol_map->map(sym) == sym)
             {
                 // Duplicate the symbol and append the function code to the list
-                // FIXME: Change the name of the new symbol and replace all needed symbol calls
                 TL::Symbol new_function = SymbolUtils::new_function_symbol_for_deep_copy(
                     sym, sym.get_name() + _unique_suffix);
                 _symbol_map->add_map(sym, new_function);
@@ -567,13 +569,9 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
                     *_symbol_map);
                 new_function.set_value(fun_code);
                 symbol_entity_specs_set_is_static(new_function.get_internal_symbol(), 1);
-                called.set_symbol(new_function);
 
-                walk(fun_code);
+                called.set_symbol(new_function);
                 _called_functions.append(fun_code);
-            } else {
-                Nodecl::NodeclBase function_statements = function_code.get_statements();
-                walk(function_statements);
             }
         }
 };
