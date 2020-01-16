@@ -391,6 +391,8 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
         const std::string                _unique_suffix;
         const std::string                _filename;
         Nodecl::Utils::SimpleSymbolMap*  _symbol_map;
+        //FIXME: Do not use the following set to know which symbols are a copy of originals
+        std::set<scope_entry_t*>         _new_symbol_set;
 
         void checkSymTypeAndEmitWarning(const TL::Symbol& sym, const Nodecl::NodeclBase& node)
         {
@@ -419,7 +421,7 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
         std::set<std::string>            _user_calls_set;
 
         FpgaTaskCodeVisitor(const std::string suffix, const std::string filename, Nodecl::Utils::SimpleSymbolMap * map) :
-                _unique_suffix(suffix), _filename(filename), _symbol_map(map), _called_functions(),
+                _unique_suffix(suffix), _filename(filename), _symbol_map(map), _new_symbol_set(), _called_functions(),
                 _user_calls_set() {}
 
         virtual void visit(const Nodecl::Symbol& node)
@@ -549,8 +551,9 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
 
             const std::map<TL::Symbol, TL::Symbol>* map = _symbol_map->get_simple_symbol_map();
             bool has_been_duplicated = map->find(sym) != map->end();
+            bool is_orig_symbol = _new_symbol_set.find(sym.get_internal_symbol()) == _new_symbol_set.end();
 
-            if (_filename == function_code.get_filename() && !has_been_duplicated)
+            if (_filename == function_code.get_filename() && !has_been_duplicated && is_orig_symbol)
             {
                 // Duplicate the symbol and append the function code to the list
                 TL::Symbol new_function = SymbolUtils::new_function_symbol_for_deep_copy(
@@ -559,28 +562,32 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
                 has_been_duplicated = true;
                 _symbol_map->add_map(sym, new_function);
 
+                //NOTE: _new_symbol_set should not be necessary as when the visitor founds the same symbol a
+                //      second time it should point the original symbol. However, it points the copied one
+                //      under some unknown circumstancies.
+                _new_symbol_set.insert(new_function.get_internal_symbol());
+
                 Nodecl::NodeclBase fun_code = Nodecl::Utils::deep_copy(
                     function_code,
                     sym.get_scope(),
                     *_symbol_map);
-                new_function.set_value(fun_code);
                 symbol_entity_specs_set_is_static(new_function.get_internal_symbol(), 1);
                 //called.set_symbol(new_function);
 
-                //NOTE: Prepend the function code to ensure a proper declaration order in the FPGA source
-                _called_functions.prepend(fun_code);
-
                 walk(fun_code);
+
+                //NOTE: Prepend the function code to ensure a proper declaration order in the FPGA source
+                _called_functions.append(fun_code);
             }
 
             if (has_been_duplicated)
             {
-               Nodecl::NodeclBase new_function_call = Nodecl::Utils::deep_copy(
+                Nodecl::NodeclBase new_function_call = Nodecl::Utils::deep_copy(
                      node,
                      node,
                      *_symbol_map);
 
-               node.replace(new_function_call);
+                node.replace(new_function_call);
             }
         }
 };
