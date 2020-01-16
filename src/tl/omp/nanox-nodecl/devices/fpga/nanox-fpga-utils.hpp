@@ -425,16 +425,10 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
         virtual void visit(const Nodecl::Symbol& node)
         {
             TL::Symbol sym = node.get_symbol();
-            if (!sym.get_value().is_null())
-            {
-                // Recursive walk
-                walk(sym.get_value());
-            }
-
             checkSymTypeAndEmitWarning(sym, node);
         }
 
-        /*virtual void visit(const Nodecl::ObjectInit& node)
+        virtual void visit(const Nodecl::ObjectInit& node)
         {
             TL::Symbol sym = node.get_symbol();
             if (!sym.get_value().is_null())
@@ -443,23 +437,23 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
             }
 
             checkSymTypeAndEmitWarning(sym, node);
-        }*/
+        }
 
         virtual void visit(const Nodecl::FunctionCall& node)
         {
             Nodecl::NodeclBase called = node.get_called();
-            Nodecl::NodeclBase arguments = node.get_arguments();
-            Nodecl::NodeclBase alternate_name = node.get_alternate_name();
-            Nodecl::NodeclBase function_form = node.get_function_form();
+            //Nodecl::NodeclBase arguments = node.get_arguments();
+            //Nodecl::NodeclBase alternate_name = node.get_alternate_name();
+            //Nodecl::NodeclBase function_form = node.get_function_form();
 
-            walk(called);
-            walk(arguments);
-            walk(alternate_name);
-            walk(function_form);
+            //walk(called);
+            //walk(arguments);
+            //walk(alternate_name);
+            //walk(function_form);
 
             if (!called.is<Nodecl::Symbol>())
                 return;
-            Symbol sym = called.as<Nodecl::Symbol>().get_symbol();
+            TL::Symbol sym = called.as<Nodecl::Symbol>().get_symbol();
 
             Nodecl::FunctionCode function_code = sym.get_function_code().as<Nodecl::FunctionCode>();
             if (function_code.is_null())
@@ -553,25 +547,40 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
                 return;
             }
 
-            Nodecl::NodeclBase function_statements = function_code.get_statements();
-            walk(function_statements);
+            const std::map<TL::Symbol, TL::Symbol>* map = _symbol_map->get_simple_symbol_map();
+            bool has_been_duplicated = map->find(sym) != map->end();
 
-            if (_filename == function_code.get_filename() && _symbol_map->map(sym) == sym)
+            if (_filename == function_code.get_filename() && !has_been_duplicated)
             {
                 // Duplicate the symbol and append the function code to the list
                 TL::Symbol new_function = SymbolUtils::new_function_symbol_for_deep_copy(
                     sym, sym.get_name() + _unique_suffix);
+
+                has_been_duplicated = true;
                 _symbol_map->add_map(sym, new_function);
 
                 Nodecl::NodeclBase fun_code = Nodecl::Utils::deep_copy(
-                    sym.get_function_code(),
+                    function_code,
                     sym.get_scope(),
                     *_symbol_map);
                 new_function.set_value(fun_code);
                 symbol_entity_specs_set_is_static(new_function.get_internal_symbol(), 1);
+                //called.set_symbol(new_function);
 
-                called.set_symbol(new_function);
-                _called_functions.append(fun_code);
+                //NOTE: Prepend the function code to ensure a proper declaration order in the FPGA source
+                _called_functions.prepend(fun_code);
+
+                walk(fun_code);
+            }
+
+            if (has_been_duplicated)
+            {
+               Nodecl::NodeclBase new_function_call = Nodecl::Utils::deep_copy(
+                     node,
+                     node,
+                     *_symbol_map);
+
+               node.replace(new_function_call);
             }
         }
 };
