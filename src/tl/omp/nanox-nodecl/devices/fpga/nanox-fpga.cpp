@@ -178,6 +178,7 @@ void DeviceFPGA::create_outline(
                 new_function.set_value(fun_code);
                 symbol_entity_specs_set_is_static(new_function.get_internal_symbol(), 1);
 
+                //print_ast_dot(fun_code, std::string("ast_") + to_outline_info._name + std::string("_moved.dot"));
                 FpgaTaskCodeVisitor fpga_task_code_visitor(
                     _function_copy_suffix,
                     TL::CompilationProcess::get_current_file().get_filename(/* fullpath */ true),
