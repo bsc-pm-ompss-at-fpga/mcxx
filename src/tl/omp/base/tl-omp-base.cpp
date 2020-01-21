@@ -3337,6 +3337,24 @@ namespace TL { namespace OpenMP {
                         locus));
         }
 
+        ObjectList<Nodecl::NodeclBase> num_repetitions_exprs = target_info.get_shallow_copy_of_num_repetitions();
+        if (!num_repetitions_exprs.empty())
+        {
+            target_items.append(
+                    Nodecl::OmpSs::NumRepetitions::make(
+                        Nodecl::List::make(num_repetitions_exprs),
+                        locus));
+        }
+
+        ObjectList<Nodecl::NodeclBase> period_exprs = target_info.get_shallow_copy_of_period();
+        if (!period_exprs.empty())
+        {
+            target_items.append(
+                    Nodecl::OmpSs::Period::make(
+                        Nodecl::List::make(period_exprs),
+                        locus));
+        }
+
         TL::OmpSs::TargetInfo::implementation_table_t implementation_table = target_info.get_implementation_table();
         for (TL::OmpSs::TargetInfo::implementation_table_t::iterator it = implementation_table.begin();
                 it != implementation_table.end(); ++it)

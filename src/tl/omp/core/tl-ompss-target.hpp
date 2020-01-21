@@ -47,6 +47,8 @@ namespace TL { namespace OmpSs {
         ObjectList<Nodecl::NodeclBase> shmem; // shared memory
         ObjectList<Nodecl::NodeclBase> onto;
         ObjectList<Nodecl::NodeclBase> num_instances;
+        ObjectList<Nodecl::NodeclBase> num_repetitions;
+        ObjectList<Nodecl::NodeclBase> period;
 
         bool is_implicit;
         bool has_implements;
@@ -76,8 +78,9 @@ namespace TL { namespace OmpSs {
 
         TargetContext()
             : device_list(), copy_in(), copy_out(), copy_inout(),
-            ndrange(), shmem(), onto(), num_instances(), is_implicit(),
-            has_implements(), implements(), file(), name(), copy_deps(UNDEF_COPY_DEPS),
+            ndrange(), shmem(), onto(), num_instances(), num_repetitions(),
+            period(), is_implicit(), has_implements(), implements(), file(),
+            name(), copy_deps(UNDEF_COPY_DEPS),
             localmem(), localmem_copies(UNDEF_LOCALMEM_COPIES)
         {
         }
