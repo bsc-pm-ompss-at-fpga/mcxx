@@ -144,10 +144,15 @@ namespace TL
                         const std::set<std::string> user_calls_set,
                         const std::string wrapper_func_name,
                         Source& wrapper_decls, //< out
-                        Source& wrapper_source //< out
-                        );
+                        Source& wrapper_source); //< out
 
                 Source gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectList<OutlineDataItem*> data_items);
+
+                TL::Symbol gen_fpga_unpacked(
+                        TL::Symbol &current_function,
+                        Nodecl::NodeclBase &outline_placeholder,
+                        CreateOutlineInfo &info,
+                        Nodecl::Utils::SimpleSymbolMap* &symbol_map);
 
                 void add_included_fpga_files(FILE* file);
 

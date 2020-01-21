@@ -107,13 +107,72 @@ Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectLis
         fpga_outline
             << "nanos_fpga_set_task_arg(nanos_current_wd(), " << param_pos << ", " << in_type << ", " << out_type << ", " << field_name << "." << unpacked_argument.get_name() << "_task_arg);"
         ;
-
-#if _DEBUG_AUTOMATIC_COMPILER_
-        std::cerr << "Adding argument " << param_pos << ": " << as_type(unpacked_argument.get_type().get_unqualified_type().no_ref()) << " " << unpacked_argument.get_name() << std::endl << std::endl;
-#endif
     }
 
     return fpga_outline;
+}
+
+TL::Symbol DeviceFPGA::gen_fpga_unpacked(
+        TL::Symbol &current_function,
+        Nodecl::NodeclBase &outline_placeholder,
+        CreateOutlineInfo &info,
+        Nodecl::Utils::SimpleSymbolMap* &symbol_map)
+{
+    const Nodecl::NodeclBase& original_statements = info._original_statements;
+
+    TL::Source dummy_init_statements, dummy_final_statements;
+    TL::Symbol unpacked_function = new_function_symbol_unpacked(
+        current_function,
+        fpga_outline_name(info._outline_name) + "_unpacked",
+        info,
+        symbol_map,
+        dummy_init_statements,
+        dummy_final_statements
+    );
+
+    // The unpacked function must not be static and must have external linkage because
+    // this function is called from the original source
+    symbol_entity_specs_set_is_static(unpacked_function.get_internal_symbol(), 0);
+    if (IS_C_LANGUAGE)
+    {
+        symbol_entity_specs_set_linkage_spec(unpacked_function.get_internal_symbol(), "\"C\"");
+    }
+
+    Nodecl::NodeclBase unpacked_function_code, unpacked_function_body;
+    SymbolUtils::build_empty_body_for_function(
+        unpacked_function,
+        unpacked_function_code,
+        unpacked_function_body
+    );
+
+    Nodecl::Utils::append_to_top_level_nodecl(unpacked_function_code);
+
+    // Generate FPGA outline
+    Source fpga_outline = gen_fpga_outline(unpacked_function.get_function_parameters(), info._data_items);
+
+    Source unpacked_source;
+    unpacked_source
+        << dummy_init_statements
+        << fpga_outline
+        << statement_placeholder(outline_placeholder)
+        << dummy_final_statements
+    ;
+
+    // Add a declaration of the unpacked function symbol in the original source
+    if (IS_CXX_LANGUAGE && !unpacked_function.is_member())
+    {
+        Nodecl::NodeclBase nodecl_decl = Nodecl::CxxDecl::make(
+            /* optative context */ nodecl_null(),
+            unpacked_function,
+            original_statements.get_locus()
+        );
+        Nodecl::Utils::prepend_to_enclosing_top_level_location(original_statements, nodecl_decl);
+    }
+
+    Nodecl::NodeclBase new_unpacked_body = unpacked_source.parse_statement(unpacked_function_body);
+    unpacked_function_body.replace(new_unpacked_body);
+
+    return unpacked_function;
 }
 
 void DeviceFPGA::create_outline(
@@ -131,7 +190,6 @@ void DeviceFPGA::create_outline(
 
     // Unpack DTO
     Lowering* lowering = info._lowering;
-    const std::string& device_outline_name = fpga_outline_name(info._outline_name);
     // const Nodecl::NodeclBase& task_statements = info._task_statements;
     const Nodecl::NodeclBase& original_statements = info._original_statements;
     // bool is_function_task = info._called_task.is_valid();
@@ -217,8 +275,7 @@ void DeviceFPGA::create_outline(
         }
     }
 
-    Source unpacked_arguments, private_entities;
-
+    Source unpacked_arguments;
     for (TL::ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
             it != data_items.end();
             it++)
@@ -288,73 +345,12 @@ void DeviceFPGA::create_outline(
     }
 
     // Create the new unpacked function
-    TL::Source dummy_init_statements, dummy_final_statements;
-    TL::Symbol unpacked_function = new_function_symbol_unpacked(
+    TL::Symbol unpacked_function = DeviceFPGA::gen_fpga_unpacked(
         current_function,
-        device_outline_name + "_unpacked",
+        outline_placeholder,
         info,
-        symbol_map,
-        dummy_init_statements,
-        dummy_final_statements
+        symbol_map
     );
-
-    // The unpacked function must not be static and must have external linkage because
-    // this function is called from the original source
-    symbol_entity_specs_set_is_static(unpacked_function.get_internal_symbol(), 0);
-    if (IS_C_LANGUAGE)
-    {
-        symbol_entity_specs_set_linkage_spec(unpacked_function.get_internal_symbol(), "\"C\"");
-    }
-
-    Nodecl::NodeclBase unpacked_function_code, unpacked_function_body;
-    SymbolUtils::build_empty_body_for_function(
-        unpacked_function,
-        unpacked_function_code,
-        unpacked_function_body
-    );
-
-    Nodecl::Utils::append_to_top_level_nodecl(unpacked_function_code);
-
-    // Generate FPGA outline
-    Source fpga_outline = gen_fpga_outline(unpacked_function.get_function_parameters(), data_items);
-
-#if _DEBUG_AUTOMATIC_COMPILER_
-    std::cerr << " ===================================================================0\n";
-    std::cerr << "FPGA Outline function:\n";
-    std::cerr << " ===================================================================0\n";
-    std::cerr << fpga_outline.get_source() << std::endl << std::endl;
-#endif
-
-    Source unpacked_source;
-    unpacked_source
-        << dummy_init_statements
-        << private_entities
-        << fpga_outline
-        << statement_placeholder(outline_placeholder)
-        << dummy_final_statements
-    ;
-
-    // Add a declaration of the unpacked function symbol in the original source
-    if (IS_CXX_LANGUAGE)
-    {
-        //DJG TO remove???
-        if (!unpacked_function.is_member())
-        {
-#if _DEBUG_AUTOMATIC_COMPILER_
-            std::cerr << "No member... actually Doing delcaration insertion unpacked function:" << unpacked_function.get_name() << std::endl;
-#endif
-
-            Nodecl::NodeclBase nodecl_decl = Nodecl::CxxDecl::make(
-                /* optative context */ nodecl_null(),
-                unpacked_function,
-                original_statements.get_locus()
-            );
-            Nodecl::Utils::prepend_to_enclosing_top_level_location(original_statements, nodecl_decl);
-        }
-    }
-
-    Nodecl::NodeclBase new_unpacked_body = unpacked_source.parse_statement(unpacked_function_body);
-    unpacked_function_body.replace(new_unpacked_body);
 
     // Create the outline function
     //The outline function has always only one parameter which name is 'args'
@@ -369,7 +365,7 @@ void DeviceFPGA::create_outline(
 
     TL::Symbol outline_function = SymbolUtils::new_function_symbol(
         current_function,
-        device_outline_name,
+        fpga_outline_name(info._outline_name),
         TL::Type::get_void_type(),
         structure_name,
         structure_type
@@ -417,27 +413,15 @@ void DeviceFPGA::create_outline(
 
     output_statements = Nodecl::EmptyStatement::make(original_statements.get_locus());
 
-    if (IS_CXX_LANGUAGE)
+    if (IS_CXX_LANGUAGE && !outline_function.is_member())
     {
-#if _DEBUG_AUTOMATIC_COMPILER_
-        std::cerr << "Doing delcaration insertion unpacked function:" << outline_function.get_name() << std::endl;
-#endif
+        Nodecl::NodeclBase nodecl_decl = Nodecl::CxxDecl::make(
+            /* optative context */ nodecl_null(),
+            outline_function,
+            original_statements.get_locus()
+        );
 
-        if (!outline_function.is_member())
-        {
-
-#if _DEBUG_AUTOMATIC_COMPILER_
-            std::cerr << "No member... actually Doing delcaration insertion unpacked function:" << outline_function.get_name() << std::endl;
-#endif
-
-            Nodecl::NodeclBase nodecl_decl = Nodecl::CxxDecl::make(
-                /* optative context */ nodecl_null(),
-                outline_function,
-                original_statements.get_locus()
-            );
-
-            Nodecl::Utils::prepend_to_enclosing_top_level_location(original_statements, nodecl_decl);
-        }
+        Nodecl::Utils::prepend_to_enclosing_top_level_location(original_statements, nodecl_decl);
     }
 }
 
