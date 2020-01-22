@@ -55,6 +55,8 @@ using namespace TL::Nanox;
 TL::Symbol DeviceFPGA::gen_fpga_unpacked(
         TL::Symbol &current_function,
         Nodecl::NodeclBase &outline_placeholder,
+        const Nodecl::NodeclBase &num_repetitions_expr,
+        const Nodecl::NodeclBase &period_expr,
         CreateOutlineInfo &info,
         Nodecl::Utils::SimpleSymbolMap* &symbol_map)
 {
@@ -94,10 +96,49 @@ TL::Symbol DeviceFPGA::gen_fpga_unpacked(
     if (Nanos::Version::interface_is_at_least("fpga", 9))
     {
         fpga_outline
-            << "nanos_fpga_task_t nanos_fpga_task_handle;"
-            << "const nanos_err_t err0 = nanos_fpga_create_task(&nanos_fpga_task_handle, nanos_current_wd());";
-            //NOTE: Not checking the value of err0 as nanox internally handles it to show proper errors
-            //<< "if (err0 != NANOS_OK) nanos_handle_error(err0);"
+            << "nanos_fpga_task_t nanos_fpga_task_handle;";
+
+        if (!num_repetitions_expr.is_null() || !period_expr.is_null())
+        {
+            Source numreps_src, period_src;
+
+            if (!num_repetitions_expr.is_null())
+            {
+                numreps_src << as_expression(num_repetitions_expr);
+            }
+            else
+            {
+                numreps_src << "1";
+                warn_printf_at(period_expr.get_locus(),
+                    "Clause 'num_repetitions' no provided, assuming 1 repetition\n");
+            }
+
+            if (!period_expr.is_null())
+            {
+                period_src << as_expression(period_expr);
+            }
+            else
+            {
+                period_src << "0";
+                    warn_printf_at(num_repetitions_expr.get_locus(),
+                        "Clause 'period' no provided, assuming 0 (which is restart just after finishing)\n");
+            }
+
+            fpga_outline
+                << "const unsigned int nanos_fpga_periodic_task_numreps = (unsigned int)(" << numreps_src << ");"
+                << "const unsigned int nanos_fpga_periodic_task_period = (unsigned int)(" << period_src << ");"
+                << "const nanos_err_t err0 = nanos_fpga_create_periodic_task(&nanos_fpga_task_handle, nanos_current_wd(),"
+                <<   "nanos_fpga_periodic_task_period, nanos_fpga_periodic_task_numreps);";
+                //NOTE: Not checking the value of err0 as nanox internally handles it to show proper errors
+                //<< "if (err0 != NANOS_OK) nanos_handle_error(err0);"
+        }
+        else
+        {
+            fpga_outline
+                << "const nanos_err_t err0 = nanos_fpga_create_task(&nanos_fpga_task_handle, nanos_current_wd());";
+                //NOTE: Not checking the value of err0 as nanox internally handles it to show proper errors
+                //<< "if (err0 != NANOS_OK) nanos_handle_error(err0);"
+        }
     }
 
     unsigned param_pos = 0;
@@ -206,15 +247,13 @@ void DeviceFPGA::create_outline(
     if (!Nanos::Version::interface_is_at_least("fpga", 2))
         fatal_error("Unsupported Nanos version (fpga support). Please update your Nanos installation\n");
 
-    // Unpack DTO
     Lowering* lowering = info._lowering;
-    // const Nodecl::NodeclBase& task_statements = info._task_statements;
     const Nodecl::NodeclBase& original_statements = info._original_statements;
-    // bool is_function_task = info._called_task.is_valid();
-
     const TL::Symbol& arguments_struct = info._arguments_struct;
     const TL::Symbol& called_task = info._called_task;
     TL::ObjectList<OutlineDataItem*> data_items = info._data_items;
+    const Nodecl::NodeclBase& num_repetitions_expr = get_num_repetitions(info._target_info);
+    const Nodecl::NodeclBase& period_expr = get_period(info._target_info);
 
     lowering->seen_fpga_task = true;
 
@@ -235,6 +274,7 @@ void DeviceFPGA::create_outline(
             if (_global_copied_fpga_symbols.map(called_task) == called_task)
             {
                 const std::string acc_type = get_acc_type(called_task, info._target_info);
+                const bool periodic_support = !num_repetitions_expr.is_null() || !period_expr.is_null() || _force_periodic_support;
                 const bool creates_children_tasks =
                     (info._num_inner_tasks > 0) ||
                     (_force_fpga_task_creation_ports.find(acc_type) != _force_fpga_task_creation_ports.end());
@@ -273,6 +313,7 @@ void DeviceFPGA::create_outline(
                     new_function,
                     info._data_items,
                     creates_children_tasks,
+                    periodic_support,
                     fpga_task_code_visitor._user_calls_set,
                     to_outline_info.get_wrapper_name(),
                     to_outline_info._wrapper_decls,
@@ -366,6 +407,8 @@ void DeviceFPGA::create_outline(
     TL::Symbol unpacked_function = DeviceFPGA::gen_fpga_unpacked(
         current_function,
         outline_placeholder,
+        num_repetitions_expr,
+        period_expr,
         info,
         symbol_map
     );
@@ -498,10 +541,10 @@ DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_gener
         _memory_port_width,
         "").connect(std::bind(&DeviceFPGA::set_memory_port_width_from_str, this, std::placeholders::_1));
 
-    register_parameter("fpga_periodic_support",
-        "Enables/disables the periodic tasks support in FPGA accelerators",
-        _periodic_support_str,
-        "0").connect(std::bind(&DeviceFPGA::set_periodic_support_from_str, this, std::placeholders::_1));
+    register_parameter("force_fpga_periodic_support",
+        "Force enabling the periodic tasks support in FPGA accelerators",
+        _force_periodic_support_str,
+        "0").connect(std::bind(&DeviceFPGA::set_force_periodic_support_from_str, this, std::placeholders::_1));
 
     register_parameter("fpga_function_copy_suffix",
         "Forces the suffix placed at the end of functions moved to fpga HLS source",
@@ -875,7 +918,7 @@ static int find_parameter_position(const ObjectList<Symbol> param_list, const Sy
  *
  */
 void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDataItem*>& data_items,
-    const bool creates_children_tasks, const std::set<std::string> user_calls_set,
+    const bool creates_children_tasks, const bool periodic_support, const std::set<std::string> user_calls_set,
     const std::string wrapper_func_name, Source &wrapper_decls, Source &wrapper_source)
 {
     //Check that we are calling a function task (this checking may be performed earlyer in the code)
@@ -1297,7 +1340,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     condition_task_execution_cmd_src
         << "__commandCode == 1";
 
-    if (_periodic_support)
+    if (periodic_support)
     {
         condition_task_execution_cmd_src
             << " || __commandCode == 3";
@@ -1404,7 +1447,6 @@ void DeviceFPGA::copy_stuff_to_device_file(const TL::ObjectList<Nodecl::NodeclBa
     }
 }
 
-
 std::string DeviceFPGA::get_acc_type(const TL::Symbol& task, const TargetInformation& target_info)
 {
     std::string value = "INVALID_ONTO_VALUE";
@@ -1462,7 +1504,6 @@ std::string DeviceFPGA::get_acc_type(const TL::Symbol& task, const TargetInforma
     return value;
 }
 
-
 std::string DeviceFPGA::get_num_instances(const TargetInformation& target_info)
 {
     std::string value = "1"; //Default is 1 instance
@@ -1504,6 +1545,38 @@ std::string DeviceFPGA::get_num_instances(const TargetInformation& target_info)
         }
     }
     return value;
+}
+
+Nodecl::NodeclBase DeviceFPGA::get_num_repetitions(const TargetInformation& target_info)
+{
+    Nodecl::NodeclBase clause_value;
+
+    const ObjectList<Nodecl::NodeclBase>& clause_info = target_info.get_num_repetitions();
+    if (clause_info.size() >= 1)
+    {
+        clause_value = clause_info[0];
+        if (clause_info.size() > 1)
+        {
+            warn_printf_at(clause_value.get_locus(), "More than one argument in 'num_repetitions' clause. Using only first one\n");
+        }
+    }
+    return clause_value;
+}
+
+Nodecl::NodeclBase DeviceFPGA::get_period(const TargetInformation& target_info)
+{
+    Nodecl::NodeclBase clause_value;
+
+    const ObjectList<Nodecl::NodeclBase>& clause_info = target_info.get_period();
+    if (clause_info.size() >= 1)
+    {
+        clause_value = clause_info[0];
+        if (clause_info.size() > 1)
+        {
+            warn_printf_at(clause_value.get_locus(), "More than one argument in 'period' clause. Using only first one\n");
+        }
+    }
+    return clause_value;
 }
 
 void DeviceFPGA::emit_async_device(
@@ -2210,9 +2283,9 @@ void DeviceFPGA::set_memory_port_width_from_str(const std::string& in_str)
     _memory_port_width = in_str;
 }
 
-void DeviceFPGA::set_periodic_support_from_str(const std::string& str)
+void DeviceFPGA::set_force_periodic_support_from_str(const std::string& str)
 {
-    TL::parse_boolean_option("fpga_periodic_support", str, _periodic_support, "Assuming false.");
+    TL::parse_boolean_option("force_fpga_periodic_support", str, _force_periodic_support, "Assuming false.");
 }
 
 void DeviceFPGA::set_funcion_copy_suffix_from_str(const std::string& in_str)

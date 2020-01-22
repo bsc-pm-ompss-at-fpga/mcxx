@@ -119,8 +119,8 @@ namespace TL
                 std::string _force_fpga_task_creation_ports_str;
                 str_set_t   _force_fpga_task_creation_ports;
                 std::string _memory_port_width;
-                std::string _periodic_support_str;
-                bool        _periodic_support;
+                std::string _force_periodic_support_str;
+                bool        _force_periodic_support;
                 std::string _function_copy_suffix;
                 str_set_t   _registered_tasks;
                 Nodecl::NodeclBase _root;
@@ -130,7 +130,7 @@ namespace TL
                 void set_bitstream_generation_from_str(const std::string& str);
                 void set_force_fpga_task_creation_ports_from_str(const std::string& str);
                 void set_memory_port_width_from_str(const std::string& str);
-                void set_periodic_support_from_str(const std::string& str);
+                void set_force_periodic_support_from_str(const std::string& str);
                 void set_funcion_copy_suffix_from_str(const std::string& str);
 
                 Nodecl::Utils::SimpleSymbolMap                 _global_copied_fpga_symbols;
@@ -141,6 +141,7 @@ namespace TL
                         const TL::Symbol& func_symbol,
                         TL::ObjectList<TL::Nanox::OutlineDataItem*>&,
                         const bool creates_children_tasks,
+                        const bool periodic_support,
                         const std::set<std::string> user_calls_set,
                         const std::string wrapper_func_name,
                         Source& wrapper_decls, //< out
@@ -149,6 +150,8 @@ namespace TL
                 TL::Symbol gen_fpga_unpacked(
                         TL::Symbol &current_function,
                         Nodecl::NodeclBase &outline_placeholder,
+                        const Nodecl::NodeclBase &num_repetitions_expr,
+                        const Nodecl::NodeclBase &period_expr,
                         CreateOutlineInfo &info,
                         Nodecl::Utils::SimpleSymbolMap* &symbol_map);
 
@@ -156,6 +159,8 @@ namespace TL
 
                 std::string get_acc_type(const TL::Symbol& task, const TargetInformation& target_info);
                 std::string get_num_instances(const TargetInformation& target_info);
+                Nodecl::NodeclBase get_num_repetitions(const TargetInformation& target_info);
+                Nodecl::NodeclBase get_period(const TargetInformation& target_info);
 
                 void register_task_creation(
                         Nodecl::NodeclBase construct,
