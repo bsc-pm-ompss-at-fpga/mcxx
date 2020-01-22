@@ -146,8 +146,6 @@ namespace TL
                         Source& wrapper_decls, //< out
                         Source& wrapper_source); //< out
 
-                Source gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectList<OutlineDataItem*> data_items);
-
                 TL::Symbol gen_fpga_unpacked(
                         TL::Symbol &current_function,
                         Nodecl::NodeclBase &outline_placeholder,

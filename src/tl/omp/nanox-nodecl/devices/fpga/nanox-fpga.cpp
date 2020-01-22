@@ -52,66 +52,6 @@
 using namespace TL;
 using namespace TL::Nanox;
 
-Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectList<OutlineDataItem*> data_items) {
-    unsigned param_pos = 0;
-    Source fpga_outline;
-
-    for (ObjectList<Symbol>::const_iterator it = param_list.begin(); it != param_list.end(); it++, param_pos++) {
-        TL::Symbol unpacked_argument = (*it);
-
-        TL::Symbol outline_data_item_sym = data_items[param_pos]->get_symbol();
-        TL::Type field_type = data_items[param_pos]->get_field_type();
-        const std::string &field_name = outline_data_item_sym.get_name();
-        Scope scope = data_items[param_pos]->get_symbol().get_scope();
-        std::string arg_simple_decl = field_type.get_simple_declaration(scope, unpacked_argument.get_name());
-
-        // If the outline data item has not a valid symbol, skip it
-        if (!outline_data_item_sym.is_valid() || field_type.get_size() > sizeof(uint64_t)) {
-            #if _DEBUG_AUTOMATIC_COMPILER_
-                std::cerr << "Argument " << param_pos << ": " << arg_simple_decl << " is not valid" << std::endl << std::endl;
-            #endif
-
-            fatal_error("Non-valid argument in FPGA task. Data type must be at most 64-bit wide\n");
-        }
-
-        const ObjectList<OutlineDataItem::CopyItem> &copies = data_items[param_pos]->get_copies();
-        bool in_type, out_type;
-
-        in_type = copies.empty() ||
-            ((copies.front().directionality & OutlineDataItem::COPY_IN) == OutlineDataItem::COPY_IN);
-        out_type = copies.empty() ||
-            ((copies.front().directionality & OutlineDataItem::COPY_OUT) == OutlineDataItem::COPY_OUT);
-
-        // Create union in order to reinterpret argument as a uint64_t
-        fpga_outline
-            << "union {"
-            <<     "uint64_t " << unpacked_argument.get_name() << "_task_arg;"
-            <<     as_type(unpacked_argument.get_type().get_unqualified_type().no_ref()) << " " << unpacked_argument.get_name() << ";"
-            << "} " << field_name << " = { 0 };"
-        ;
-
-        // If argument is pointer or array, get physical address
-        if (field_type.is_pointer() || field_type.is_array()) {
-            fpga_outline
-                << field_name << "." << unpacked_argument.get_name() << " = "
-                << "(" << as_type(unpacked_argument.get_type().get_unqualified_type().no_ref()) << ")"
-                << "nanos_fpga_get_phy_address((void *)" << unpacked_argument.get_name() << ");"
-            ;
-        } else {
-            fpga_outline
-                << field_name << "." << unpacked_argument.get_name() << " = " << unpacked_argument.get_name() << ";"
-            ;
-        }
-
-        // Add argument to task structure
-        fpga_outline
-            << "nanos_fpga_set_task_arg(nanos_current_wd(), " << param_pos << ", " << in_type << ", " << out_type << ", " << field_name << "." << unpacked_argument.get_name() << "_task_arg);"
-        ;
-    }
-
-    return fpga_outline;
-}
-
 TL::Symbol DeviceFPGA::gen_fpga_unpacked(
         TL::Symbol &current_function,
         Nodecl::NodeclBase &outline_placeholder,
@@ -119,6 +59,7 @@ TL::Symbol DeviceFPGA::gen_fpga_unpacked(
         Nodecl::Utils::SimpleSymbolMap* &symbol_map)
 {
     const Nodecl::NodeclBase& original_statements = info._original_statements;
+    TL::ObjectList<OutlineDataItem*> data_items = info._data_items;
 
     TL::Source dummy_init_statements, dummy_final_statements;
     TL::Symbol unpacked_function = new_function_symbol_unpacked(
@@ -148,7 +89,84 @@ TL::Symbol DeviceFPGA::gen_fpga_unpacked(
     Nodecl::Utils::append_to_top_level_nodecl(unpacked_function_code);
 
     // Generate FPGA outline
-    Source fpga_outline = gen_fpga_outline(unpacked_function.get_function_parameters(), info._data_items);
+    Source fpga_outline;
+
+    if (Nanos::Version::interface_is_at_least("fpga", 9))
+    {
+        fpga_outline
+            << "nanos_fpga_task_t nanos_fpga_task_handle;"
+            << "const nanos_err_t err0 = nanos_fpga_create_task(&nanos_fpga_task_handle, nanos_current_wd());";
+            //NOTE: Not checking the value of err0 as nanox internally handles it to show proper errors
+            //<< "if (err0 != NANOS_OK) nanos_handle_error(err0);"
+    }
+
+    unsigned param_pos = 0;
+    for (TL::ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
+            it != data_items.end();
+            it++, param_pos++)
+    {
+        TL::Symbol outline_data_item_sym = (*it)->get_field_symbol();
+        TL::Type field_type = (*it)->get_field_type();
+        const std::string &field_name = outline_data_item_sym.get_name();
+        const TL::ObjectList<OutlineDataItem::CopyItem> &copies = (*it)->get_copies();
+        Scope scope = outline_data_item_sym.get_scope();
+        std::stringstream cast_var_name_str;
+        cast_var_name_str << "mcc_union_fpga_arg_cast_" << param_pos;
+        const std::string cast_var_name = cast_var_name_str.str();
+
+        // If the outline data item has not a valid symbol, skip it
+        if (!outline_data_item_sym.is_valid() || field_type.get_size() > sizeof(uint64_t)) {
+            fatal_error("Non-valid argument in FPGA task. Data type must be at most 64-bit wide\n");
+        }
+
+        bool in_type, out_type;
+        in_type = copies.empty() ||
+            ((copies.front().directionality & OutlineDataItem::COPY_IN) == OutlineDataItem::COPY_IN);
+        out_type = copies.empty() ||
+            ((copies.front().directionality & OutlineDataItem::COPY_OUT) == OutlineDataItem::COPY_OUT);
+
+        // Create union in order to reinterpret argument as a uint64_t
+        fpga_outline
+            << "union {"
+            <<     "uint64_t raw;"
+            <<     as_type(field_type.get_unqualified_type().no_ref()) << " typed;"
+            << "} " << cast_var_name << " = { 0 };";
+
+        // If argument is pointer or array, get physical address (only in old fpga APIs)
+        if ((field_type.is_pointer() || field_type.is_array()) && !Nanos::Version::interface_is_at_least("fpga", 3))
+        {
+            fpga_outline
+                << cast_var_name << ".typed = (" << as_type(field_type.get_unqualified_type().no_ref()) << ")"
+                << "nanos_fpga_get_phy_address((void *)" << field_name << ");";
+        }
+        else
+        {
+            fpga_outline
+                << cast_var_name << ".typed = " << field_name << ";";
+        }
+
+        // Add argument to task structure
+        if (Nanos::Version::interface_is_at_least("fpga", 9))
+        {
+            fpga_outline
+                << "nanos_fpga_set_task_arg(nanos_fpga_task_handle, " << param_pos << ", " << in_type << ", "
+                << out_type << ", " << cast_var_name << ".raw);";
+        }
+        else
+        {
+            fpga_outline
+                << "nanos_fpga_set_task_arg(nanos_current_wd(), " << param_pos << ", " << in_type << ", "
+                << out_type << ", " << field_name << ".raw);";
+        }
+    }
+
+    if (Nanos::Version::interface_is_at_least("fpga", 9))
+    {
+        fpga_outline
+            << "const nanos_err_t err2 = nanos_fpga_submit_task(nanos_fpga_task_handle);";
+            //NOTE: Not checking the value of err2 as nanox internally handles it to show proper errors
+            //<< "if (err2 != NANOS_OK) nanos_handle_error(err2);"
+    }
 
     Source unpacked_source;
     unpacked_source
