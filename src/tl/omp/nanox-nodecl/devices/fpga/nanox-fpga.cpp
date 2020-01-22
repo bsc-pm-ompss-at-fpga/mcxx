@@ -487,7 +487,8 @@ void DeviceFPGA::create_outline(
 }
 
 DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_generation(false),
-    _force_fpga_task_creation_ports(), _memory_port_width(""), _onto_warn_shown(false)
+    _force_fpga_task_creation_ports(), _memory_port_width(""), _force_periodic_support(false), _onto_warn_shown(false)
+
 {
     set_phase_name("Nanox FPGA support");
     set_phase_description("This phase is used by Nanox phases to implement FPGA device support");
@@ -1342,11 +1343,18 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
     if (periodic_support)
     {
+        params_src.append_with_separator("volatile unsigned long long int * " STR_HWCOUNTER_PORT, ", ");
+
+        pragmas_src
+            << "#pragma HLS INTERFACE m_axi port=" << STR_HWCOUNTER_PORT << "\n"
+            << "#pragma HLS INTERFACE m_axi port=" << STR_HWCOUNTER_PORT << " offset=direct bundle=" << STR_HWCOUNTER_PORT << "\n";
+
         condition_task_execution_cmd_src
             << " || __commandCode == 3";
 
         periodic_command_read
             << "  unsigned int __task_period = 0, __task_num_reps = 1;"
+            << "  unsigned long long int __time_start_rep, __time_end_rep;"
             << "  if (__commandCode == 3) {"
             << "    __bufferData = " << STR_INPUTSTREAM << ".read().data;"
             << "    __task_num_reps = __bufferData;"
@@ -1354,10 +1362,14 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             << "  }";
 
         periodic_command_pre
-            << "  for (; __task_num_reps > 0; __task_num_reps--) {";
+            << "  for (; __task_num_reps > 0; __task_num_reps--) {"
+            << "    __time_start_rep = *(" << STR_HWCOUNTER_PORT << ");";
 
         periodic_command_post
-            << "    for (volatile unsigned int lose_time = 0; lose_time < __task_period; lose_time++) lose_time = lose_time;"
+            << "   do {"
+            << "     __time_end_rep = *(" << STR_HWCOUNTER_PORT << ");"
+            << "     wait();"
+            << "   } while (__time_start_rep < __time_end_rep && (__time_end_rep - __time_start_rep) < __task_period);"
             << "  }";
     }
 

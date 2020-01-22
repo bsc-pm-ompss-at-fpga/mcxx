@@ -50,6 +50,7 @@
 #define STR_OUTPUTSTREAM       "outStream"
 #define STR_INPUTSTREAM        "inStream"
 #define STR_INSTR_PORT         "mcxx_instr"
+#define STR_HWCOUNTER_PORT     "__mcxx_hwcounterPort"
 
 //Default instrumentation events codes
 #define EV_DEVCOPYIN            78
