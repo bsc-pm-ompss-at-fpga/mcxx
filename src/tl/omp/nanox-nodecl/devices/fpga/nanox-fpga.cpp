@@ -281,7 +281,8 @@ void DeviceFPGA::create_outline(
                 FpgaOutlineInfo to_outline_info(
                     called_task.get_name(),
                     get_num_instances(info._target_info),
-                    acc_type);
+                    acc_type,
+                    periodic_support);
 
                 // Duplicate the called task into the fpga source
                 TL::Symbol new_function = SymbolUtils::new_function_symbol_for_deep_copy(
@@ -712,7 +713,13 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
                 ::mark_file_for_cleanup(new_filename.c_str());
             }
 
-            add_fpga_header(ancillary_file, instrumentation_enabled(), it->get_wrapper_name(), it->_type, it->_num_instances);
+            add_fpga_header(
+                ancillary_file,
+                instrumentation_enabled(),
+                it->_periodic_support,
+                it->get_wrapper_name(),
+                it->_type,
+                it->_num_instances);
             add_included_fpga_files(ancillary_file);
 
             fprintf(ancillary_file, "%s\n", it->_wrapper_decls.get_source(true).c_str());
@@ -1346,7 +1353,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         params_src.append_with_separator("volatile unsigned long long int * " STR_HWCOUNTER_PORT, ", ");
 
         pragmas_src
-            << "#pragma HLS INTERFACE m_axi port=" << STR_HWCOUNTER_PORT << "\n"
             << "#pragma HLS INTERFACE m_axi port=" << STR_HWCOUNTER_PORT << " offset=direct bundle=" << STR_HWCOUNTER_PORT << "\n";
 
         condition_task_execution_cmd_src

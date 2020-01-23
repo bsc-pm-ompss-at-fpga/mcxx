@@ -154,6 +154,7 @@ std::string get_mcxx_ptr_declaration(const TL::Type& type_to_point)
 void add_fpga_header(
     FILE* file,
     const bool instrumentation,
+    const bool periodic_support,
     const std::string name,
     const std::string type,
     const std::string num_instances)
@@ -176,7 +177,7 @@ void add_fpga_header(
 #define __HLS_AUTOMATIC_MCXX__ 1\n\n"
     );
 
-    if (instrumentation)
+    if (instrumentation || periodic_support)
     {
         fprintf(file, "#include <systemc.h>\n");
     }

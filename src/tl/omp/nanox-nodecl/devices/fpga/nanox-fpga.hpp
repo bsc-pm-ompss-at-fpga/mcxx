@@ -90,13 +90,15 @@ namespace TL
                     const std::string  _name;
                     const std::string  _num_instances;
                     const std::string  _type;
+                    const bool         _periodic_support;
                     Source             _wrapper_decls;
                     Source             _wrapper_code;
                     Nodecl::List       _user_code;
 
                     FpgaOutlineInfo(const std::string name, const std::string num,
-                            const std::string type) : _name(name), _num_instances(num),
-                            _type(type), _wrapper_decls(), _wrapper_code(), _user_code() {}
+                            const std::string type, const bool periodic_support) :
+                            _name(name), _num_instances(num), _type(type), _periodic_support(periodic_support),
+                            _wrapper_decls(), _wrapper_code(), _user_code() {}
 
                     std::string get_filename() const;
                     std::string get_wrapper_name() const;
