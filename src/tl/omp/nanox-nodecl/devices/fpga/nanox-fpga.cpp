@@ -945,7 +945,9 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     Source profiling_0, profiling_1, profiling_2, profiling_3;
     unsigned int n_params_id = 0;
     unsigned int n_params_out = 0;
-    unsigned int wrapper_memory_port_width;
+    unsigned int wrapper_memport_width;
+    const std::string wrapper_memport_width_str = (_memory_port_width == "" && creates_children_tasks) ?
+            "64" : _memory_port_width;
 
     memset(function_parameters_passed, 0, param_list.size());
 
@@ -1004,22 +1006,22 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     }
 
     //Create the memory access port shared between all task parameters
-    if (_memory_port_width != "")
+    if (wrapper_memport_width_str != "")
     {
-        std::istringstream iss(_memory_port_width);
-        iss >> wrapper_memory_port_width;
+        std::istringstream iss(wrapper_memport_width_str);
+        iss >> wrapper_memport_width;
         if (iss.fail())
         {
             error_printf_at(func_symbol.get_locus(),
                 "FPGA memory port width '%s' is not an unsigned integer\n",
-                _memory_port_width.c_str());
+                wrapper_memport_width_str.c_str());
             fatal_error("Unsupported value");
         }
-        else if (wrapper_memory_port_width == 0 || wrapper_memory_port_width%8 != 0)
+        else if (wrapper_memport_width == 0 || wrapper_memport_width%8 != 0)
         {
             error_printf_at(func_symbol.get_locus(),
                 "FPGA memory port width '%s' is not >0 and/or multiple of 8\n",
-                _memory_port_width.c_str());
+                wrapper_memport_width_str.c_str());
             fatal_error("Unsupported value");
         }
 
@@ -1027,7 +1029,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         {
             // NOTE: If the task creates children tasks, the port will de created in the global scope
             const std::string port_declaration =
-                "ap_uint<" + _memory_port_width + "> * " + STR_WRAPPERDATA;
+                "ap_uint<" + wrapper_memport_width_str + "> * " + STR_WRAPPERDATA;
             params_src.append_with_separator(port_declaration, ", ");
 
             pragmas_src
@@ -1116,19 +1118,19 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 << "      if(__copyFlags[4])";
 
             //FIXME: Add suport for arrays when the memory_port_width is defined
-            if (_memory_port_width != "" && !localmem_type.array_element().is_array())
+            if (wrapper_memport_width_str != "" && !localmem_type.array_element().is_array())
             {
                 //NOTE: The following check may not be vaild when cross-compiling
-                if (wrapper_memory_port_width%elem_type.get_size() != 0)
+                if (wrapper_memport_width%elem_type.get_size() != 0)
                 {
                     error_printf_at(param_symbol.get_locus(),
                         "Memory port width '%s' is not multiple of parameter '%s' width\n",
-                        _memory_port_width.c_str(), field_name.c_str());
+                        wrapper_memport_width_str.c_str(), field_name.c_str());
                     fatal_error("Unsupported value");
                 }
 
                 const std::string port_name = STR_WRAPPERDATA;
-                const std::string mem_ptr_type = "ap_uint<" + _memory_port_width + ">";
+                const std::string mem_ptr_type = "ap_uint<" + wrapper_memport_width_str + ">";
                 const std::string n_elems_read = "(sizeof(" + mem_ptr_type + ")/sizeof(" + casting_sizeof + "))";
 
                 in_copies_switch_body << "{"
@@ -1185,7 +1187,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             }
             else
             {
-                if (_memory_port_width != "" && localmem_type.array_element().is_array())
+                if (wrapper_memport_width_str != "" && localmem_type.array_element().is_array())
                 {
                     warn_printf_at(localmem.front().get_locus(),
                         "Disabling shared memory port for argument '%s' (array of arrays)\n", field_name.c_str());
@@ -1407,7 +1409,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     get_hls_wrapper_decls(
         instrumentation_enabled(),
         creates_children_tasks,
-        _memory_port_width,
+        wrapper_memport_width_str,
         user_calls_set,
         wrapper_decls,
         wrapper_decls_after_user_code,
@@ -1439,7 +1441,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         instrumentation_enabled(),
         creates_children_tasks,
         user_calls_set,
-        _memory_port_width,
+        wrapper_memport_width_str,
         wrapper_source);
 }
 
