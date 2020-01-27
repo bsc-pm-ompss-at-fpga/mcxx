@@ -1358,12 +1358,12 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             << "#pragma HLS INTERFACE m_axi port=" << STR_HWCOUNTER_PORT << " offset=direct bundle=" << STR_HWCOUNTER_PORT << "\n";
 
         condition_task_execution_cmd_src
-            << " || __commandCode == 3";
+            << " || __commandCode == 5";
 
         periodic_command_read
             << "  unsigned int __task_period = 0, __task_num_reps = 1;"
             << "  unsigned long long int __time_start_rep, __time_end_rep;"
-            << "  if (__commandCode == 3) {"
+            << "  if (__commandCode == 5) {"
             << "    __bufferData = " << STR_INPUTSTREAM << ".read().data;"
             << "    __task_num_reps = __bufferData;"
             << "    __task_period = __bufferData>>32;"
