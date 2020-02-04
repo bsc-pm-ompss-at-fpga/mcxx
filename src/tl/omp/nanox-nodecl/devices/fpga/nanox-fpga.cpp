@@ -108,9 +108,9 @@ TL::Symbol DeviceFPGA::gen_fpga_unpacked(
             }
             else
             {
-                numreps_src << "1";
+                numreps_src << "0xFFFFFFFF"; //< largest number of 32b integer means spin forever
                 warn_printf_at(period_expr.get_locus(),
-                    "Clause 'num_repetitions' no provided, assuming 1 repetition\n");
+                    "Clause 'num_repetitions' no provided, assuming infinite repetitions\n");
             }
 
             if (!period_expr.is_null())
@@ -1361,23 +1361,27 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             << " || __commandCode == 5";
 
         periodic_command_read
-            << "  unsigned int __task_period = 0, __task_num_reps = 1;"
+            << "  unsigned int __task_period = 0;"
+            << "  " << STR_NUM_REPS << " = 1;"
             << "  unsigned long long int __time_start_rep, __time_end_rep;"
             << "  if (__commandCode == 5) {"
             << "    __bufferData = " << STR_INPUTSTREAM << ".read().data;"
-            << "    __task_num_reps = __bufferData;"
+            << "    " << STR_NUM_REPS << " = __bufferData;"
             << "    __task_period = __bufferData>>32;"
             << "  }";
 
         periodic_command_pre
-            << "  for (; __task_num_reps > 0; __task_num_reps--) {"
+            << "  for (" << STR_REP_NUM << " = 0" << "; "
+            <<      STR_REP_NUM << " < " << STR_NUM_REPS << " || 0xFFFFFFFF == " << STR_NUM_REPS << "; "
+            <<      "++" << STR_REP_NUM << ")"
+            << "  {"
             << "    __time_start_rep = *(" << STR_HWCOUNTER_PORT << ");";
 
         periodic_command_post
-            << "   do {"
-            << "     __time_end_rep = *(" << STR_HWCOUNTER_PORT << ");"
-            << "     wait();"
-            << "   } while (__time_start_rep < __time_end_rep && (__time_end_rep - __time_start_rep) < __task_period);"
+            << "    do {"
+            << "      __time_end_rep = *(" << STR_HWCOUNTER_PORT << ");"
+            << "      wait();"
+            << "    } while ((__time_end_rep - __time_start_rep) < __task_period);"
             << "  }";
     }
 
@@ -1409,6 +1413,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     get_hls_wrapper_decls(
         instrumentation_enabled(),
         creates_children_tasks,
+        periodic_support,
         wrapper_memport_width_str,
         user_calls_set,
         wrapper_decls,
@@ -1440,6 +1445,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     get_hls_wrapper_defs(
         instrumentation_enabled(),
         creates_children_tasks,
+        periodic_support,
         user_calls_set,
         wrapper_memport_width_str,
         wrapper_source);
