@@ -489,7 +489,6 @@ void DeviceFPGA::create_outline(
 
 DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_generation(false),
     _force_fpga_task_creation_ports(), _memory_port_width(""), _force_periodic_support(false), _onto_warn_shown(false)
-
 {
     set_phase_name("Nanox FPGA support");
     set_phase_description("This phase is used by Nanox phases to implement FPGA device support");
