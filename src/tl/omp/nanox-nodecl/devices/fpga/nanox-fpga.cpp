@@ -197,7 +197,7 @@ TL::Symbol DeviceFPGA::gen_fpga_unpacked(
         {
             fpga_outline
                 << "nanos_fpga_set_task_arg(nanos_current_wd(), " << param_pos << ", " << in_type << ", "
-                << out_type << ", " << field_name << ".raw);";
+                << out_type << ", " << cast_var_name << ".raw);";
         }
     }
 
