@@ -52,6 +52,8 @@ namespace TL
                 ObjectList<Nodecl::NodeclBase> _shmem_exprs;
                 ObjectList<Nodecl::NodeclBase> _onto_exprs;
                 ObjectList<Nodecl::NodeclBase> _num_instances_exprs;
+                ObjectList<Nodecl::NodeclBase> _num_repetitions_exprs;
+                ObjectList<Nodecl::NodeclBase> _period_exprs;
 
                 // The value of the 'file' clause
                 std::string _file;
@@ -74,6 +76,8 @@ namespace TL
                 const ObjectList<Nodecl::NodeclBase>& get_shmem() const { return _shmem_exprs; }
                 const ObjectList<Nodecl::NodeclBase>& get_onto() const { return _onto_exprs; }
                 const ObjectList<Nodecl::NodeclBase>& get_num_instances() const { return _num_instances_exprs; }
+                const ObjectList<Nodecl::NodeclBase>& get_num_repetitions() const { return _num_repetitions_exprs; }
+                const ObjectList<Nodecl::NodeclBase>& get_period() const { return _period_exprs; }
                 const Nodecl::Utils::SimpleSymbolMap& get_param_arg_map() const { return _param_to_args; }
         };
     }

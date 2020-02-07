@@ -52,6 +52,18 @@ namespace TL
                 target_ctx.num_instances = num_instances.get_arguments_as_expressions(scope);
             }
 
+            PragmaCustomClause num_repetitions = pragma_line.get_clause("num_repetitions");
+            if (num_repetitions.is_defined())
+            {
+                target_ctx.num_repetitions = num_repetitions.get_arguments_as_expressions(scope);
+            }
+
+            PragmaCustomClause period = pragma_line.get_clause("period");
+            if (period.is_defined())
+            {
+                target_ctx.period = period.get_arguments_as_expressions(scope);
+            }
+
             PragmaCustomClause device = pragma_line.get_clause("device");
             if (device.is_defined())
             {
@@ -681,6 +693,8 @@ namespace TL
             target_info.append_to_onto(target_ctx.onto);
             target_info.append_to_num_instances(target_ctx.num_instances);
             target_info.append_to_device_list(target_ctx.device_list);
+            target_info.append_to_num_repetitions(target_ctx.num_repetitions);
+            target_info.append_to_period(target_ctx.period);
 
             // Set data sharings for referenced entities in copies
             if (target_ctx.copy_deps == OmpSs::TargetContext::COPY_DEPS)

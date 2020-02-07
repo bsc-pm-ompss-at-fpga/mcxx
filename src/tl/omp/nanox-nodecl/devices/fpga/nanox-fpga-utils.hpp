@@ -46,10 +46,13 @@
 #define STR_GLOB_TWPORT        "__mcxx_twPort"
 #define STR_TASKID             "__mcxx_taskId"
 #define STR_PARENT_TASKID      "__mcxx_parent_taskId"
+#define STR_REP_NUM            "__mcxx_periTask_repNum"
+#define STR_NUM_REPS           "__mcxx_periTask_numReps"
 #define STR_WRAPPERDATA        "mcxx_wrapper_data"
 #define STR_OUTPUTSTREAM       "outStream"
 #define STR_INPUTSTREAM        "inStream"
 #define STR_INSTR_PORT         "mcxx_instr"
+#define STR_HWCOUNTER_PORT     "__mcxx_hwcounterPort"
 
 //Default instrumentation events codes
 #define EV_DEVCOPYIN            78
@@ -153,6 +156,7 @@ std::string get_mcxx_ptr_declaration(const TL::Type& type_to_point)
 void add_fpga_header(
     FILE* file,
     const bool instrumentation,
+    const bool periodic_support,
     const std::string name,
     const std::string type,
     const std::string num_instances)
@@ -175,7 +179,7 @@ void add_fpga_header(
 #define __HLS_AUTOMATIC_MCXX__ 1\n\n"
     );
 
-    if (instrumentation)
+    if (instrumentation || periodic_support)
     {
         fprintf(file, "#include <systemc.h>\n");
     }
@@ -480,7 +484,7 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
                         _symbol_map->add_map(sym, SymbolUtils::new_function_symbol(
                             sym.get_scope(),
                             "__mcxx_memcpy",
-                            sym.get_type().returns(),
+                            TL::Type::get_void_type().get_pointer_to(),
                             param_names,
                             param_types));
                         _user_calls_set.insert("mcxx_memcpy");
@@ -695,6 +699,7 @@ TL::Symbol declare_casting_union(TL::Type field_type, Nodecl::NodeclBase constru
 void get_hls_wrapper_decls(
   const bool instrumentation,
   const bool task_creation,
+  const bool periodic_support,
   const std::string shared_memory_port_width,
   const std::set<std::string> user_calls_set,
   Source& wrapper_decls_before_user_code,
@@ -828,6 +833,13 @@ void get_hls_wrapper_decls(
         }
     }
 
+    if (periodic_support)
+    {
+        wrapper_decls_before_user_code
+            << "static volatile unsigned int " << STR_NUM_REPS << ";"
+            << "static unsigned int " << STR_REP_NUM << ";";
+    }
+
     /*** Function declarations ***/
     wrapper_decls_before_user_code
         << "void __mcxx_write_stream(axiStream_t &stream, const unsigned long long int data, const unsigned short dest, const unsigned char last);"
@@ -886,6 +898,13 @@ void get_hls_wrapper_decls(
                 << "    const unsigned char numDeps, const unsigned long long int * deps, const unsigned char * depsFlags,"
                 << "    const unsigned char numCopies, const nanos_fpga_copyinfo_t * copies);";
         }
+    }
+
+    if (periodic_support && !IS_C_LANGUAGE)
+    {
+        wrapper_decls_before_user_code
+            << "unsigned int nanos_get_periodic_task_repetition_num();"
+            << "void nanos_cancel_periodic_task();";
     }
 
     /*** Full mcxx_ptr_t and mcxx_ref_t definition ***/
@@ -987,6 +1006,7 @@ void get_hls_wrapper_decls(
 void get_hls_wrapper_defs(
   const bool instrumentation,
   const bool task_creation,
+  const bool periodic_support,
   const std::set<std::string> user_calls_set,
   const std::string shared_memory_port_width,
   Source& wrapper_defs)
@@ -1198,6 +1218,21 @@ void get_hls_wrapper_defs(
             //arg words: [ arg_value (64b) ]
             << "    __mcxx_write_outstream(args[idx], destId, idx == (numArgs - 1));"
             << "  }"
+            << "}";
+    }
+
+    if (periodic_support && !IS_C_LANGUAGE)
+    {
+        wrapper_defs
+            << "unsigned int nanos_get_periodic_task_repetition_num()"
+            << "{"
+            << "#pragma HLS inline\n"
+            << "  return " << STR_REP_NUM <<";"
+            << "}"
+            << "void nanos_cancel_periodic_task()"
+            << "{"
+            << "#pragma HLS inline\n"
+            << "  " << STR_NUM_REPS <<" = 0;"
             << "}";
     }
 }

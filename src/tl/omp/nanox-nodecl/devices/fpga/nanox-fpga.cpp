@@ -52,31 +52,115 @@
 using namespace TL;
 using namespace TL::Nanox;
 
-Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectList<OutlineDataItem*> data_items) {
-    unsigned param_pos = 0;
+TL::Symbol DeviceFPGA::gen_fpga_unpacked(
+        TL::Symbol &current_function,
+        Nodecl::NodeclBase &outline_placeholder,
+        const Nodecl::NodeclBase &num_repetitions_expr,
+        const Nodecl::NodeclBase &period_expr,
+        CreateOutlineInfo &info,
+        Nodecl::Utils::SimpleSymbolMap* &symbol_map)
+{
+    const Nodecl::NodeclBase& original_statements = info._original_statements;
+    TL::ObjectList<OutlineDataItem*> data_items = info._data_items;
+
+    TL::Source dummy_init_statements, dummy_final_statements;
+    TL::Symbol unpacked_function = new_function_symbol_unpacked(
+        current_function,
+        fpga_outline_name(info._outline_name) + "_unpacked",
+        info,
+        symbol_map,
+        dummy_init_statements,
+        dummy_final_statements
+    );
+
+    // The unpacked function must not be static and must have external linkage because
+    // this function is called from the original source
+    symbol_entity_specs_set_is_static(unpacked_function.get_internal_symbol(), 0);
+    if (IS_C_LANGUAGE)
+    {
+        symbol_entity_specs_set_linkage_spec(unpacked_function.get_internal_symbol(), "\"C\"");
+    }
+
+    Nodecl::NodeclBase unpacked_function_code, unpacked_function_body;
+    SymbolUtils::build_empty_body_for_function(
+        unpacked_function,
+        unpacked_function_code,
+        unpacked_function_body
+    );
+
+    Nodecl::Utils::append_to_top_level_nodecl(unpacked_function_code);
+
+    // Generate FPGA outline
     Source fpga_outline;
 
-    for (ObjectList<Symbol>::const_iterator it = param_list.begin(); it != param_list.end(); it++, param_pos++) {
-        TL::Symbol unpacked_argument = (*it);
+    if (Nanos::Version::interface_is_at_least("fpga", 9))
+    {
+        fpga_outline
+            << "nanos_fpga_task_t nanos_fpga_task_handle;";
 
-        TL::Symbol outline_data_item_sym = data_items[param_pos]->get_symbol();
-        TL::Type field_type = data_items[param_pos]->get_field_type();
+        if (!num_repetitions_expr.is_null() || !period_expr.is_null())
+        {
+            Source numreps_src, period_src;
+
+            if (!num_repetitions_expr.is_null())
+            {
+                numreps_src << as_expression(num_repetitions_expr);
+            }
+            else
+            {
+                numreps_src << "0xFFFFFFFF"; //< largest number of 32b integer means spin forever
+                warn_printf_at(period_expr.get_locus(),
+                    "Clause 'num_repetitions' no provided, assuming infinite repetitions\n");
+            }
+
+            if (!period_expr.is_null())
+            {
+                period_src << as_expression(period_expr);
+            }
+            else
+            {
+                period_src << "0";
+                    warn_printf_at(num_repetitions_expr.get_locus(),
+                        "Clause 'period' no provided, assuming 0 (which is restart just after finishing)\n");
+            }
+
+            fpga_outline
+                << "const unsigned int nanos_fpga_periodic_task_numreps = (unsigned int)(" << numreps_src << ");"
+                << "const unsigned int nanos_fpga_periodic_task_period = (unsigned int)(" << period_src << ");"
+                << "const nanos_err_t err0 = nanos_fpga_create_periodic_task(&nanos_fpga_task_handle, nanos_current_wd(),"
+                <<   "nanos_fpga_periodic_task_period, nanos_fpga_periodic_task_numreps);";
+                //NOTE: Not checking the value of err0 as nanox internally handles it to show proper errors
+                //<< "if (err0 != NANOS_OK) nanos_handle_error(err0);"
+        }
+        else
+        {
+            fpga_outline
+                << "const nanos_err_t err0 = nanos_fpga_create_task(&nanos_fpga_task_handle, nanos_current_wd());";
+                //NOTE: Not checking the value of err0 as nanox internally handles it to show proper errors
+                //<< "if (err0 != NANOS_OK) nanos_handle_error(err0);"
+        }
+    }
+
+    unsigned param_pos = 0;
+    for (TL::ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
+            it != data_items.end();
+            it++, param_pos++)
+    {
+        TL::Symbol outline_data_item_sym = (*it)->get_field_symbol();
+        TL::Type field_type = (*it)->get_field_type();
         const std::string &field_name = outline_data_item_sym.get_name();
-        Scope scope = data_items[param_pos]->get_symbol().get_scope();
-        std::string arg_simple_decl = field_type.get_simple_declaration(scope, unpacked_argument.get_name());
+        const TL::ObjectList<OutlineDataItem::CopyItem> &copies = (*it)->get_copies();
+        Scope scope = outline_data_item_sym.get_scope();
+        std::stringstream cast_var_name_str;
+        cast_var_name_str << "mcc_union_fpga_arg_cast_" << param_pos;
+        const std::string cast_var_name = cast_var_name_str.str();
 
         // If the outline data item has not a valid symbol, skip it
         if (!outline_data_item_sym.is_valid() || field_type.get_size() > sizeof(uint64_t)) {
-            #if _DEBUG_AUTOMATIC_COMPILER_
-                std::cerr << "Argument " << param_pos << ": " << arg_simple_decl << " is not valid" << std::endl << std::endl;
-            #endif
-
             fatal_error("Non-valid argument in FPGA task. Data type must be at most 64-bit wide\n");
         }
 
-        const ObjectList<OutlineDataItem::CopyItem> &copies = data_items[param_pos]->get_copies();
         bool in_type, out_type;
-
         in_type = copies.empty() ||
             ((copies.front().directionality & OutlineDataItem::COPY_IN) == OutlineDataItem::COPY_IN);
         out_type = copies.empty() ||
@@ -85,35 +169,69 @@ Source DeviceFPGA::gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectLis
         // Create union in order to reinterpret argument as a uint64_t
         fpga_outline
             << "union {"
-            <<     "uint64_t " << unpacked_argument.get_name() << "_task_arg;"
-            <<     as_type(unpacked_argument.get_type().get_unqualified_type().no_ref()) << " " << unpacked_argument.get_name() << ";"
-            << "} " << field_name << " = { 0 };"
-        ;
+            <<     "uint64_t raw;"
+            <<     as_type(field_type.get_unqualified_type().no_ref()) << " typed;"
+            << "} " << cast_var_name << " = { 0 };";
 
-        // If argument is pointer or array, get physical address
-        if (field_type.is_pointer() || field_type.is_array()) {
+        // If argument is pointer or array, get physical address (only in old fpga APIs)
+        if ((field_type.is_pointer() || field_type.is_array()) && !Nanos::Version::interface_is_at_least("fpga", 3))
+        {
             fpga_outline
-                << field_name << "." << unpacked_argument.get_name() << " = "
-                << "(" << as_type(unpacked_argument.get_type().get_unqualified_type().no_ref()) << ")"
-                << "nanos_fpga_get_phy_address((void *)" << unpacked_argument.get_name() << ");"
-            ;
-        } else {
+                << cast_var_name << ".typed = (" << as_type(field_type.get_unqualified_type().no_ref()) << ")"
+                << "nanos_fpga_get_phy_address((void *)" << field_name << ");";
+        }
+        else
+        {
             fpga_outline
-                << field_name << "." << unpacked_argument.get_name() << " = " << unpacked_argument.get_name() << ";"
-            ;
+                << cast_var_name << ".typed = " << field_name << ";";
         }
 
         // Add argument to task structure
-        fpga_outline
-            << "nanos_fpga_set_task_arg(nanos_current_wd(), " << param_pos << ", " << in_type << ", " << out_type << ", " << field_name << "." << unpacked_argument.get_name() << "_task_arg);"
-        ;
-
-#if _DEBUG_AUTOMATIC_COMPILER_
-        std::cerr << "Adding argument " << param_pos << ": " << as_type(unpacked_argument.get_type().get_unqualified_type().no_ref()) << " " << unpacked_argument.get_name() << std::endl << std::endl;
-#endif
+        if (Nanos::Version::interface_is_at_least("fpga", 9))
+        {
+            fpga_outline
+                << "nanos_fpga_set_task_arg(nanos_fpga_task_handle, " << param_pos << ", " << in_type << ", "
+                << out_type << ", " << cast_var_name << ".raw);";
+        }
+        else
+        {
+            fpga_outline
+                << "nanos_fpga_set_task_arg(nanos_current_wd(), " << param_pos << ", " << in_type << ", "
+                << out_type << ", " << cast_var_name << ".raw);";
+        }
     }
 
-    return fpga_outline;
+    if (Nanos::Version::interface_is_at_least("fpga", 9))
+    {
+        fpga_outline
+            << "const nanos_err_t err2 = nanos_fpga_submit_task(nanos_fpga_task_handle);";
+            //NOTE: Not checking the value of err2 as nanox internally handles it to show proper errors
+            //<< "if (err2 != NANOS_OK) nanos_handle_error(err2);"
+    }
+
+    Source unpacked_source;
+    unpacked_source
+        << dummy_init_statements
+        << fpga_outline
+        << statement_placeholder(outline_placeholder)
+        << dummy_final_statements
+    ;
+
+    // Add a declaration of the unpacked function symbol in the original source
+    if (IS_CXX_LANGUAGE && !unpacked_function.is_member())
+    {
+        Nodecl::NodeclBase nodecl_decl = Nodecl::CxxDecl::make(
+            /* optative context */ nodecl_null(),
+            unpacked_function,
+            original_statements.get_locus()
+        );
+        Nodecl::Utils::prepend_to_enclosing_top_level_location(original_statements, nodecl_decl);
+    }
+
+    Nodecl::NodeclBase new_unpacked_body = unpacked_source.parse_statement(unpacked_function_body);
+    unpacked_function_body.replace(new_unpacked_body);
+
+    return unpacked_function;
 }
 
 void DeviceFPGA::create_outline(
@@ -129,16 +247,13 @@ void DeviceFPGA::create_outline(
     if (!Nanos::Version::interface_is_at_least("fpga", 2))
         fatal_error("Unsupported Nanos version (fpga support). Please update your Nanos installation\n");
 
-    // Unpack DTO
     Lowering* lowering = info._lowering;
-    const std::string& device_outline_name = fpga_outline_name(info._outline_name);
-    // const Nodecl::NodeclBase& task_statements = info._task_statements;
     const Nodecl::NodeclBase& original_statements = info._original_statements;
-    // bool is_function_task = info._called_task.is_valid();
-
     const TL::Symbol& arguments_struct = info._arguments_struct;
     const TL::Symbol& called_task = info._called_task;
     TL::ObjectList<OutlineDataItem*> data_items = info._data_items;
+    const Nodecl::NodeclBase& num_repetitions_expr = get_num_repetitions(info._target_info);
+    const Nodecl::NodeclBase& period_expr = get_period(info._target_info);
 
     lowering->seen_fpga_task = true;
 
@@ -159,13 +274,15 @@ void DeviceFPGA::create_outline(
             if (_global_copied_fpga_symbols.map(called_task) == called_task)
             {
                 const std::string acc_type = get_acc_type(called_task, info._target_info);
+                const bool periodic_support = !num_repetitions_expr.is_null() || !period_expr.is_null() || _force_periodic_support;
                 const bool creates_children_tasks =
                     (info._num_inner_tasks > 0) ||
                     (_force_fpga_task_creation_ports.find(acc_type) != _force_fpga_task_creation_ports.end());
                 FpgaOutlineInfo to_outline_info(
                     called_task.get_name(),
                     get_num_instances(info._target_info),
-                    acc_type);
+                    acc_type,
+                    periodic_support);
 
                 // Duplicate the called task into the fpga source
                 TL::Symbol new_function = SymbolUtils::new_function_symbol_for_deep_copy(
@@ -197,6 +314,7 @@ void DeviceFPGA::create_outline(
                     new_function,
                     info._data_items,
                     creates_children_tasks,
+                    periodic_support,
                     fpga_task_code_visitor._user_calls_set,
                     to_outline_info.get_wrapper_name(),
                     to_outline_info._wrapper_decls,
@@ -217,8 +335,7 @@ void DeviceFPGA::create_outline(
         }
     }
 
-    Source unpacked_arguments, private_entities;
-
+    Source unpacked_arguments;
     for (TL::ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
             it != data_items.end();
             it++)
@@ -288,73 +405,14 @@ void DeviceFPGA::create_outline(
     }
 
     // Create the new unpacked function
-    TL::Source dummy_init_statements, dummy_final_statements;
-    TL::Symbol unpacked_function = new_function_symbol_unpacked(
+    TL::Symbol unpacked_function = DeviceFPGA::gen_fpga_unpacked(
         current_function,
-        device_outline_name + "_unpacked",
+        outline_placeholder,
+        num_repetitions_expr,
+        period_expr,
         info,
-        symbol_map,
-        dummy_init_statements,
-        dummy_final_statements
+        symbol_map
     );
-
-    // The unpacked function must not be static and must have external linkage because
-    // this function is called from the original source
-    symbol_entity_specs_set_is_static(unpacked_function.get_internal_symbol(), 0);
-    if (IS_C_LANGUAGE)
-    {
-        symbol_entity_specs_set_linkage_spec(unpacked_function.get_internal_symbol(), "\"C\"");
-    }
-
-    Nodecl::NodeclBase unpacked_function_code, unpacked_function_body;
-    SymbolUtils::build_empty_body_for_function(
-        unpacked_function,
-        unpacked_function_code,
-        unpacked_function_body
-    );
-
-    Nodecl::Utils::append_to_top_level_nodecl(unpacked_function_code);
-
-    // Generate FPGA outline
-    Source fpga_outline = gen_fpga_outline(unpacked_function.get_function_parameters(), data_items);
-
-#if _DEBUG_AUTOMATIC_COMPILER_
-    std::cerr << " ===================================================================0\n";
-    std::cerr << "FPGA Outline function:\n";
-    std::cerr << " ===================================================================0\n";
-    std::cerr << fpga_outline.get_source() << std::endl << std::endl;
-#endif
-
-    Source unpacked_source;
-    unpacked_source
-        << dummy_init_statements
-        << private_entities
-        << fpga_outline
-        << statement_placeholder(outline_placeholder)
-        << dummy_final_statements
-    ;
-
-    // Add a declaration of the unpacked function symbol in the original source
-    if (IS_CXX_LANGUAGE)
-    {
-        //DJG TO remove???
-        if (!unpacked_function.is_member())
-        {
-#if _DEBUG_AUTOMATIC_COMPILER_
-            std::cerr << "No member... actually Doing delcaration insertion unpacked function:" << unpacked_function.get_name() << std::endl;
-#endif
-
-            Nodecl::NodeclBase nodecl_decl = Nodecl::CxxDecl::make(
-                /* optative context */ nodecl_null(),
-                unpacked_function,
-                original_statements.get_locus()
-            );
-            Nodecl::Utils::prepend_to_enclosing_top_level_location(original_statements, nodecl_decl);
-        }
-    }
-
-    Nodecl::NodeclBase new_unpacked_body = unpacked_source.parse_statement(unpacked_function_body);
-    unpacked_function_body.replace(new_unpacked_body);
 
     // Create the outline function
     //The outline function has always only one parameter which name is 'args'
@@ -369,7 +427,7 @@ void DeviceFPGA::create_outline(
 
     TL::Symbol outline_function = SymbolUtils::new_function_symbol(
         current_function,
-        device_outline_name,
+        fpga_outline_name(info._outline_name),
         TL::Type::get_void_type(),
         structure_name,
         structure_type
@@ -417,32 +475,20 @@ void DeviceFPGA::create_outline(
 
     output_statements = Nodecl::EmptyStatement::make(original_statements.get_locus());
 
-    if (IS_CXX_LANGUAGE)
+    if (IS_CXX_LANGUAGE && !outline_function.is_member())
     {
-#if _DEBUG_AUTOMATIC_COMPILER_
-        std::cerr << "Doing delcaration insertion unpacked function:" << outline_function.get_name() << std::endl;
-#endif
+        Nodecl::NodeclBase nodecl_decl = Nodecl::CxxDecl::make(
+            /* optative context */ nodecl_null(),
+            outline_function,
+            original_statements.get_locus()
+        );
 
-        if (!outline_function.is_member())
-        {
-
-#if _DEBUG_AUTOMATIC_COMPILER_
-            std::cerr << "No member... actually Doing delcaration insertion unpacked function:" << outline_function.get_name() << std::endl;
-#endif
-
-            Nodecl::NodeclBase nodecl_decl = Nodecl::CxxDecl::make(
-                /* optative context */ nodecl_null(),
-                outline_function,
-                original_statements.get_locus()
-            );
-
-            Nodecl::Utils::prepend_to_enclosing_top_level_location(original_statements, nodecl_decl);
-        }
+        Nodecl::Utils::prepend_to_enclosing_top_level_location(original_statements, nodecl_decl);
     }
 }
 
 DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_generation(false),
-    _force_fpga_task_creation_ports(), _memory_port_width(""), _periodic_support(false), _onto_warn_shown(false)
+    _force_fpga_task_creation_ports(), _memory_port_width(""), _force_periodic_support(false), _onto_warn_shown(false)
 {
     set_phase_name("Nanox FPGA support");
     set_phase_description("This phase is used by Nanox phases to implement FPGA device support");
@@ -496,10 +542,10 @@ DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_gener
         _memory_port_width,
         "").connect(std::bind(&DeviceFPGA::set_memory_port_width_from_str, this, std::placeholders::_1));
 
-    register_parameter("fpga_periodic_support",
-        "Enables/disables the periodic tasks support in FPGA accelerators",
-        _periodic_support_str,
-        "0").connect(std::bind(&DeviceFPGA::set_periodic_support_from_str, this, std::placeholders::_1));
+    register_parameter("force_fpga_periodic_support",
+        "Force enabling the periodic tasks support in FPGA accelerators",
+        _force_periodic_support_str,
+        "0").connect(std::bind(&DeviceFPGA::set_force_periodic_support_from_str, this, std::placeholders::_1));
 
     register_parameter("fpga_function_copy_suffix",
         "Forces the suffix placed at the end of functions moved to fpga HLS source",
@@ -666,7 +712,13 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
                 ::mark_file_for_cleanup(new_filename.c_str());
             }
 
-            add_fpga_header(ancillary_file, instrumentation_enabled(), it->get_wrapper_name(), it->_type, it->_num_instances);
+            add_fpga_header(
+                ancillary_file,
+                instrumentation_enabled(),
+                it->_periodic_support,
+                it->get_wrapper_name(),
+                it->_type,
+                it->_num_instances);
             add_included_fpga_files(ancillary_file);
 
             fprintf(ancillary_file, "%s\n", it->_wrapper_decls.get_source(true).c_str());
@@ -873,7 +925,7 @@ static int find_parameter_position(const ObjectList<Symbol> param_list, const Sy
  *
  */
 void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDataItem*>& data_items,
-    const bool creates_children_tasks, const std::set<std::string> user_calls_set,
+    const bool creates_children_tasks, const bool periodic_support, const std::set<std::string> user_calls_set,
     const std::string wrapper_func_name, Source &wrapper_decls, Source &wrapper_source)
 {
     //Check that we are calling a function task (this checking may be performed earlyer in the code)
@@ -892,7 +944,9 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     Source profiling_0, profiling_1, profiling_2, profiling_3;
     unsigned int n_params_id = 0;
     unsigned int n_params_out = 0;
-    unsigned int wrapper_memory_port_width;
+    unsigned int wrapper_memport_width;
+    const std::string wrapper_memport_width_str = (_memory_port_width == "" && creates_children_tasks) ?
+            "64" : _memory_port_width;
 
     memset(function_parameters_passed, 0, param_list.size());
 
@@ -951,22 +1005,22 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     }
 
     //Create the memory access port shared between all task parameters
-    if (_memory_port_width != "")
+    if (wrapper_memport_width_str != "")
     {
-        std::istringstream iss(_memory_port_width);
-        iss >> wrapper_memory_port_width;
+        std::istringstream iss(wrapper_memport_width_str);
+        iss >> wrapper_memport_width;
         if (iss.fail())
         {
             error_printf_at(func_symbol.get_locus(),
                 "FPGA memory port width '%s' is not an unsigned integer\n",
-                _memory_port_width.c_str());
+                wrapper_memport_width_str.c_str());
             fatal_error("Unsupported value");
         }
-        else if (wrapper_memory_port_width == 0 || wrapper_memory_port_width%8 != 0)
+        else if (wrapper_memport_width == 0 || wrapper_memport_width%8 != 0)
         {
             error_printf_at(func_symbol.get_locus(),
                 "FPGA memory port width '%s' is not >0 and/or multiple of 8\n",
-                _memory_port_width.c_str());
+                wrapper_memport_width_str.c_str());
             fatal_error("Unsupported value");
         }
 
@@ -974,7 +1028,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         {
             // NOTE: If the task creates children tasks, the port will de created in the global scope
             const std::string port_declaration =
-                "ap_uint<" + _memory_port_width + "> * " + STR_WRAPPERDATA;
+                "ap_uint<" + wrapper_memport_width_str + "> * " + STR_WRAPPERDATA;
             params_src.append_with_separator(port_declaration, ", ");
 
             pragmas_src
@@ -1063,19 +1117,19 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 << "      if(__copyFlags[4])";
 
             //FIXME: Add suport for arrays when the memory_port_width is defined
-            if (_memory_port_width != "" && !localmem_type.array_element().is_array())
+            if (wrapper_memport_width_str != "" && !localmem_type.array_element().is_array())
             {
                 //NOTE: The following check may not be vaild when cross-compiling
-                if (wrapper_memory_port_width%elem_type.get_size() != 0)
+                if (wrapper_memport_width%elem_type.get_size() != 0)
                 {
                     error_printf_at(param_symbol.get_locus(),
                         "Memory port width '%s' is not multiple of parameter '%s' width\n",
-                        _memory_port_width.c_str(), field_name.c_str());
+                        wrapper_memport_width_str.c_str(), field_name.c_str());
                     fatal_error("Unsupported value");
                 }
 
                 const std::string port_name = STR_WRAPPERDATA;
-                const std::string mem_ptr_type = "ap_uint<" + _memory_port_width + ">";
+                const std::string mem_ptr_type = "ap_uint<" + wrapper_memport_width_str + ">";
                 const std::string n_elems_read = "(sizeof(" + mem_ptr_type + ")/sizeof(" + casting_sizeof + "))";
 
                 in_copies_switch_body << "{"
@@ -1132,7 +1186,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             }
             else
             {
-                if (_memory_port_width != "" && localmem_type.array_element().is_array())
+                if (wrapper_memport_width_str != "" && localmem_type.array_element().is_array())
                 {
                     warn_printf_at(localmem.front().get_locus(),
                         "Disabling shared memory port for argument '%s' (array of arrays)\n", field_name.c_str());
@@ -1295,24 +1349,38 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     condition_task_execution_cmd_src
         << "__commandCode == 1";
 
-    if (_periodic_support)
+    if (periodic_support)
     {
+        params_src.append_with_separator("volatile unsigned long long int * " STR_HWCOUNTER_PORT, ", ");
+
+        pragmas_src
+            << "#pragma HLS INTERFACE m_axi port=" << STR_HWCOUNTER_PORT << " offset=direct bundle=" << STR_HWCOUNTER_PORT << "\n";
+
         condition_task_execution_cmd_src
-            << " || __commandCode == 3";
+            << " || __commandCode == 5";
 
         periodic_command_read
-            << "  unsigned int __task_period = 0, __task_num_reps = 1;"
-            << "  if (__commandCode == 3) {"
+            << "  unsigned int __task_period = 0;"
+            << "  " << STR_NUM_REPS << " = 1;"
+            << "  unsigned long long int __time_start_rep, __time_end_rep;"
+            << "  if (__commandCode == 5) {"
             << "    __bufferData = " << STR_INPUTSTREAM << ".read().data;"
-            << "    __task_num_reps = __bufferData;"
+            << "    " << STR_NUM_REPS << " = __bufferData;"
             << "    __task_period = __bufferData>>32;"
             << "  }";
 
         periodic_command_pre
-            << "  for (; __task_num_reps > 0; __task_num_reps--) {";
+            << "  for (" << STR_REP_NUM << " = 0" << "; "
+            <<      STR_REP_NUM << " < " << STR_NUM_REPS << " || 0xFFFFFFFF == " << STR_NUM_REPS << "; "
+            <<      "++" << STR_REP_NUM << ")"
+            << "  {"
+            << "    __time_start_rep = *(" << STR_HWCOUNTER_PORT << ");";
 
         periodic_command_post
-            << "    for (volatile unsigned int lose_time = 0; lose_time < __task_period; lose_time++) lose_time = lose_time;"
+            << "    do {"
+            << "      __time_end_rep = *(" << STR_HWCOUNTER_PORT << ");"
+            << "      wait();"
+            << "    } while ((__time_end_rep - __time_start_rep) < __task_period);"
             << "  }";
     }
 
@@ -1344,7 +1412,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     get_hls_wrapper_decls(
         instrumentation_enabled(),
         creates_children_tasks,
-        _memory_port_width,
+        periodic_support,
+        wrapper_memport_width_str,
         user_calls_set,
         wrapper_decls,
         wrapper_decls_after_user_code,
@@ -1375,8 +1444,9 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     get_hls_wrapper_defs(
         instrumentation_enabled(),
         creates_children_tasks,
+        periodic_support,
         user_calls_set,
-        _memory_port_width,
+        wrapper_memport_width_str,
         wrapper_source);
 }
 
@@ -1401,7 +1471,6 @@ void DeviceFPGA::copy_stuff_to_device_file(const TL::ObjectList<Nodecl::NodeclBa
         }
     }
 }
-
 
 std::string DeviceFPGA::get_acc_type(const TL::Symbol& task, const TargetInformation& target_info)
 {
@@ -1460,7 +1529,6 @@ std::string DeviceFPGA::get_acc_type(const TL::Symbol& task, const TargetInforma
     return value;
 }
 
-
 std::string DeviceFPGA::get_num_instances(const TargetInformation& target_info)
 {
     std::string value = "1"; //Default is 1 instance
@@ -1502,6 +1570,38 @@ std::string DeviceFPGA::get_num_instances(const TargetInformation& target_info)
         }
     }
     return value;
+}
+
+Nodecl::NodeclBase DeviceFPGA::get_num_repetitions(const TargetInformation& target_info)
+{
+    Nodecl::NodeclBase clause_value;
+
+    const ObjectList<Nodecl::NodeclBase>& clause_info = target_info.get_num_repetitions();
+    if (clause_info.size() >= 1)
+    {
+        clause_value = clause_info[0];
+        if (clause_info.size() > 1)
+        {
+            warn_printf_at(clause_value.get_locus(), "More than one argument in 'num_repetitions' clause. Using only first one\n");
+        }
+    }
+    return clause_value;
+}
+
+Nodecl::NodeclBase DeviceFPGA::get_period(const TargetInformation& target_info)
+{
+    Nodecl::NodeclBase clause_value;
+
+    const ObjectList<Nodecl::NodeclBase>& clause_info = target_info.get_period();
+    if (clause_info.size() >= 1)
+    {
+        clause_value = clause_info[0];
+        if (clause_info.size() > 1)
+        {
+            warn_printf_at(clause_value.get_locus(), "More than one argument in 'period' clause. Using only first one\n");
+        }
+    }
+    return clause_value;
 }
 
 void DeviceFPGA::emit_async_device(
@@ -2208,9 +2308,9 @@ void DeviceFPGA::set_memory_port_width_from_str(const std::string& in_str)
     _memory_port_width = in_str;
 }
 
-void DeviceFPGA::set_periodic_support_from_str(const std::string& str)
+void DeviceFPGA::set_force_periodic_support_from_str(const std::string& str)
 {
-    TL::parse_boolean_option("fpga_periodic_support", str, _periodic_support, "Assuming false.");
+    TL::parse_boolean_option("force_fpga_periodic_support", str, _force_periodic_support, "Assuming false.");
 }
 
 void DeviceFPGA::set_funcion_copy_suffix_from_str(const std::string& in_str)
