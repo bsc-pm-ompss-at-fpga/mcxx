@@ -484,7 +484,7 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
                         _symbol_map->add_map(sym, SymbolUtils::new_function_symbol(
                             sym.get_scope(),
                             "__mcxx_memcpy",
-                            sym.get_type().returns(),
+                            TL::Type::get_void_type().get_pointer_to(),
                             param_names,
                             param_types));
                         _user_calls_set.insert("mcxx_memcpy");
