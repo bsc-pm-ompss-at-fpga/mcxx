@@ -33,17 +33,10 @@
 #include "tl-symbol-utils.hpp"
 #include "../../../lowering-common/tl-omp-lowering-utils.hpp"
 
-/*
- * NOTE: accID is composed by 2 parts:
- *  [0:3] global accelerator id (aka considering all accelerators)
- *  [4:7] ext accelerator id (aka only considering accels with task creation capabilities)
- */
-#define STR_FULL_ACCID         "accID"
-#define STR_GLB_ACCID          "(accID&0xF)"
-#define STR_EXT_ACCID          "((accID>>4)&0xF)"
+#define STR_ACCID              "accID"
 #define STR_COMPONENTS_COUNT   "__mcxx_taskComponents"
-#define STR_GLOB_OUTPORT       "__mcxx_outPort"
-#define STR_GLOB_TWPORT        "__mcxx_twPort"
+#define STR_GLOB_EOUTPORT      "__mcxx_eOutPort"
+#define STR_GLOB_EINPORT       "__mcxx_eInPort"
 #define STR_TASKID             "__mcxx_taskId"
 #define STR_PARENT_TASKID      "__mcxx_parent_taskId"
 #define STR_REP_NUM            "__mcxx_periTask_repNum"
@@ -799,7 +792,7 @@ void get_hls_wrapper_decls(
 
     /*** Variable declarations ***/
     wrapper_decls_before_user_code
-        << "extern const unsigned char " << STR_FULL_ACCID << ";"
+        << "extern const unsigned char " << STR_ACCID << ";"
         << "static unsigned long long int " << STR_TASKID << ";"
         << "static unsigned long long int " << STR_PARENT_TASKID << ";";
 
@@ -815,13 +808,13 @@ void get_hls_wrapper_decls(
     if (task_creation)
     {
         wrapper_decls_before_user_code
-            << "extern ap_uint<72> " << STR_GLOB_OUTPORT << ";"
-            << "extern volatile ap_uint<2> " << STR_GLOB_TWPORT << ";"
+            << "extern ap_uint<72> " << STR_GLOB_EOUTPORT << ";"
+            << "extern volatile ap_uint<8> " << STR_GLOB_EINPORT << ";"
             << "static ap_uint<32> " << STR_COMPONENTS_COUNT << ";";
 
         wrapper_body_pragmas
-            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_OUTPORT << "\n"
-            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_TWPORT << "\n";
+            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_EOUTPORT << "\n"
+            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_EINPORT << "\n";
 
         if (shared_memory_port_width != "")
         {
@@ -888,8 +881,8 @@ void get_hls_wrapper_decls(
         {
             // NOTE: The following declarations will be placed in the source by the codegen in C lang
             wrapper_decls_before_user_code
-                << "void __mcxx_write_outstream(const unsigned long long int data, const unsigned short dest, const unsigned char last);"
-                << "void __mcxx_wait_tw_signal();"
+                << "void __mcxx_write_eout_port(const unsigned long long int data, const unsigned short dest, const unsigned char last);"
+                << "ap_uint<8> __mcxx_read_ein_port();"
                 << "unsigned long long int nanos_fpga_current_wd();"
                 << "void nanos_handle_error(nanos_err_t err);"
                 << "nanos_err_t nanos_fpga_wg_wait_completion(unsigned long long int uwg, unsigned char avoid_flush);"
@@ -1019,7 +1012,7 @@ void get_hls_wrapper_defs(
         << "#pragma HLS INLINE\n"
         << "#pragma HLS INTERFACE axis port=stream\n"
         << "  axiData_t __data = {0, 0, 0, 0, 0, 0, 0};"
-        << "  __data.id = " << STR_GLB_ACCID << ";"
+        << "  __data.id = " << STR_ACCID << ";"
         << "  __data.keep = 0xFF;"
         << "  __data.dest = dest;"
         << "  __data.last = last;"
@@ -1030,7 +1023,7 @@ void get_hls_wrapper_defs(
         << "void __mcxx_send_finished_task_cmd(axiStream_t& stream, const unsigned char destId)"
         << "{"
         << "#pragma HLS INTERFACE axis port=stream\n"
-        << "  unsigned long long int header = " << STR_GLB_ACCID << ";"
+        << "  unsigned long long int header = " << STR_ACCID << ";"
         << "  header = (header << 8) | 0x03;"
         << "  __mcxx_write_stream(stream, header, destId, 0);"
         << "  __mcxx_write_stream(stream, " << STR_TASKID << ", destId, 0);"
@@ -1130,20 +1123,21 @@ void get_hls_wrapper_defs(
     if (task_creation)
     {
         wrapper_defs
-            << "void __mcxx_write_outstream(const unsigned long long int data, const unsigned short dest, const unsigned char last)"
+            << "void __mcxx_write_eout_port(const unsigned long long int data, const unsigned short dest, const unsigned char last)"
             << "{"
-            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_OUTPORT << " register\n"
+            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_EOUTPORT << " register\n"
             // NOTE: Pack the axiData_t info: data(64bits) + dest(6bits) + last(2bit). It can be done
             //       with less bits but this way the info is HEX friendly
             << "  ap_uint<72> tmp = data;"
             << "  tmp = (tmp << 8) | ((dest & 0x3F) << 2) | (last & 0x3);"
-            << "  " << STR_GLOB_OUTPORT << " = tmp;"
+            << "  " << STR_GLOB_EOUTPORT << " = tmp;"
             << "}"
 
-            << "void __mcxx_wait_tw_signal()"
+            << "ap_uint<8> __mcxx_read_ein_port()"
             << "{"
-            << "  #pragma HLS INTERFACE ap_hs port=" << STR_GLOB_TWPORT << "\n"
-            << "  ap_uint<2> sync = " << STR_GLOB_TWPORT << ";"
+            << "  #pragma HLS INTERFACE ap_hs port=" << STR_GLOB_EINPORT << "\n"
+            << "  ap_uint<8> sync = " << STR_GLOB_EINPORT << ";"
+            << "  return sync;"
             << "}"
 
             << "unsigned long long int nanos_fpga_current_wd()"
@@ -1158,14 +1152,14 @@ void get_hls_wrapper_defs(
             << "{"
             << "  if (" << STR_COMPONENTS_COUNT << " == 0) { return NANOS_OK; }"
             << "  const unsigned short TM_TW = 0x13;"
-            << "  unsigned long long int tmp = " << STR_EXT_ACCID << ";"
+            << "  unsigned long long int tmp = " << STR_ACCID << ";"
             << "  tmp = tmp << 48 /*ACC_ID info uses bits [48:55]*/;"
             << "  tmp = 0x8000000100000000 | tmp | " << STR_COMPONENTS_COUNT << ";"
-            << "  __mcxx_write_outstream(tmp /*TASKWAIT_DATA_BLOCK*/, TM_TW, 0 /*last*/);"
-            << "  __mcxx_write_outstream(" << STR_TASKID << " /*data*/, TM_TW, 1 /*last*/);"
+            << "  __mcxx_write_eout_port(tmp /*TASKWAIT_DATA_BLOCK*/, TM_TW, 0 /*last*/);"
+            << "  __mcxx_write_eout_port(" << STR_TASKID << " /*data*/, TM_TW, 1 /*last*/);"
             << "  {\n"
             << "#pragma HLS PROTOCOL fixed\n"
-            << "    __mcxx_wait_tw_signal();"
+            << "    __mcxx_read_ein_port();"
             << "  }\n"
             << "  " << STR_COMPONENTS_COUNT << " = 0;"
             << "  return NANOS_OK;"
@@ -1177,47 +1171,54 @@ void get_hls_wrapper_defs(
             << "    const unsigned char numCopies, const nanos_fpga_copyinfo_t * copies)"
             << "{"
             << "#pragma HLS inline\n"
-            << "  ++" << STR_COMPONENTS_COUNT << ";"
             << "  const unsigned short TM_NEW = 0x12;"
             << "  const unsigned short TM_SCHED = 0x14;"
             << "  const unsigned char hasSmpArch = (archMask & NANOS_FPGA_ARCH_SMP) != 0;"
             << "  const unsigned short destId = (numDeps == 0 && !hasSmpArch) ? TM_SCHED : TM_NEW;"
+            << "  ap_uint<8> ack;"
+            << "  do {"
             //1st word: [ valid (8b) | arch_mask (24b) | num_copies (8b) | num_deps (8b) | num_args (8b) | (8b) ]
-            << "  unsigned long long int tmp = archMask;"
-            << "  tmp = (tmp << 8) | numCopies;"
-            << "  tmp = (tmp << 8) | numDeps;"
-            << "  tmp = (tmp << 8) | numArgs;"
-            << "  tmp = tmp << 8;"
-            << "  __mcxx_write_outstream(tmp, destId, 0);"
+            << "    unsigned long long int tmp = archMask;"
+            << "    tmp = (tmp << 8) | numCopies;"
+            << "    tmp = (tmp << 8) | numDeps;"
+            << "    tmp = (tmp << 8) | numArgs;"
+            << "    tmp = tmp << 8;"
+            << "    __mcxx_write_eout_port(tmp, destId, 0);"
             //2nd word: [ parent_task_id (64b) ]
-            << "  __mcxx_write_outstream(" << STR_TASKID << ", destId, 0);"
+            << "    __mcxx_write_eout_port(" << STR_TASKID << ", destId, 0);"
             //3rd word: [ type_value (64b) ]
-            << "  __mcxx_write_outstream(type, destId, 0);"
+            << "    __mcxx_write_eout_port(type, destId, 0);"
             //copy words
-            << "  for (unsigned char idx = 0; idx < numCopies; ++idx) {"
+            << "    for (unsigned char idx = 0; idx < numCopies; ++idx) {"
             //1st copy word: [ address (64b) ]
-            << "    tmp = copies[idx].address;"
-            << "    __mcxx_write_outstream(tmp, destId, 0);"
+            << "      tmp = copies[idx].address;"
+            << "      __mcxx_write_eout_port(tmp, destId, 0);"
             //2nd copy word: [ size (32b) | not_used (16b) | arg_idx (8b) | flags (8b) ]
-            << "    tmp = copies[idx].size;"
-            << "    tmp = (tmp << 24) | copies[idx].arg_idx;"
-            << "    tmp = (tmp << 8) | copies[idx].flags;"
-            << "    __mcxx_write_outstream(tmp, destId, 0);"
+            << "      tmp = copies[idx].size;"
+            << "      tmp = (tmp << 24) | copies[idx].arg_idx;"
+            << "      tmp = (tmp << 8) | copies[idx].flags;"
+            << "      __mcxx_write_eout_port(tmp, destId, 0);"
             //3rd copy word: [ accessed_length (32b) | offset (32b) ]
-            << "    tmp = copies[idx].accessed_length;"
-            << "    tmp = (tmp << 32) | copies[idx].offset;"
-            << "    __mcxx_write_outstream(tmp, destId, idx == (numCopies - 1)&&(numDeps == 0)&&(numCopies == 0));"
-            << "  }"
-            << "  for (unsigned char idx = 0; idx < numDeps; ++idx) {"
-            << "    tmp = depsFlags[idx];"
-            << "    tmp = (tmp << 56) | deps[idx];"
+            << "      tmp = copies[idx].accessed_length;"
+            << "      tmp = (tmp << 32) | copies[idx].offset;"
+            << "      __mcxx_write_eout_port(tmp, destId, idx == (numCopies - 1)&&(numDeps == 0)&&(numCopies == 0));"
+            << "    }"
+            << "    for (unsigned char idx = 0; idx < numDeps; ++idx) {"
+            << "      tmp = depsFlags[idx];"
+            << "      tmp = (tmp << 56) | deps[idx];"
             //dep words: [ arg_flags (8b) | arg_value (56b) ]
-            << "    __mcxx_write_outstream(tmp, destId, (idx == (numDeps - 1))&&(numArgs == 0));"
-            << "  }"
-            << "  for (unsigned char idx = 0; idx < numArgs; ++idx) {"
+            << "      __mcxx_write_eout_port(tmp, destId, (idx == (numDeps - 1))&&(numArgs == 0));"
+            << "    }"
+            << "    for (unsigned char idx = 0; idx < numArgs; ++idx) {"
             //arg words: [ arg_value (64b) ]
-            << "    __mcxx_write_outstream(args[idx], destId, idx == (numArgs - 1));"
-            << "  }"
+            << "      __mcxx_write_eout_port(args[idx], destId, idx == (numArgs - 1));"
+            << "    }"
+            << "    {\n"
+            << "#pragma HLS PROTOCOL fixed\n"
+            << "      ack = __mcxx_read_ein_port();"
+            << "    }\n"
+            << "  } while (ack != 1);"
+            << "  ++" << STR_COMPONENTS_COUNT << ";"
             << "}";
     }
 
