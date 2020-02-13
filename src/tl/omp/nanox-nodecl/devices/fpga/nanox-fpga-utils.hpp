@@ -141,9 +141,9 @@ static void compute_array_info(
     base_type = t;
 }
 
-std::string get_mcxx_ptr_declaration(const TL::Type& type_to_point)
+std::string get_mcxx_ptr_declaration(TL::Scope scope, const TL::Type& type_to_point)
 {
-    return "mcxx_ptr_t<" + type_to_point.print_declarator() + ">";
+    return "mcxx_ptr_t<" + type_to_point.get_simple_declaration(scope, "") + ">";
 }
 
 void add_fpga_header(
@@ -197,7 +197,7 @@ struct ReplaceTaskCreatorSymbolsVisitor : public Nodecl::ExhaustiveVisitor<void>
         {
             TL::Symbol structure = get_mcxx_ptr_symbol(scope);
             //TODO: obtain the mcxx_ptr_t info from structure
-            TL::Symbol field = scope.new_symbol(get_mcxx_ptr_declaration(type_to_point));
+            TL::Symbol field = scope.new_symbol(get_mcxx_ptr_declaration(scope, type_to_point));
             field.get_internal_symbol()->kind = SK_VARIABLE;
             symbol_entity_specs_set_is_user_declared(field.get_internal_symbol(), 1);
             field.get_internal_symbol()->type_information = structure.get_user_defined_type().get_internal_type();
