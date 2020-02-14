@@ -143,7 +143,7 @@ static void compute_array_info(
 
 std::string get_mcxx_ptr_declaration(TL::Scope scope, const TL::Type& type_to_point)
 {
-    return "mcxx_ptr_t<" + type_to_point.get_simple_declaration(scope, "") + ">";
+    return "mcxx_ptr_t< " + type_to_point.get_simple_declaration(scope, "") + " >";
 }
 
 void add_fpga_header(
