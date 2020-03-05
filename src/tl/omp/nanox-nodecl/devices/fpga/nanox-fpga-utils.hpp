@@ -1222,7 +1222,7 @@ void get_hls_wrapper_defs(
             << "}";
     }
 
-    if (periodic_support && !IS_C_LANGUAGE)
+    if (periodic_support)
     {
         wrapper_defs
             << "unsigned int nanos_get_periodic_task_repetition_num()"
