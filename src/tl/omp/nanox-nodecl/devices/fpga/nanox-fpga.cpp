@@ -127,7 +127,7 @@ TL::Symbol DeviceFPGA::gen_fpga_unpacked(
             fpga_outline
                 << "const unsigned int nanos_fpga_periodic_task_numreps = (unsigned int)(" << numreps_src << ");"
                 << "const unsigned int nanos_fpga_periodic_task_period = (unsigned int)(" << period_src << ");"
-                << "const nanos_err_t err0 = nanos_fpga_create_periodic_task(&nanos_fpga_task_handle, nanos_current_wd(),"
+                << "nanos_fpga_create_periodic_task(&nanos_fpga_task_handle, nanos_current_wd(),"
                 <<   "nanos_fpga_periodic_task_period, nanos_fpga_periodic_task_numreps);";
                 //NOTE: Not checking the value of err0 as nanox internally handles it to show proper errors
                 //<< "if (err0 != NANOS_OK) nanos_handle_error(err0);"
@@ -135,7 +135,7 @@ TL::Symbol DeviceFPGA::gen_fpga_unpacked(
         else
         {
             fpga_outline
-                << "const nanos_err_t err0 = nanos_fpga_create_task(&nanos_fpga_task_handle, nanos_current_wd());";
+                << "nanos_fpga_create_task(&nanos_fpga_task_handle, nanos_current_wd());";
                 //NOTE: Not checking the value of err0 as nanox internally handles it to show proper errors
                 //<< "if (err0 != NANOS_OK) nanos_handle_error(err0);"
         }
@@ -204,7 +204,7 @@ TL::Symbol DeviceFPGA::gen_fpga_unpacked(
     if (Nanos::Version::interface_is_at_least("fpga", 9))
     {
         fpga_outline
-            << "const nanos_err_t err2 = nanos_fpga_submit_task(nanos_fpga_task_handle);";
+            << "nanos_fpga_submit_task(nanos_fpga_task_handle);";
             //NOTE: Not checking the value of err2 as nanox internally handles it to show proper errors
             //<< "if (err2 != NANOS_OK) nanos_handle_error(err2);"
     }
