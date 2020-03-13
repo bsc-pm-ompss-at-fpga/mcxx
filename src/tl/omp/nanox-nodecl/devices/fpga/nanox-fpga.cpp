@@ -1351,7 +1351,10 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
     if (periodic_support)
     {
-        params_src.append_with_separator("volatile unsigned long long int " STR_HWCOUNTER_PORT, ", ");
+        params_src.append_with_separator("volatile unsigned long long int &" STR_HWCOUNTER_PORT, ", ");
+
+        pragmas_src
+            << "#pragma HLS INTERFACE ap_none port=" << STR_HWCOUNTER_PORT << "\n";
 
         condition_task_execution_cmd_src
             << " || __commandCode == 5";
@@ -1359,7 +1362,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         periodic_command_read
             << "  unsigned int __task_period = 0;"
             << "  " << STR_NUM_REPS << " = 1;"
-            << "  unsigned long long int __time_start_rep, __time_end_rep;"
             << "  if (__commandCode == 5) {"
             << "    __bufferData = " << STR_INPUTSTREAM << ".read().data;"
             << "    " << STR_NUM_REPS << " = __bufferData;"
@@ -1371,13 +1373,12 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             <<      STR_REP_NUM << " < " << STR_NUM_REPS << " || 0xFFFFFFFF == " << STR_NUM_REPS << "; "
             <<      "++" << STR_REP_NUM << ")"
             << "  {"
-            << "    __time_start_rep = " << STR_HWCOUNTER_PORT << ";";
+            << "    const unsigned long long int __time_delay = " << STR_HWCOUNTER_PORT << " + __task_period;";
 
         periodic_command_post
             << "    do {"
-            << "      __time_end_rep = " << STR_HWCOUNTER_PORT << ";"
             << "      wait();"
-            << "    } while ((__time_end_rep - __time_start_rep) < __task_period);"
+            << "    } while (" << STR_HWCOUNTER_PORT << " < __time_delay);"
             << "  }";
     }
 
