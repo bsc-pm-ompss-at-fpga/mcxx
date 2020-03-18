@@ -632,13 +632,13 @@ void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
         if (Nanos::Version::interface_is_at_least("fpga", 4))
         {
             ancillary_device_description
-                << args_name << ".type = " << acc_type << ";"
+                << args_name << ".type = " << acc_type << "U;"
             ;
         }
         else
         {
             ancillary_device_description
-                << args_name << ".acc_num = " << acc_type << ";"
+                << args_name << ".acc_num = " << acc_type << "U;"
             ;
         }
 
@@ -1502,18 +1502,21 @@ std::string DeviceFPGA::get_acc_type(const TL::Symbol& task, const TargetInforma
             }
             else
             {
-                int acc = const_value_cast_to_signed_int(ct_val);
-                value = std::to_string(acc);
+                const unsigned long long int type = const_value_cast_to_unsigned_long_long_int(ct_val);
+                value = std::to_string(type);
+
+                //Check that arch bits are set
+                if ((type&0xF000000000000000) == 0)
+                {
+                    error_printf_at(onto_val.get_locus(),
+                        "Architecture bits not set in the onto clause: 63 -> SMP arch, 62 -> FPGA arch\n");
+                }
             }
         }
         else
         {
-            if (onto_val.get_symbol().is_valid())
-            {
-                value = as_symbol(onto_val.get_symbol());
-                //Nodecl::Utils::SimpleSymbolMap param_to_args_map = info._target_info.get_param_arg_map();
-                //as_symbol(param_to_args_map.map(onto_val.get_symbol()));
-            }
+            error_printf_at(onto_val.get_locus(), "Non-constant type in onto clause\n");
+            fatal_error("Unsupported clause syntax");
         }
     }
     else
@@ -1522,7 +1525,31 @@ std::string DeviceFPGA::get_acc_type(const TL::Symbol& task, const TargetInforma
         // afecting the accelerator hash
         std::stringstream type_str;
         type_str << task.get_filename() << " " << task.get_name();
-        value = std::to_string(simple_hash_str(type_str.str().c_str()));
+        unsigned long long int type = simple_hash_str(type_str.str().c_str())&0x0FFFFFFFFFFFFFFF; //< Ensure that top 4 bits are not set
+
+        const ObjectList<std::string>& devices = target_info.get_device_names();
+        for (ObjectList<std::string>::const_iterator it2 = devices.begin();
+                it2 != devices.end();
+                ++it2)
+        {
+            //Architecture bits are:
+            //  - 63th bit is set if task has SMP support
+            //  - 62th bit is set if task has FPGA support
+            std::string device_name = *it2;
+            if (device_name == "smp")
+            {
+                type |= 0x8000000000000000;
+            }
+            else if (device_name == "fpga")
+            {
+                type |= 0x4000000000000000;
+            }
+            else
+            {
+                fatal_error("FPGA device only can create tasks for smp and fpga devices.\n");
+            }
+        }
+        value = std::to_string(type);
     }
     return value;
 }
@@ -1626,38 +1653,14 @@ void DeviceFPGA::emit_async_device(
 
     std::string acc_type;
 
-    Source arch_mask;
-
     // Check devices of all implementations
     for (OutlineInfo::implementation_table_t::const_iterator it = implementation_table.begin();
             it != implementation_table.end();
             ++it)
     {
         const TargetInformation& target_info = it->second;
+        // FIXME: Consider information from all implementations not only last one
         acc_type = get_acc_type(called_task, target_info);
-
-        const ObjectList<std::string>& devices = target_info.get_device_names();
-        for (ObjectList<std::string>::const_iterator it2 = devices.begin();
-                it2 != devices.end();
-                ++it2)
-        {
-            //Architecture mask is a 24b bitmask where:
-            //  - 23th bit is set if task has SMP support
-            //  - 22th bit is set if task has FPGA support
-            std::string device_name = *it2;
-            if (device_name == "smp")
-            {
-                arch_mask.append_with_separator("NANOS_FPGA_ARCH_SMP", " | ");
-            }
-            else if (device_name == "fpga")
-            {
-                arch_mask.append_with_separator("NANOS_FPGA_ARCH_FPGA", " | ");
-            }
-            else
-            {
-                fatal_error("FPGA device only can create tasks for smp and fpga devices.\n");
-            }
-        }
     }
 
     Source spawn_code, args_list, deps_list, deps_flags_list, copies_list;
@@ -1861,7 +1864,7 @@ void DeviceFPGA::emit_async_device(
         ++num_args;
     }
 
-    if (!Nanos::Version::interface_is_at_least("fpga", 8))
+    if (!Nanos::Version::interface_is_at_least("fpga", 10))
         fatal_error("Your Nanos version is not supported for cration of tasks inside the FPGA. Please update your Nanos installation\n");
 
     if (num_args > 0)
@@ -1898,7 +1901,7 @@ void DeviceFPGA::emit_async_device(
     }
 
     spawn_code
-        << "nanos_fpga_create_wd_async(" << arch_mask << ", " << acc_type << ", "
+        << "nanos_fpga_create_wd_async(" << acc_type << "U, "
         << num_args << ", " << (num_args > 0 ? "mcxx_args" : "(unsigned long long int *)0") << ", "
         << num_deps << ", " << (num_deps > 0 ? "mcxx_deps, mcxx_deps_flags" : "(unsigned long long int *)0, (unsigned char *)0") << ", "
         << num_copies << ", " << (num_copies > 0 ? "mcxx_copies" : "(nanos_fpga_copyinfo_t *)0") << ");";
@@ -2266,7 +2269,7 @@ void DeviceFPGA::register_task_creation(
         <<   devices_class.get_qualified_name(context.retrieve_context()) << " devices[] = {"
         <<     device_descriptions
         <<   "};"
-        <<   "nanos_fpga_register_wd_info(" << acc_type << ", " << num_devices << ", devices, " << reference_to_xlate << ");"
+        <<   "nanos_fpga_register_wd_info(" << acc_type << "U, " << num_devices << ", devices, " << reference_to_xlate << ");"
         << "}"
         ;
 

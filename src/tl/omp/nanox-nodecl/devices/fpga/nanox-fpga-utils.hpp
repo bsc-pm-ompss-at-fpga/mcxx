@@ -886,7 +886,7 @@ void get_hls_wrapper_decls(
                 << "unsigned long long int nanos_fpga_current_wd();"
                 << "void nanos_handle_error(nanos_err_t err);"
                 << "nanos_err_t nanos_fpga_wg_wait_completion(unsigned long long int uwg, unsigned char avoid_flush);"
-                << "void nanos_fpga_create_wd_async(const unsigned int archMask, const unsigned long long int type,"
+                << "void nanos_fpga_create_wd_async(const unsigned long long int type,"
                 << "    const unsigned char numArgs, const unsigned long long int * args,"
                 << "    const unsigned char numDeps, const unsigned long long int * deps, const unsigned char * depsFlags,"
                 << "    const unsigned char numCopies, const nanos_fpga_copyinfo_t * copies);";
@@ -1165,7 +1165,7 @@ void get_hls_wrapper_defs(
             << "  return NANOS_OK;"
             << "}"
 
-            << "void nanos_fpga_create_wd_async(const unsigned int archMask, const unsigned long long int type,"
+            << "void nanos_fpga_create_wd_async(const unsigned long long int type,"
             << "    const unsigned char numArgs, const unsigned long long int * args,"
             << "    const unsigned char numDeps, const unsigned long long int * deps, const unsigned char * depsFlags,"
             << "    const unsigned char numCopies, const nanos_fpga_copyinfo_t * copies)"
@@ -1173,12 +1173,11 @@ void get_hls_wrapper_defs(
             << "#pragma HLS inline\n"
             << "  const unsigned short TM_NEW = 0x12;"
             << "  const unsigned short TM_SCHED = 0x14;"
-            << "  const unsigned char hasSmpArch = (archMask & NANOS_FPGA_ARCH_SMP) != 0;"
-            << "  const unsigned short destId = (numDeps == 0 && !hasSmpArch) ? TM_SCHED : TM_NEW;"
+            << "  const unsigned short destId = numDeps == 0 ? TM_SCHED : TM_NEW;"
             << "  ap_uint<8> ack;"
             << "  do {"
-            //1st word: [ valid (8b) | arch_mask (24b) | num_copies (8b) | num_deps (8b) | num_args (8b) | (8b) ]
-            << "    unsigned long long int tmp = archMask;"
+            //1st word: [ valid (8b) | (24b) | num_copies (8b) | num_deps (8b) | num_args (8b) | (8b) ]
+            << "    unsigned long long int tmp = 0;"
             << "    tmp = (tmp << 8) | numCopies;"
             << "    tmp = (tmp << 8) | numDeps;"
             << "    tmp = (tmp << 8) | numArgs;"
