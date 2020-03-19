@@ -53,6 +53,11 @@
 #define EV_DEVEXEC              80
 #define EV_INSTEVLOST           82
 
+//IDs of the HWR IPs
+#define HWR_DEPS_ID             0x12
+#define HWR_SCHED_ID            0x13
+#define HWR_TASKWAIT_ID         0x14
+
 namespace TL
 {
 namespace Nanox
@@ -1151,12 +1156,11 @@ void get_hls_wrapper_defs(
             << "nanos_err_t nanos_fpga_wg_wait_completion(unsigned long long int uwg, unsigned char avoid_flush)"
             << "{"
             << "  if (" << STR_COMPONENTS_COUNT << " == 0) { return NANOS_OK; }"
-            << "  const unsigned short TM_TW = 0x13;"
             << "  unsigned long long int tmp = " << STR_ACCID << ";"
             << "  tmp = tmp << 48 /*ACC_ID info uses bits [48:55]*/;"
             << "  tmp = 0x8000000100000000 | tmp | " << STR_COMPONENTS_COUNT << ";"
-            << "  __mcxx_write_eout_port(tmp /*TASKWAIT_DATA_BLOCK*/, TM_TW, 0 /*last*/);"
-            << "  __mcxx_write_eout_port(" << STR_TASKID << " /*data*/, TM_TW, 1 /*last*/);"
+            << "  __mcxx_write_eout_port(tmp /*TASKWAIT_DATA_BLOCK*/, " << HWR_TASKWAIT_ID << ", 0 /*last*/);"
+            << "  __mcxx_write_eout_port(" << STR_TASKID << " /*data*/, " << HWR_TASKWAIT_ID << ", 1 /*last*/);"
             << "  {\n"
             << "#pragma HLS PROTOCOL fixed\n"
             << "    __mcxx_read_ein_port();"
@@ -1171,9 +1175,7 @@ void get_hls_wrapper_defs(
             << "    const unsigned char numCopies, const nanos_fpga_copyinfo_t * copies)"
             << "{"
             << "#pragma HLS inline\n"
-            << "  const unsigned short TM_NEW = 0x12;"
-            << "  const unsigned short TM_SCHED = 0x14;"
-            << "  const unsigned short destId = numDeps == 0 ? TM_SCHED : TM_NEW;"
+            << "  const unsigned short destId = numDeps == 0 ? " << HWR_SCHED_ID << " : " << HWR_DEPS_ID << ";"
             << "  ap_uint<8> ack;"
             << "  do {"
             //1st word: [ valid (8b) | (24b) | num_copies (8b) | num_deps (8b) | num_args (8b) | (8b) ]
