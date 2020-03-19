@@ -1189,6 +1189,12 @@ void get_hls_wrapper_defs(
             << "    __mcxx_write_eout_port(" << STR_TASKID << ", destId, 0);"
             //3rd word: [ type_value (64b) ]
             << "    __mcxx_write_eout_port(type, destId, 0);"
+            << "    for (unsigned char idx = 0; idx < numDeps; ++idx) {"
+            << "      tmp = depsFlags[idx];"
+            << "      tmp = (tmp << 56) | deps[idx];"
+            //dep words: [ arg_flags (8b) | arg_value (56b) ]
+            << "      __mcxx_write_eout_port(tmp, destId, (idx == (numDeps - 1))&&(numArgs == 0)&&(numCopies == 0));"
+            << "    }"
             //copy words
             << "    for (unsigned char idx = 0; idx < numCopies; ++idx) {"
             //1st copy word: [ address (64b) ]
@@ -1202,17 +1208,11 @@ void get_hls_wrapper_defs(
             //3rd copy word: [ accessed_length (32b) | offset (32b) ]
             << "      tmp = copies[idx].accessed_length;"
             << "      tmp = (tmp << 32) | copies[idx].offset;"
-            << "      __mcxx_write_eout_port(tmp, destId, idx == (numCopies - 1)&&(numDeps == 0)&&(numCopies == 0));"
-            << "    }"
-            << "    for (unsigned char idx = 0; idx < numDeps; ++idx) {"
-            << "      tmp = depsFlags[idx];"
-            << "      tmp = (tmp << 56) | deps[idx];"
-            //dep words: [ arg_flags (8b) | arg_value (56b) ]
-            << "      __mcxx_write_eout_port(tmp, destId, (idx == (numDeps - 1))&&(numArgs == 0));"
+            << "      __mcxx_write_eout_port(tmp, destId, (idx == (numCopies - 1))&&(numArgs == 0));"
             << "    }"
             << "    for (unsigned char idx = 0; idx < numArgs; ++idx) {"
             //arg words: [ arg_value (64b) ]
-            << "      __mcxx_write_eout_port(args[idx], destId, idx == (numArgs - 1));"
+            << "      __mcxx_write_eout_port(args[idx], destId, (idx == (numArgs - 1)));"
             << "    }"
             << "    {\n"
             << "#pragma HLS PROTOCOL fixed\n"
