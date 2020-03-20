@@ -1506,10 +1506,17 @@ std::string DeviceFPGA::get_acc_type(const TL::Symbol& task, const TargetInforma
                 value = std::to_string(type);
 
                 //Check that arch bits are set
-                if ((type&0xF000000000000000) == 0)
+                if ((type&0x300000000) == 0)
                 {
                     error_printf_at(onto_val.get_locus(),
-                        "Architecture bits not set in the onto clause: 63 -> SMP arch, 62 -> FPGA arch\n");
+                        "Architecture bits not set in the onto clause: 33 -> SMP arch, 32 -> FPGA arch\n");
+                    fatal_error("Unsupported clause syntax");
+                }
+                else if (type > 0x3FFFFFFFF)
+                {
+                    error_printf_at(onto_val.get_locus(),
+                        "Task type to wide: 2bits arch + 32bits hash\n");
+                    fatal_error("Unsupported clause syntax");
                 }
             }
         }
@@ -1525,7 +1532,7 @@ std::string DeviceFPGA::get_acc_type(const TL::Symbol& task, const TargetInforma
         // afecting the accelerator hash
         std::stringstream type_str;
         type_str << task.get_filename() << " " << task.get_name();
-        unsigned long long int type = simple_hash_str(type_str.str().c_str())&0x0FFFFFFFFFFFFFFF; //< Ensure that top 4 bits are not set
+        unsigned long long int type = simple_hash_str(type_str.str().c_str())&0xFFFFFFFF; //< Ensure that it its upto 32b
 
         const ObjectList<std::string>& devices = target_info.get_device_names();
         for (ObjectList<std::string>::const_iterator it2 = devices.begin();
@@ -1538,11 +1545,11 @@ std::string DeviceFPGA::get_acc_type(const TL::Symbol& task, const TargetInforma
             std::string device_name = *it2;
             if (device_name == "smp")
             {
-                type |= 0x8000000000000000;
+                type |= 0x200000000;
             }
             else if (device_name == "fpga")
             {
-                type |= 0x4000000000000000;
+                type |= 0x100000000;
             }
             else
             {
