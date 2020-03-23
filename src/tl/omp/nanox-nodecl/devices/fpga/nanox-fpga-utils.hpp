@@ -53,6 +53,11 @@
 #define EV_DEVEXEC              80
 #define EV_INSTEVLOST           82
 
+//IDs of the HWR IPs
+#define HWR_DEPS_ID             0x12
+#define HWR_SCHED_ID            0x13
+#define HWR_TASKWAIT_ID         0x14
+
 namespace TL
 {
 namespace Nanox
@@ -886,7 +891,7 @@ void get_hls_wrapper_decls(
                 << "unsigned long long int nanos_fpga_current_wd();"
                 << "void nanos_handle_error(nanos_err_t err);"
                 << "nanos_err_t nanos_fpga_wg_wait_completion(unsigned long long int uwg, unsigned char avoid_flush);"
-                << "void nanos_fpga_create_wd_async(const unsigned int archMask, const unsigned long long int type,"
+                << "void nanos_fpga_create_wd_async(const unsigned long long int type,"
                 << "    const unsigned char numArgs, const unsigned long long int * args,"
                 << "    const unsigned char numDeps, const unsigned long long int * deps, const unsigned char * depsFlags,"
                 << "    const unsigned char numCopies, const nanos_fpga_copyinfo_t * copies);";
@@ -1151,12 +1156,11 @@ void get_hls_wrapper_defs(
             << "nanos_err_t nanos_fpga_wg_wait_completion(unsigned long long int uwg, unsigned char avoid_flush)"
             << "{"
             << "  if (" << STR_COMPONENTS_COUNT << " == 0) { return NANOS_OK; }"
-            << "  const unsigned short TM_TW = 0x13;"
             << "  unsigned long long int tmp = " << STR_ACCID << ";"
             << "  tmp = tmp << 48 /*ACC_ID info uses bits [48:55]*/;"
             << "  tmp = 0x8000000100000000 | tmp | " << STR_COMPONENTS_COUNT << ";"
-            << "  __mcxx_write_eout_port(tmp /*TASKWAIT_DATA_BLOCK*/, TM_TW, 0 /*last*/);"
-            << "  __mcxx_write_eout_port(" << STR_TASKID << " /*data*/, TM_TW, 1 /*last*/);"
+            << "  __mcxx_write_eout_port(tmp /*TASKWAIT_DATA_BLOCK*/, " << HWR_TASKWAIT_ID << ", 0 /*last*/);"
+            << "  __mcxx_write_eout_port(" << STR_TASKID << " /*data*/, " << HWR_TASKWAIT_ID << ", 1 /*last*/);"
             << "  {\n"
             << "#pragma HLS PROTOCOL fixed\n"
             << "    __mcxx_read_ein_port();"
@@ -1165,20 +1169,17 @@ void get_hls_wrapper_defs(
             << "  return NANOS_OK;"
             << "}"
 
-            << "void nanos_fpga_create_wd_async(const unsigned int archMask, const unsigned long long int type,"
+            << "void nanos_fpga_create_wd_async(const unsigned long long int type,"
             << "    const unsigned char numArgs, const unsigned long long int * args,"
             << "    const unsigned char numDeps, const unsigned long long int * deps, const unsigned char * depsFlags,"
             << "    const unsigned char numCopies, const nanos_fpga_copyinfo_t * copies)"
             << "{"
             << "#pragma HLS inline\n"
-            << "  const unsigned short TM_NEW = 0x12;"
-            << "  const unsigned short TM_SCHED = 0x14;"
-            << "  const unsigned char hasSmpArch = (archMask & NANOS_FPGA_ARCH_SMP) != 0;"
-            << "  const unsigned short destId = (numDeps == 0 && !hasSmpArch) ? TM_SCHED : TM_NEW;"
+            << "  const unsigned short destId = numDeps == 0 ? " << HWR_SCHED_ID << " : " << HWR_DEPS_ID << ";"
             << "  ap_uint<8> ack;"
             << "  do {"
-            //1st word: [ valid (8b) | arch_mask (24b) | num_copies (8b) | num_deps (8b) | num_args (8b) | (8b) ]
-            << "    unsigned long long int tmp = archMask;"
+            //1st word: [ valid (8b) | (24b) | num_copies (8b) | num_deps (8b) | num_args (8b) | (8b) ]
+            << "    unsigned long long int tmp = 0;"
             << "    tmp = (tmp << 8) | numCopies;"
             << "    tmp = (tmp << 8) | numDeps;"
             << "    tmp = (tmp << 8) | numArgs;"
@@ -1188,6 +1189,12 @@ void get_hls_wrapper_defs(
             << "    __mcxx_write_eout_port(" << STR_TASKID << ", destId, 0);"
             //3rd word: [ type_value (64b) ]
             << "    __mcxx_write_eout_port(type, destId, 0);"
+            << "    for (unsigned char idx = 0; idx < numDeps; ++idx) {"
+            << "      tmp = depsFlags[idx];"
+            << "      tmp = (tmp << 56) | deps[idx];"
+            //dep words: [ arg_flags (8b) | arg_value (56b) ]
+            << "      __mcxx_write_eout_port(tmp, destId, (idx == (numDeps - 1))&&(numArgs == 0)&&(numCopies == 0));"
+            << "    }"
             //copy words
             << "    for (unsigned char idx = 0; idx < numCopies; ++idx) {"
             //1st copy word: [ address (64b) ]
@@ -1201,17 +1208,11 @@ void get_hls_wrapper_defs(
             //3rd copy word: [ accessed_length (32b) | offset (32b) ]
             << "      tmp = copies[idx].accessed_length;"
             << "      tmp = (tmp << 32) | copies[idx].offset;"
-            << "      __mcxx_write_eout_port(tmp, destId, idx == (numCopies - 1)&&(numDeps == 0)&&(numCopies == 0));"
-            << "    }"
-            << "    for (unsigned char idx = 0; idx < numDeps; ++idx) {"
-            << "      tmp = depsFlags[idx];"
-            << "      tmp = (tmp << 56) | deps[idx];"
-            //dep words: [ arg_flags (8b) | arg_value (56b) ]
-            << "      __mcxx_write_eout_port(tmp, destId, (idx == (numDeps - 1))&&(numArgs == 0));"
+            << "      __mcxx_write_eout_port(tmp, destId, (idx == (numCopies - 1))&&(numArgs == 0));"
             << "    }"
             << "    for (unsigned char idx = 0; idx < numArgs; ++idx) {"
             //arg words: [ arg_value (64b) ]
-            << "      __mcxx_write_eout_port(args[idx], destId, idx == (numArgs - 1));"
+            << "      __mcxx_write_eout_port(args[idx], destId, (idx == (numArgs - 1)));"
             << "    }"
             << "    {\n"
             << "#pragma HLS PROTOCOL fixed\n"
