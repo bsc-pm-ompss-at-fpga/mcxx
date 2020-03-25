@@ -1120,7 +1120,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             if (wrapper_memport_width_str != "" && !localmem_type.array_element().is_array())
             {
                 //NOTE: The following check may not be vaild when cross-compiling
-                if (wrapper_memport_width%elem_type.get_size() != 0)
+                if (wrapper_memport_width%(elem_type.get_size()*8) != 0)
                 {
                     error_printf_at(param_symbol.get_locus(),
                         "Memory port width '%s' is not multiple of parameter '%s' width\n",
