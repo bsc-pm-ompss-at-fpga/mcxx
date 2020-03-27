@@ -1181,13 +1181,14 @@ void get_hls_wrapper_defs(
             << "{"
             << "#pragma HLS inline\n"
             << "  ap_uint<1> finalMode = 0;"
+            << "  unsigned char currentNumDeps = numDeps;"
             << "  ap_uint<8> ack = " << ACK_REJECT_CODE << ";"
             << "  do {"
-            << "    const unsigned short destId = (numDeps == 0 || finalMode == 1) ? " << HWR_SCHED_ID << " : " << HWR_DEPS_ID << ";"
+            << "    const unsigned short destId = currentNumDeps == 0 ? " << HWR_SCHED_ID << " : " << HWR_DEPS_ID << ";"
             //1st word: [ child_number (32b) | num_copies (8b) | num_deps (8b) | num_args (8b) | (8b) ]
             << "    unsigned long long int tmp = " << STR_COMPONENTS_COUNT << ";"
             << "    tmp = (tmp << 8) | numCopies;"
-            << "    tmp = (tmp << 8) | numDeps;"
+            << "    tmp = (tmp << 8) | currentNumDeps;"
             << "    tmp = (tmp << 8) | numArgs;"
             << "    tmp = tmp << 8;"
             << "    __mcxx_write_eout_port(tmp, destId, 0);"
@@ -1195,10 +1196,11 @@ void get_hls_wrapper_defs(
             << "    __mcxx_write_eout_port(" << STR_TASKID << ", destId, 0);"
             //3rd word: [ type_value (64b) ]
             << "    __mcxx_write_eout_port(type, destId, 0);"
-            << "    for (unsigned char idx = (finalMode == 1 ? numDeps : 0); idx < numDeps; ++idx) {"
+            << "    for (unsigned char idx = 0; idx < currentNumDeps; ++idx) {"
             << "      tmp = depsFlags[idx];"
             << "      tmp = (tmp << 56) | deps[idx];"
             //dep words: [ arg_flags (8b) | arg_value (56b) ]
+            //NOTE: Using numDeps here instead of currentNumDeps, which still correct, to allow compiler optimize the expression
             << "      __mcxx_write_eout_port(tmp, destId, (idx == (numDeps - 1))&&(numArgs == 0)&&(numCopies == 0));"
             << "    }"
             //copy words
@@ -1224,9 +1226,11 @@ void get_hls_wrapper_defs(
             << "#pragma HLS PROTOCOL fixed\n"
             << "      ack = __mcxx_read_ein_port();"
             << "      finalMode = (ack == " << ACK_FINAL_CODE << ");"
+            << "      currentNumDeps = ack == " << ACK_FINAL_CODE << " ? 0 : numDeps;"
             << "    }\n"
             << "  } while (ack != " << ACK_OK_CODE << ");"
             << "  ++" << STR_COMPONENTS_COUNT << ";"
+            //NOTE: Using numDeps in the if expression to let the compiler remove dead-code when task has no deps
             << "  if (numDeps > 0 && finalMode == 1) {"
             << "    nanos_fpga_wg_wait_completion(" << STR_TASKID << ", 0);"
             << "  }"
