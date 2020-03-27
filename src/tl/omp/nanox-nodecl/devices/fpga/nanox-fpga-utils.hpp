@@ -1178,8 +1178,8 @@ void get_hls_wrapper_defs(
             << "  const unsigned short destId = numDeps == 0 ? " << HWR_SCHED_ID << " : " << HWR_DEPS_ID << ";"
             << "  ap_uint<8> ack;"
             << "  do {"
-            //1st word: [ valid (8b) | (24b) | num_copies (8b) | num_deps (8b) | num_args (8b) | (8b) ]
-            << "    unsigned long long int tmp = 0;"
+            //1st word: [ child_number (32b) | num_copies (8b) | num_deps (8b) | num_args (8b) | (8b) ]
+            << "    unsigned long long int tmp = " << STR_COMPONENTS_COUNT << ";"
             << "    tmp = (tmp << 8) | numCopies;"
             << "    tmp = (tmp << 8) | numDeps;"
             << "    tmp = (tmp << 8) | numArgs;"
