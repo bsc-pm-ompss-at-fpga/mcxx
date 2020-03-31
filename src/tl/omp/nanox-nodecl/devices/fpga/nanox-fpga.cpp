@@ -1120,7 +1120,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             if (wrapper_memport_width_str != "" && !localmem_type.array_element().is_array())
             {
                 //NOTE: The following check may not be vaild when cross-compiling
-                if (wrapper_memport_width%elem_type.get_size() != 0)
+                if (wrapper_memport_width%(elem_type.get_size()*8) != 0)
                 {
                     error_printf_at(param_symbol.get_locus(),
                         "Memory port width '%s' is not multiple of parameter '%s' width\n",
@@ -1136,13 +1136,13 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                     << "      for (__j=0;"
                     << "       __j<((" << n_elements_src << "*sizeof(" << casting_sizeof << ")-1)/sizeof(" << mem_ptr_type << ")+1);"
                     << "       __j++) {"
-                    << "        #pragma HLS PIPELINE\n"
                     << "        " <<  mem_ptr_type << " __tmpBuffer;"
                     << "        __tmpBuffer = *(" << port_name << " + __param[" << param_id << "]/sizeof(" << mem_ptr_type << ") + __j);"
+                    << "        #pragma HLS PIPELINE\n"
+                    << "        #pragma HLS UNROLL region\n"
                     << "        for (__k=0;"
                     << "         __k<(" << n_elems_read << ") && ((__j*" << n_elems_read << "+__k) < " << n_elements_src << ");"
                     << "         __k++) {"
-                    << "          #pragma HLS UNROLL\n"
                     << "          union {"
                     << "            unsigned long long int raw;"
                     << "            " << casting_sizeof << " typed;"
