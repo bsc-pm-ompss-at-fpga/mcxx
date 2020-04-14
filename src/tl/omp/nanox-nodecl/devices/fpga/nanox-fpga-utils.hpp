@@ -558,9 +558,10 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
 
             const std::map<TL::Symbol, TL::Symbol>* map = _symbol_map->get_simple_symbol_map();
             bool has_been_duplicated = map->find(sym) != map->end();
-            bool is_orig_symbol = _new_symbol_set.find(sym.get_internal_symbol()) == _new_symbol_set.end();
+            const bool is_orig_symbol = _new_symbol_set.find(sym.get_internal_symbol()) == _new_symbol_set.end();
+            const bool is_member = sym.is_member();
 
-            if (_filename == function_code.get_filename() && !has_been_duplicated && is_orig_symbol)
+            if (_filename == function_code.get_filename() && !has_been_duplicated && is_orig_symbol && !is_member)
             {
                 // Duplicate the symbol and append the function code to the list
                 TL::Symbol new_function = SymbolUtils::new_function_symbol_for_deep_copy(
