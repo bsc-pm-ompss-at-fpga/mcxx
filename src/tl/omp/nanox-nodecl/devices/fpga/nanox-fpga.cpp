@@ -795,7 +795,7 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
 void DeviceFPGA::add_included_fpga_files(FILE* file)
 {
     ObjectList<IncludeLine> lines = CurrentFile::get_included_files();
-    std::string fpga_header_exts[] = {".fpga\"", ".fpga.hpp\""};
+    std::string fpga_header_exts[] = {".fpga\"", ".fpga.h\"", ".fpga.hpp\""};
 
     for (TL::ObjectList<IncludeLine>::iterator it = lines.begin();
         it != lines.end();
