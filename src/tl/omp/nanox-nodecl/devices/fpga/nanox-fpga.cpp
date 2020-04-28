@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------
-  (C) Copyright 2006-2019 Barcelona Supercomputing Center
+  (C) Copyright 2006-2020 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
 
   This file is part of Mercurium C/C++ source-to-source compiler.
@@ -488,7 +488,8 @@ void DeviceFPGA::create_outline(
 }
 
 DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_generation(false),
-    _force_fpga_task_creation_ports(), _memory_port_width(""), _force_periodic_support(false), _onto_warn_shown(false)
+    _force_fpga_task_creation_ports(), _memory_port_width(""), _unaligned_memory_port(false),
+    _force_periodic_support(false), _onto_warn_shown(false)
 {
     set_phase_name("Nanox FPGA support");
     set_phase_description("This phase is used by Nanox phases to implement FPGA device support");
@@ -541,6 +542,11 @@ DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_gener
         "Defines the width (in bits) of memory ports (only for wrapper localmem data) for fpga accelerators",
         _memory_port_width,
         "").connect(std::bind(&DeviceFPGA::set_memory_port_width_from_str, this, std::placeholders::_1));
+
+    register_parameter("fpga_unaligned_memory_port",
+        "Enables the logic to support unaligned memory regions handled by the memory port",
+        _unaligned_memory_port_str,
+        "0").connect(std::bind(&DeviceFPGA::set_unaligned_memory_port_from_str, this, std::placeholders::_1));
 
     register_parameter("force_fpga_periodic_support",
         "Force enabling the periodic tasks support in FPGA accelerators",
@@ -1036,7 +1042,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         }
 
         handle_task_execution_cmd_src
-            << "  unsigned int __j, __k;";
+            << "  unsigned int __j, __k, __o;";
     }
 
     /*
@@ -1131,18 +1137,29 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 const std::string port_name = STR_WRAPPERDATA;
                 const std::string mem_ptr_type = "ap_uint<" + wrapper_memport_width_str + ">";
                 const std::string n_elems_read = "(sizeof(" + mem_ptr_type + ")/sizeof(" + casting_sizeof + "))";
+                const std::string unaligned_offset = _unaligned_memory_port ? "-__o" : "";
+                const std::string unaligned_extra = _unaligned_memory_port ? "+__o" : "";
 
-                in_copies_switch_body << "{"
+                in_copies_switch_body << "{";
+
+                if (_unaligned_memory_port)
+                {
+                    in_copies_switch_body << "      __o = __param[" << param_id << "]%sizeof(" << mem_ptr_type << ")/sizeof(" << casting_sizeof << ");";
+                }
+
+                in_copies_switch_body
                     << "      for (__j=0;"
-                    << "       __j<((" << n_elements_src << "*sizeof(" << casting_sizeof << ")-1)/sizeof(" << mem_ptr_type << ")+1);"
+                    << "       __j<(((" << n_elements_src << unaligned_extra << ")*sizeof(" << casting_sizeof << ") - 1)/sizeof(" << mem_ptr_type << ")+1);"
                     << "       __j++) {"
                     << "        " <<  mem_ptr_type << " __tmpBuffer;"
                     << "        __tmpBuffer = *(" << port_name << " + __param[" << param_id << "]/sizeof(" << mem_ptr_type << ") + __j);"
                     << "        #pragma HLS PIPELINE\n"
                     << "        #pragma HLS UNROLL region\n"
                     << "        for (__k=0;"
-                    << "         __k<(" << n_elems_read << ") && ((__j*" << n_elems_read << "+__k) < " << n_elements_src << ");"
+                    << "         __k<(" << n_elems_read << ");"
                     << "         __k++) {"
+                    << "          if (" << (_unaligned_memory_port ? "((__j==0) && (__k<__o)) || " : "")
+                    <<              "((__j*" << n_elems_read << "+__k) >= (" << n_elements_src << unaligned_extra << "))) continue;"
                     << "          union {"
                     << "            unsigned long long int raw;"
                     << "            " << casting_sizeof << " typed;"
@@ -1150,7 +1167,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                     << "          cast_tmp.raw = __tmpBuffer.range("
                     <<            "(__k+1)*sizeof(" << casting_sizeof << ")*8-1,"
                     <<            "__k*sizeof(" << casting_sizeof << ")*8);"
-                    << "          " << field_name << "[__j*" << n_elems_read << "+__k] = cast_tmp.typed;"
+                    << "          #pragma HLS DEPENDENCE variable=" << field_name << " inter false\n"
+                    << "          " << field_name << "[__j*" << n_elems_read << "+__k" << unaligned_offset << "] = cast_tmp.typed;"
                     << "        }"
                     << "      }"
                     << "}";
@@ -1158,28 +1176,53 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 //NOTE: If the elements are const qualified they cannot be an output
                 if (!elem_type.is_const())
                 {
-                    out_copies_switch_body << "{"
+                    out_copies_switch_body << "{";
+
+                    if (_unaligned_memory_port)
+                    {
+                        out_copies_switch_body << "      __o = __param[" << param_id << "]%sizeof(" << mem_ptr_type << ")/sizeof(" << casting_sizeof << ");";
+                    }
+
+                    out_copies_switch_body
                         << "      for (__j=0;"
-                        << "       __j<((" << n_elements_src << "*sizeof(" << casting_sizeof << ")-1)"
-                        <<        "/sizeof(" << mem_ptr_type << ")+1);"
+                        << "       __j<(((" << n_elements_src << unaligned_extra << ")*sizeof(" << casting_sizeof << ")-1)/sizeof(" << mem_ptr_type << ")+1);"
                         << "       __j++) {"
                         << "        " << mem_ptr_type << " __tmpBuffer;"
                         << "        #pragma HLS PIPELINE\n"
+                        << "        #pragma HLS UNROLL region\n"
                         << "        for (__k=0;"
-                        << "         __k<(" << n_elems_read << ") && ((__j*" << n_elems_read << "+__k) < "
-                        <<           n_elements_src << ");"
+                        << "         __k<(" << n_elems_read << ");"
                         << "         __k++) {"
-                        << "          #pragma HLS UNROLL\n"
+                        << "          if (" << (_unaligned_memory_port ? "((__j==0) && (__k<__o)) || " : "")
+                        <<              "((__j*" << n_elems_read << "+__k) >= (" << n_elements_src << unaligned_extra << "))) continue;"
                         << "          union {"
                         << "            unsigned long long int raw;"
                         << "            " << casting_sizeof << " typed;"
                         << "          } cast_tmp;"
-                        << "          cast_tmp.typed = " << field_name << "[__j*" << n_elems_read << "+__k];"
+                        << "          cast_tmp.typed = " << field_name << "[__j*" << n_elems_read << "+__k" << unaligned_offset << "];"
                         << "          __tmpBuffer.range("
                         <<            "(__k+1)*sizeof(" << casting_sizeof << ")*8-1,"
                         <<            "__k*sizeof(" << casting_sizeof << ")*8) = cast_tmp.raw;"
-                        << "        }"
-                        << "        *(" << port_name << " + __param[" << param_id << "]/sizeof(" << mem_ptr_type << ") + __j) = __tmpBuffer;"
+                        << "        }";
+
+                    if (_unaligned_memory_port)
+                    {
+                        out_copies_switch_body
+                            << "        const int rem = " << n_elements_src << unaligned_extra << "-__j*" << n_elems_read << ";"
+                            << "        const unsigned int bit_f = (__j == 0) ? __o*sizeof(" << casting_sizeof << ")*8 : 0;";
+                    }
+                    else
+                    {
+                        out_copies_switch_body
+                            << "        const int rem = " << n_elements_src << "-(__j*" << n_elems_read << ");"
+                            << "        const unsigned int bit_f = 0;";
+                    }
+
+                    out_copies_switch_body
+                        << "        const unsigned int bit_l = rem >= " << n_elems_read << " ? "
+                        <<            "(sizeof(" << mem_ptr_type << ")*8-1) : (rem*sizeof(" << casting_sizeof << ")*8-1);"
+                        << "        " << port_name << "[__param[" << param_id << "]/sizeof(" << mem_ptr_type << ") + __j].range("
+                        <<            "bit_l, bit_f) = __tmpBuffer.range(sizeof(" << mem_ptr_type << ")*8-1, bit_f);"
                         << "      }"
                         << "}";
                 }
@@ -1332,7 +1375,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     {
         handle_task_execution_cmd_src
             << "  unsigned long long int __paramInfo_out[" << n_params_out << "];"
-            << "  unsigned long long int __param_out[" << n_params_out << "];"
         ;
 
         out_copies
@@ -2314,6 +2356,11 @@ void DeviceFPGA::set_force_fpga_task_creation_ports_from_str(const std::string& 
 void DeviceFPGA::set_memory_port_width_from_str(const std::string& in_str)
 {
     _memory_port_width = in_str;
+}
+
+void DeviceFPGA::set_unaligned_memory_port_from_str(const std::string& str)
+{
+    TL::parse_boolean_option("fpga_unaligned_memory_port", str, _unaligned_memory_port, "Assuming false.");
 }
 
 void DeviceFPGA::set_force_periodic_support_from_str(const std::string& str)
