@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------
-  (C) Copyright 2006-2018 Barcelona Supercomputing Center
+  (C) Copyright 2006-2020 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
 
   This file is part of Mercurium C/C++ source-to-source compiler.
@@ -121,6 +121,8 @@ namespace TL
                 std::string _force_fpga_task_creation_ports_str;
                 str_set_t   _force_fpga_task_creation_ports;
                 std::string _memory_port_width;
+                std::string _unaligned_memory_port_str;
+                bool        _unaligned_memory_port;
                 std::string _force_periodic_support_str;
                 bool        _force_periodic_support;
                 std::string _function_copy_suffix;
@@ -132,6 +134,7 @@ namespace TL
                 void set_bitstream_generation_from_str(const std::string& str);
                 void set_force_fpga_task_creation_ports_from_str(const std::string& str);
                 void set_memory_port_width_from_str(const std::string& str);
+                void set_unaligned_memory_port_from_str(const std::string& str);
                 void set_force_periodic_support_from_str(const std::string& str);
                 void set_funcion_copy_suffix_from_str(const std::string& str);
 
