@@ -764,6 +764,8 @@ ompss-device-info-clauses : NODECL_OMP_SS*COPY_IN([input_copies]expression-seq)
             | NODECL_OMP_SS*NUM_INSTANCES([num_instances_expressions]expression-seq)
             | NODECL_OMP_SS*IMPLEMENTS([device]text, [function_name]name)
             | NODECL_OMP_SS*LOCALMEM([localmem_expressions]expression-seq)
+            | NODECL_OMP_SS*NUM_REPETITIONS([num_repetitions_expressions]expression-seq)
+            | NODECL_OMP_SS*PERIOD([period_expressions]expression-seq)
 
 
 ##############################

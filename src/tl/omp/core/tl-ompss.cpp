@@ -162,6 +162,20 @@ namespace TL { namespace OmpSs {
         {
             _num_instances.append(Nodecl::Utils::deep_copy(*it, target_info._target_symbol.get_scope(), translation_map));
         }
+
+        for(TL::ObjectList<Nodecl::NodeclBase>::const_iterator it = target_info._num_repetitions.begin();
+                it != target_info._num_repetitions.end();
+                it++)
+        {
+            _num_repetitions.append(Nodecl::Utils::deep_copy(*it, target_info._target_symbol.get_scope(), translation_map));
+        }
+
+        for(TL::ObjectList<Nodecl::NodeclBase>::const_iterator it = target_info._period.begin();
+                it != target_info._period.end();
+                it++)
+        {
+            _period.append(Nodecl::Utils::deep_copy(*it, target_info._target_symbol.get_scope(), translation_map));
+        }
     }
 
     TargetInfo TargetInfo::instantiate_target_info(
@@ -259,6 +273,24 @@ namespace TL { namespace OmpSs {
             Nodecl::NodeclBase updated_expr =
                 instantiate_expression(it->get_internal_nodecl(), instantiation_context, instantiation_symbol_map, /* pack index */-1);
             new_target_info._num_instances.append(updated_expr);
+        }
+
+        for(TL::ObjectList<Nodecl::NodeclBase>::const_iterator it = _num_repetitions.begin();
+                it != _num_repetitions.end();
+                it++)
+        {
+            Nodecl::NodeclBase updated_expr =
+                instantiate_expression(it->get_internal_nodecl(), instantiation_context, instantiation_symbol_map, /* pack index */-1);
+            new_target_info._num_repetitions.append(updated_expr);
+        }
+
+        for(TL::ObjectList<Nodecl::NodeclBase>::const_iterator it = _period.begin();
+                it != _period.end();
+                it++)
+        {
+            Nodecl::NodeclBase updated_expr =
+                instantiate_expression(it->get_internal_nodecl(), instantiation_context, instantiation_symbol_map, /* pack index */-1);
+            new_target_info._period.append(updated_expr);
         }
 
         return new_target_info;
@@ -385,6 +417,50 @@ namespace TL { namespace OmpSs {
         ObjectList<Nodecl::NodeclBase> result;
         for (ObjectList<Nodecl::NodeclBase>::const_iterator it = _num_instances.begin();
                 it != _num_instances.end();
+                ++it)
+        {
+            result.append(it->shallow_copy());
+        }
+        return result;
+    }
+
+    void TargetInfo::append_to_num_repetitions(const ObjectList<Nodecl::NodeclBase>& expressions)
+    {
+        _num_repetitions.append(expressions);
+    }
+
+    ObjectList<Nodecl::NodeclBase> TargetInfo::get_num_repetitions() const
+    {
+        return _num_repetitions;
+    }
+
+    ObjectList<Nodecl::NodeclBase> TargetInfo::get_shallow_copy_of_num_repetitions() const
+    {
+        ObjectList<Nodecl::NodeclBase> result;
+        for (ObjectList<Nodecl::NodeclBase>::const_iterator it = _num_repetitions.begin();
+                it != _num_repetitions.end();
+                ++it)
+        {
+            result.append(it->shallow_copy());
+        }
+        return result;
+    }
+
+    void TargetInfo::append_to_period(const ObjectList<Nodecl::NodeclBase>& expressions)
+    {
+        _period.append(expressions);
+    }
+
+    ObjectList<Nodecl::NodeclBase> TargetInfo::get_period() const
+    {
+        return _period;
+    }
+
+    ObjectList<Nodecl::NodeclBase> TargetInfo::get_shallow_copy_of_period() const
+    {
+        ObjectList<Nodecl::NodeclBase> result;
+        for (ObjectList<Nodecl::NodeclBase>::const_iterator it = _period.begin();
+                it != _period.end();
                 ++it)
         {
             result.append(it->shallow_copy());

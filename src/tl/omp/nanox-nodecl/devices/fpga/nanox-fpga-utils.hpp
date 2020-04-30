@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------
-  (C) Copyright 2018-2019 Barcelona Supercomputing Center
+  (C) Copyright 2018-2020 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
 
   This file is part of Mercurium C/C++ source-to-source compiler.
@@ -33,29 +33,35 @@
 #include "tl-symbol-utils.hpp"
 #include "../../../lowering-common/tl-omp-lowering-utils.hpp"
 
-/*
- * NOTE: accID is composed by 2 parts:
- *  [0:3] global accelerator id (aka considering all accelerators)
- *  [4:7] ext accelerator id (aka only considering accels with task creation capabilities)
- */
-#define STR_FULL_ACCID         "accID"
-#define STR_GLB_ACCID          "(accID&0xF)"
-#define STR_EXT_ACCID          "((accID>>4)&0xF)"
+#define STR_ACCID              "accID"
 #define STR_COMPONENTS_COUNT   "__mcxx_taskComponents"
-#define STR_GLOB_OUTPORT       "__mcxx_outPort"
-#define STR_GLOB_TWPORT        "__mcxx_twPort"
+#define STR_GLOB_EOUTPORT      "__mcxx_eOutPort"
+#define STR_GLOB_EINPORT       "__mcxx_eInPort"
 #define STR_TASKID             "__mcxx_taskId"
 #define STR_PARENT_TASKID      "__mcxx_parent_taskId"
+#define STR_REP_NUM            "__mcxx_periTask_repNum"
+#define STR_NUM_REPS           "__mcxx_periTask_numReps"
 #define STR_WRAPPERDATA        "mcxx_wrapper_data"
 #define STR_OUTPUTSTREAM       "outStream"
 #define STR_INPUTSTREAM        "inStream"
 #define STR_INSTR_PORT         "mcxx_instr"
+#define STR_HWCOUNTER_PORT     "__mcxx_hwcounterPort"
 
 //Default instrumentation events codes
 #define EV_DEVCOPYIN            78
 #define EV_DEVCOPYOUT           79
 #define EV_DEVEXEC              80
 #define EV_INSTEVLOST           82
+
+//Ack codes
+#define ACK_REJECT_CODE         0x0
+#define ACK_OK_CODE             0x1
+#define ACK_FINAL_CODE          0x2
+
+//IDs of the HWR IPs
+#define HWR_DEPS_ID             0x12
+#define HWR_SCHED_ID            0x13
+#define HWR_TASKWAIT_ID         0x14
 
 namespace TL
 {
@@ -145,14 +151,15 @@ static void compute_array_info(
     base_type = t;
 }
 
-std::string get_mcxx_ptr_declaration(const TL::Type& type_to_point)
+std::string get_mcxx_ptr_declaration(TL::Scope scope, const TL::Type& type_to_point)
 {
-    return "mcxx_ptr_t<" + type_to_point.print_declarator() + ">";
+    return "mcxx_ptr_t< " + type_to_point.get_simple_declaration(scope, "") + " >";
 }
 
 void add_fpga_header(
     FILE* file,
     const bool instrumentation,
+    const bool periodic_support,
     const std::string name,
     const std::string type,
     const std::string num_instances)
@@ -175,7 +182,7 @@ void add_fpga_header(
 #define __HLS_AUTOMATIC_MCXX__ 1\n\n"
     );
 
-    if (instrumentation)
+    if (instrumentation || periodic_support)
     {
         fprintf(file, "#include <systemc.h>\n");
     }
@@ -200,7 +207,7 @@ struct ReplaceTaskCreatorSymbolsVisitor : public Nodecl::ExhaustiveVisitor<void>
         {
             TL::Symbol structure = get_mcxx_ptr_symbol(scope);
             //TODO: obtain the mcxx_ptr_t info from structure
-            TL::Symbol field = scope.new_symbol(get_mcxx_ptr_declaration(type_to_point));
+            TL::Symbol field = scope.new_symbol(get_mcxx_ptr_declaration(scope, type_to_point));
             field.get_internal_symbol()->kind = SK_VARIABLE;
             symbol_entity_specs_set_is_user_declared(field.get_internal_symbol(), 1);
             field.get_internal_symbol()->type_information = structure.get_user_defined_type().get_internal_type();
@@ -480,7 +487,7 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
                         _symbol_map->add_map(sym, SymbolUtils::new_function_symbol(
                             sym.get_scope(),
                             "__mcxx_memcpy",
-                            sym.get_type().returns(),
+                            TL::Type::get_void_type().get_pointer_to(),
                             param_names,
                             param_types));
                         _user_calls_set.insert("mcxx_memcpy");
@@ -551,9 +558,10 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
 
             const std::map<TL::Symbol, TL::Symbol>* map = _symbol_map->get_simple_symbol_map();
             bool has_been_duplicated = map->find(sym) != map->end();
-            bool is_orig_symbol = _new_symbol_set.find(sym.get_internal_symbol()) == _new_symbol_set.end();
+            const bool is_orig_symbol = _new_symbol_set.find(sym.get_internal_symbol()) == _new_symbol_set.end();
+            const bool is_member = sym.is_member();
 
-            if (_filename == function_code.get_filename() && !has_been_duplicated && is_orig_symbol)
+            if (_filename == function_code.get_filename() && !has_been_duplicated && is_orig_symbol && !is_member)
             {
                 // Duplicate the symbol and append the function code to the list
                 TL::Symbol new_function = SymbolUtils::new_function_symbol_for_deep_copy(
@@ -695,6 +703,7 @@ TL::Symbol declare_casting_union(TL::Type field_type, Nodecl::NodeclBase constru
 void get_hls_wrapper_decls(
   const bool instrumentation,
   const bool task_creation,
+  const bool periodic_support,
   const std::string shared_memory_port_width,
   const std::set<std::string> user_calls_set,
   Source& wrapper_decls_before_user_code,
@@ -794,7 +803,7 @@ void get_hls_wrapper_decls(
 
     /*** Variable declarations ***/
     wrapper_decls_before_user_code
-        << "extern const unsigned char " << STR_FULL_ACCID << ";"
+        << "extern const unsigned char " << STR_ACCID << ";"
         << "static unsigned long long int " << STR_TASKID << ";"
         << "static unsigned long long int " << STR_PARENT_TASKID << ";";
 
@@ -810,13 +819,13 @@ void get_hls_wrapper_decls(
     if (task_creation)
     {
         wrapper_decls_before_user_code
-            << "extern ap_uint<72> " << STR_GLOB_OUTPORT << ";"
-            << "extern volatile ap_uint<2> " << STR_GLOB_TWPORT << ";"
+            << "extern ap_uint<72> " << STR_GLOB_EOUTPORT << ";"
+            << "extern volatile ap_uint<8> " << STR_GLOB_EINPORT << ";"
             << "static ap_uint<32> " << STR_COMPONENTS_COUNT << ";";
 
         wrapper_body_pragmas
-            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_OUTPORT << "\n"
-            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_TWPORT << "\n";
+            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_EOUTPORT << "\n"
+            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_EINPORT << "\n";
 
         if (shared_memory_port_width != "")
         {
@@ -826,6 +835,13 @@ void get_hls_wrapper_decls(
             wrapper_body_pragmas
                 << "#pragma HLS INTERFACE m_axi port=" << STR_WRAPPERDATA << "\n";
         }
+    }
+
+    if (periodic_support)
+    {
+        wrapper_decls_before_user_code
+            << "static volatile unsigned int " << STR_NUM_REPS << ";"
+            << "static unsigned int " << STR_REP_NUM << ";";
     }
 
     /*** Function declarations ***/
@@ -876,16 +892,23 @@ void get_hls_wrapper_decls(
         {
             // NOTE: The following declarations will be placed in the source by the codegen in C lang
             wrapper_decls_before_user_code
-                << "void __mcxx_write_outstream(const unsigned long long int data, const unsigned short dest, const unsigned char last);"
-                << "void __mcxx_wait_tw_signal();"
+                << "void __mcxx_write_eout_port(const unsigned long long int data, const unsigned short dest, const unsigned char last);"
+                << "ap_uint<8> __mcxx_read_ein_port();"
                 << "unsigned long long int nanos_fpga_current_wd();"
                 << "void nanos_handle_error(nanos_err_t err);"
                 << "nanos_err_t nanos_fpga_wg_wait_completion(unsigned long long int uwg, unsigned char avoid_flush);"
-                << "void nanos_fpga_create_wd_async(const unsigned int archMask, const unsigned long long int type,"
+                << "void nanos_fpga_create_wd_async(const unsigned long long int type,"
                 << "    const unsigned char numArgs, const unsigned long long int * args,"
                 << "    const unsigned char numDeps, const unsigned long long int * deps, const unsigned char * depsFlags,"
                 << "    const unsigned char numCopies, const nanos_fpga_copyinfo_t * copies);";
         }
+    }
+
+    if (periodic_support && !IS_C_LANGUAGE)
+    {
+        wrapper_decls_before_user_code
+            << "unsigned int nanos_get_periodic_task_repetition_num();"
+            << "void nanos_cancel_periodic_task();";
     }
 
     /*** Full mcxx_ptr_t and mcxx_ref_t definition ***/
@@ -987,6 +1010,7 @@ void get_hls_wrapper_decls(
 void get_hls_wrapper_defs(
   const bool instrumentation,
   const bool task_creation,
+  const bool periodic_support,
   const std::set<std::string> user_calls_set,
   const std::string shared_memory_port_width,
   Source& wrapper_defs)
@@ -999,7 +1023,7 @@ void get_hls_wrapper_defs(
         << "#pragma HLS INLINE\n"
         << "#pragma HLS INTERFACE axis port=stream\n"
         << "  axiData_t __data = {0, 0, 0, 0, 0, 0, 0};"
-        << "  __data.id = " << STR_GLB_ACCID << ";"
+        << "  __data.id = " << STR_ACCID << ";"
         << "  __data.keep = 0xFF;"
         << "  __data.dest = dest;"
         << "  __data.last = last;"
@@ -1010,7 +1034,7 @@ void get_hls_wrapper_defs(
         << "void __mcxx_send_finished_task_cmd(axiStream_t& stream, const unsigned char destId)"
         << "{"
         << "#pragma HLS INTERFACE axis port=stream\n"
-        << "  unsigned long long int header = " << STR_GLB_ACCID << ";"
+        << "  unsigned long long int header = " << STR_ACCID << ";"
         << "  header = (header << 8) | 0x03;"
         << "  __mcxx_write_stream(stream, header, destId, 0);"
         << "  __mcxx_write_stream(stream, " << STR_TASKID << ", destId, 0);"
@@ -1110,20 +1134,21 @@ void get_hls_wrapper_defs(
     if (task_creation)
     {
         wrapper_defs
-            << "void __mcxx_write_outstream(const unsigned long long int data, const unsigned short dest, const unsigned char last)"
+            << "void __mcxx_write_eout_port(const unsigned long long int data, const unsigned short dest, const unsigned char last)"
             << "{"
-            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_OUTPORT << " register\n"
+            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_EOUTPORT << " register\n"
             // NOTE: Pack the axiData_t info: data(64bits) + dest(6bits) + last(2bit). It can be done
             //       with less bits but this way the info is HEX friendly
             << "  ap_uint<72> tmp = data;"
             << "  tmp = (tmp << 8) | ((dest & 0x3F) << 2) | (last & 0x3);"
-            << "  " << STR_GLOB_OUTPORT << " = tmp;"
+            << "  " << STR_GLOB_EOUTPORT << " = tmp;"
             << "}"
 
-            << "void __mcxx_wait_tw_signal()"
+            << "ap_uint<8> __mcxx_read_ein_port()"
             << "{"
-            << "  #pragma HLS INTERFACE ap_hs port=" << STR_GLOB_TWPORT << "\n"
-            << "  ap_uint<2> sync = " << STR_GLOB_TWPORT << ";"
+            << "  #pragma HLS INTERFACE ap_hs port=" << STR_GLOB_EINPORT << "\n"
+            << "  ap_uint<8> sync = " << STR_GLOB_EINPORT << ";"
+            << "  return sync;"
             << "}"
 
             << "unsigned long long int nanos_fpga_current_wd()"
@@ -1137,67 +1162,94 @@ void get_hls_wrapper_defs(
             << "nanos_err_t nanos_fpga_wg_wait_completion(unsigned long long int uwg, unsigned char avoid_flush)"
             << "{"
             << "  if (" << STR_COMPONENTS_COUNT << " == 0) { return NANOS_OK; }"
-            << "  const unsigned short TM_TW = 0x13;"
-            << "  unsigned long long int tmp = " << STR_EXT_ACCID << ";"
+            << "  unsigned long long int tmp = " << STR_ACCID << ";"
             << "  tmp = tmp << 48 /*ACC_ID info uses bits [48:55]*/;"
             << "  tmp = 0x8000000100000000 | tmp | " << STR_COMPONENTS_COUNT << ";"
-            << "  __mcxx_write_outstream(tmp /*TASKWAIT_DATA_BLOCK*/, TM_TW, 0 /*last*/);"
-            << "  __mcxx_write_outstream(" << STR_TASKID << " /*data*/, TM_TW, 1 /*last*/);"
+            << "  __mcxx_write_eout_port(tmp /*TASKWAIT_DATA_BLOCK*/, " << HWR_TASKWAIT_ID << ", 0 /*last*/);"
+            << "  __mcxx_write_eout_port(" << STR_TASKID << " /*data*/, " << HWR_TASKWAIT_ID << ", 1 /*last*/);"
             << "  {\n"
             << "#pragma HLS PROTOCOL fixed\n"
-            << "    __mcxx_wait_tw_signal();"
+            << "    __mcxx_read_ein_port();"
             << "  }\n"
             << "  " << STR_COMPONENTS_COUNT << " = 0;"
             << "  return NANOS_OK;"
             << "}"
 
-            << "void nanos_fpga_create_wd_async(const unsigned int archMask, const unsigned long long int type,"
+            << "void nanos_fpga_create_wd_async(const unsigned long long int type,"
             << "    const unsigned char numArgs, const unsigned long long int * args,"
             << "    const unsigned char numDeps, const unsigned long long int * deps, const unsigned char * depsFlags,"
             << "    const unsigned char numCopies, const nanos_fpga_copyinfo_t * copies)"
             << "{"
             << "#pragma HLS inline\n"
-            << "  ++" << STR_COMPONENTS_COUNT << ";"
-            << "  const unsigned short TM_NEW = 0x12;"
-            << "  const unsigned short TM_SCHED = 0x14;"
-            << "  const unsigned char hasSmpArch = (archMask & NANOS_FPGA_ARCH_SMP) != 0;"
-            << "  const unsigned short destId = (numDeps == 0 && !hasSmpArch) ? TM_SCHED : TM_NEW;"
-            //1st word: [ valid (8b) | arch_mask (24b) | num_copies (8b) | num_deps (8b) | num_args (8b) | (8b) ]
-            << "  unsigned long long int tmp = archMask;"
-            << "  tmp = (tmp << 8) | numCopies;"
-            << "  tmp = (tmp << 8) | numDeps;"
-            << "  tmp = (tmp << 8) | numArgs;"
-            << "  tmp = tmp << 8;"
-            << "  __mcxx_write_outstream(tmp, destId, 0);"
+            << "  ap_uint<1> finalMode = 0;"
+            << "  unsigned char currentNumDeps = numDeps;"
+            << "  ap_uint<8> ack = " << ACK_REJECT_CODE << ";"
+            << "  do {"
+            << "    const unsigned short destId = currentNumDeps == 0 ? " << HWR_SCHED_ID << " : " << HWR_DEPS_ID << ";"
+            //1st word: [ child_number (32b) | num_copies (8b) | num_deps (8b) | num_args (8b) | (8b) ]
+            << "    unsigned long long int tmp = " << STR_COMPONENTS_COUNT << ";"
+            << "    tmp = (tmp << 8) | numCopies;"
+            << "    tmp = (tmp << 8) | currentNumDeps;"
+            << "    tmp = (tmp << 8) | numArgs;"
+            << "    tmp = tmp << 8;"
+            << "    __mcxx_write_eout_port(tmp, destId, 0);"
             //2nd word: [ parent_task_id (64b) ]
-            << "  __mcxx_write_outstream(" << STR_TASKID << ", destId, 0);"
+            << "    __mcxx_write_eout_port(" << STR_TASKID << ", destId, 0);"
             //3rd word: [ type_value (64b) ]
-            << "  __mcxx_write_outstream(type, destId, 0);"
-            //copy words
-            << "  for (unsigned char idx = 0; idx < numCopies; ++idx) {"
-            //1st copy word: [ address (64b) ]
-            << "    tmp = copies[idx].address;"
-            << "    __mcxx_write_outstream(tmp, destId, 0);"
-            //2nd copy word: [ size (32b) | not_used (16b) | arg_idx (8b) | flags (8b) ]
-            << "    tmp = copies[idx].size;"
-            << "    tmp = (tmp << 24) | copies[idx].arg_idx;"
-            << "    tmp = (tmp << 8) | copies[idx].flags;"
-            << "    __mcxx_write_outstream(tmp, destId, 0);"
-            //3rd copy word: [ accessed_length (32b) | offset (32b) ]
-            << "    tmp = copies[idx].accessed_length;"
-            << "    tmp = (tmp << 32) | copies[idx].offset;"
-            << "    __mcxx_write_outstream(tmp, destId, idx == (numCopies - 1)&&(numDeps == 0)&&(numCopies == 0));"
-            << "  }"
-            << "  for (unsigned char idx = 0; idx < numDeps; ++idx) {"
-            << "    tmp = depsFlags[idx];"
-            << "    tmp = (tmp << 56) | deps[idx];"
+            << "    __mcxx_write_eout_port(type, destId, 0);"
+            << "    for (unsigned char idx = 0; idx < currentNumDeps; ++idx) {"
+            << "      tmp = depsFlags[idx];"
+            << "      tmp = (tmp << 56) | deps[idx];"
             //dep words: [ arg_flags (8b) | arg_value (56b) ]
-            << "    __mcxx_write_outstream(tmp, destId, (idx == (numDeps - 1))&&(numArgs == 0));"
-            << "  }"
-            << "  for (unsigned char idx = 0; idx < numArgs; ++idx) {"
+            //NOTE: Using numDeps here instead of currentNumDeps, which still correct, to allow compiler optimize the expression
+            << "      __mcxx_write_eout_port(tmp, destId, (idx == (numDeps - 1))&&(numArgs == 0)&&(numCopies == 0));"
+            << "    }"
+            //copy words
+            << "    for (unsigned char idx = 0; idx < numCopies; ++idx) {"
+            //1st copy word: [ address (64b) ]
+            << "      tmp = copies[idx].address;"
+            << "      __mcxx_write_eout_port(tmp, destId, 0);"
+            //2nd copy word: [ size (32b) | not_used (16b) | arg_idx (8b) | flags (8b) ]
+            << "      tmp = copies[idx].size;"
+            << "      tmp = (tmp << 24) | copies[idx].arg_idx;"
+            << "      tmp = (tmp << 8) | copies[idx].flags;"
+            << "      __mcxx_write_eout_port(tmp, destId, 0);"
+            //3rd copy word: [ accessed_length (32b) | offset (32b) ]
+            << "      tmp = copies[idx].accessed_length;"
+            << "      tmp = (tmp << 32) | copies[idx].offset;"
+            << "      __mcxx_write_eout_port(tmp, destId, (idx == (numCopies - 1))&&(numArgs == 0));"
+            << "    }"
+            << "    for (unsigned char idx = 0; idx < numArgs; ++idx) {"
             //arg words: [ arg_value (64b) ]
-            << "    __mcxx_write_outstream(args[idx], destId, idx == (numArgs - 1));"
+            << "      __mcxx_write_eout_port(args[idx], destId, (idx == (numArgs - 1)));"
+            << "    }"
+            << "    {\n"
+            << "#pragma HLS PROTOCOL fixed\n"
+            << "      ack = __mcxx_read_ein_port();"
+            << "      finalMode = (ack == " << ACK_FINAL_CODE << ");"
+            << "      currentNumDeps = ack == " << ACK_FINAL_CODE << " ? 0 : numDeps;"
+            << "    }\n"
+            << "  } while (ack != " << ACK_OK_CODE << ");"
+            << "  ++" << STR_COMPONENTS_COUNT << ";"
+            //NOTE: Using numDeps in the if expression to let the compiler remove dead-code when task has no deps
+            << "  if (numDeps > 0 && finalMode == 1) {"
+            << "    nanos_fpga_wg_wait_completion(" << STR_TASKID << ", 0);"
             << "  }"
+            << "}";
+    }
+
+    if (periodic_support)
+    {
+        wrapper_defs
+            << "unsigned int nanos_get_periodic_task_repetition_num()"
+            << "{"
+            << "#pragma HLS inline\n"
+            << "  return " << STR_REP_NUM <<";"
+            << "}"
+            << "void nanos_cancel_periodic_task()"
+            << "{"
+            << "#pragma HLS inline\n"
+            << "  " << STR_NUM_REPS <<" = 0;"
             << "}";
     }
 }

@@ -1332,6 +1332,18 @@ namespace TL { namespace Nanox {
                         numinstances.get_num_instances_expressions().as<Nodecl::List>().to_object_list());
             }
 
+            void visit(const Nodecl::OmpSs::NumRepetitions& numreps)
+            {
+                _outline_info.set_num_repetitions(_outline_info.get_funct_symbol(),
+                        numreps.get_num_repetitions_expressions().as<Nodecl::List>().to_object_list());
+            }
+
+            void visit(const Nodecl::OmpSs::Period& period)
+            {
+                _outline_info.set_period(_outline_info.get_funct_symbol(),
+                        period.get_period_expressions().as<Nodecl::List>().to_object_list());
+            }
+
             void visit(const Nodecl::OmpSs::File& file)
             {
                 _outline_info.set_file(_outline_info.get_funct_symbol(),
@@ -1721,6 +1733,20 @@ namespace TL { namespace Nanox {
         _implementation_table[function_symbol]._num_instances_exprs = num_instances_exprs;
     }
 
+    void OutlineInfo::set_num_repetitions(TL::Symbol function_symbol, const ObjectList<Nodecl::NodeclBase>& num_repetitions_exprs)
+    {
+        implementation_must_be_present(function_symbol);
+
+        _implementation_table[function_symbol]._num_repetitions_exprs = num_repetitions_exprs;
+    }
+
+    void OutlineInfo::set_period(TL::Symbol function_symbol, const ObjectList<Nodecl::NodeclBase>& period_exprs)
+    {
+        implementation_must_be_present(function_symbol);
+
+        _implementation_table[function_symbol]._period_exprs = period_exprs;
+    }
+
     void OutlineInfo::set_param_arg_map(TL::Symbol function_symbol, Nodecl::Utils::SimpleSymbolMap param_arg_map)
     {
         implementation_must_be_present(function_symbol);
@@ -1736,7 +1762,9 @@ namespace TL { namespace Nanox {
             const TL::ObjectList<Nodecl::NodeclBase>& ndrange_args,
             const TL::ObjectList<Nodecl::NodeclBase>& shmem_args,
             const TL::ObjectList<Nodecl::NodeclBase>& onto_args,
-            const TL::ObjectList<Nodecl::NodeclBase>& num_instances_args)
+            const TL::ObjectList<Nodecl::NodeclBase>& num_instances_args,
+            const TL::ObjectList<Nodecl::NodeclBase>& num_repetitions_args,
+            const TL::ObjectList<Nodecl::NodeclBase>& period_args)
     {
         // If the current function symbol is not registered as an implementation we add it to the implementation table
         // with all its information. Otherwise, if the current function is already registered, we add just the device name.
@@ -1753,6 +1781,8 @@ namespace TL { namespace Nanox {
             set_shmem(function_symbol, shmem_args);
             set_onto(function_symbol, onto_args);
             set_num_instances(function_symbol, num_instances_args);
+            set_num_repetitions(function_symbol, num_repetitions_args);
+            set_period(function_symbol, period_args);
         }
         _implementation_table[function_symbol]._device_names.append(device_name);
     }
@@ -1784,7 +1814,9 @@ namespace TL { namespace Nanox {
                 target_info.get_ndrange(),
                 target_info.get_shmem(),
                 target_info.get_onto(),
-                target_info.get_num_instances());
+                target_info.get_num_instances(),
+                target_info.get_num_repetitions(),
+                target_info.get_period());
 
     }
 

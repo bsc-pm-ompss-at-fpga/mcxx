@@ -565,6 +565,8 @@ namespace TL { namespace OpenMP {
             target_info.append_to_shmem(update_clauses(target_context.shmem, function_sym));
             target_info.append_to_onto(update_clauses(target_context.onto, function_sym));
             target_info.append_to_num_instances(update_clauses(target_context.num_instances, function_sym));
+            target_info.append_to_num_repetitions(update_clauses(target_context.num_repetitions, function_sym));
+            target_info.append_to_period(update_clauses(target_context.period, function_sym));
 
             target_info.append_to_device_list(target_context.device_list);
 

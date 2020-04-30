@@ -4714,8 +4714,7 @@ static void link_files(const char** file_list, int num_files,
         //NOTE: Remove the path part of linked_output_filename
         const char* name_option = rindex(linked_output_filename, '/');
         name_option = name_option != NULL ? (name_option + 1) : linked_output_filename;
-        linker_args_fpga[j++] = strappend("-n=\"",
-                                strappend(name_option, "\""));
+        linker_args_fpga[j++] = strappend("-n=", name_option);
     }
     linker_args_fpga[j] = NULL;
 

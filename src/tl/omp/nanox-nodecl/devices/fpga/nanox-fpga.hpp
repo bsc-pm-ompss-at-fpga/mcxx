@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------
-  (C) Copyright 2006-2018 Barcelona Supercomputing Center
+  (C) Copyright 2006-2020 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
 
   This file is part of Mercurium C/C++ source-to-source compiler.
@@ -90,13 +90,15 @@ namespace TL
                     const std::string  _name;
                     const std::string  _num_instances;
                     const std::string  _type;
+                    const bool         _periodic_support;
                     Source             _wrapper_decls;
                     Source             _wrapper_code;
                     Nodecl::List       _user_code;
 
                     FpgaOutlineInfo(const std::string name, const std::string num,
-                            const std::string type) : _name(name), _num_instances(num),
-                            _type(type), _wrapper_decls(), _wrapper_code(), _user_code() {}
+                            const std::string type, const bool periodic_support) :
+                            _name(name), _num_instances(num), _type(type), _periodic_support(periodic_support),
+                            _wrapper_decls(), _wrapper_code(), _user_code() {}
 
                     std::string get_filename() const;
                     std::string get_wrapper_name() const;
@@ -119,8 +121,10 @@ namespace TL
                 std::string _force_fpga_task_creation_ports_str;
                 str_set_t   _force_fpga_task_creation_ports;
                 std::string _memory_port_width;
-                std::string _periodic_support_str;
-                bool        _periodic_support;
+                std::string _unaligned_memory_port_str;
+                bool        _unaligned_memory_port;
+                std::string _force_periodic_support_str;
+                bool        _force_periodic_support;
                 std::string _function_copy_suffix;
                 str_set_t   _registered_tasks;
                 Nodecl::NodeclBase _root;
@@ -130,7 +134,8 @@ namespace TL
                 void set_bitstream_generation_from_str(const std::string& str);
                 void set_force_fpga_task_creation_ports_from_str(const std::string& str);
                 void set_memory_port_width_from_str(const std::string& str);
-                void set_periodic_support_from_str(const std::string& str);
+                void set_unaligned_memory_port_from_str(const std::string& str);
+                void set_force_periodic_support_from_str(const std::string& str);
                 void set_funcion_copy_suffix_from_str(const std::string& str);
 
                 Nodecl::Utils::SimpleSymbolMap                 _global_copied_fpga_symbols;
@@ -141,18 +146,26 @@ namespace TL
                         const TL::Symbol& func_symbol,
                         TL::ObjectList<TL::Nanox::OutlineDataItem*>&,
                         const bool creates_children_tasks,
+                        const bool periodic_support,
                         const std::set<std::string> user_calls_set,
                         const std::string wrapper_func_name,
                         Source& wrapper_decls, //< out
-                        Source& wrapper_source //< out
-                        );
+                        Source& wrapper_source); //< out
 
-                Source gen_fpga_outline(ObjectList<Symbol> param_list, TL::ObjectList<OutlineDataItem*> data_items);
+                TL::Symbol gen_fpga_unpacked(
+                        TL::Symbol &current_function,
+                        Nodecl::NodeclBase &outline_placeholder,
+                        const Nodecl::NodeclBase &num_repetitions_expr,
+                        const Nodecl::NodeclBase &period_expr,
+                        CreateOutlineInfo &info,
+                        Nodecl::Utils::SimpleSymbolMap* &symbol_map);
 
                 void add_included_fpga_files(FILE* file);
 
                 std::string get_acc_type(const TL::Symbol& task, const TargetInformation& target_info);
                 std::string get_num_instances(const TargetInformation& target_info);
+                Nodecl::NodeclBase get_num_repetitions(const TargetInformation& target_info);
+                Nodecl::NodeclBase get_period(const TargetInformation& target_info);
 
                 void register_task_creation(
                         Nodecl::NodeclBase construct,

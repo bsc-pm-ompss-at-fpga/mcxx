@@ -542,7 +542,9 @@ namespace TL
                     const TL::ObjectList<Nodecl::NodeclBase>& ndrange_args,
                     const TL::ObjectList<Nodecl::NodeclBase>& shmem_args,
                     const TL::ObjectList<Nodecl::NodeclBase>& onto_args,
-                    const TL::ObjectList<Nodecl::NodeclBase>& num_instances_args);
+                    const TL::ObjectList<Nodecl::NodeclBase>& num_instances_args,
+                    const TL::ObjectList<Nodecl::NodeclBase>& num_repetitions_args,
+                    const TL::ObjectList<Nodecl::NodeclBase>& period_args);
 
                 /* TargetInformation setters */
                 void add_device_name(TL::Symbol function_symbol, const std::string& device_name);
@@ -552,6 +554,8 @@ namespace TL
                 void set_shmem(TL::Symbol function_symbol, const ObjectList<Nodecl::NodeclBase>& shmem);
                 void set_onto(TL::Symbol function_symbol, const ObjectList<Nodecl::NodeclBase>& onto);
                 void set_num_instances(TL::Symbol function_symbol, const ObjectList<Nodecl::NodeclBase>& num_instances);
+                void set_num_repetitions(TL::Symbol function_symbol, const ObjectList<Nodecl::NodeclBase>& num_repetitions);
+                void set_period(TL::Symbol function_symbol, const ObjectList<Nodecl::NodeclBase>& period);
                 void set_param_arg_map(TL::Symbol function_symbol, const Nodecl::Utils::SimpleSymbolMap param_arg_map);
 
                 OutlineDataItem& append_field(TL::Symbol sym);
