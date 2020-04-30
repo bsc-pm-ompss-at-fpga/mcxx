@@ -2266,7 +2266,8 @@ static scope_entry_list_t* name_lookup(const decl_context_t* decl_context,
                                 && named_type_get_symbol(t)->kind == SK_TEMPLATE_TYPE_PARAMETER)
                             && !(IS_CXX11_LANGUAGE
                                 && is_named_type(t)
-                                && named_type_get_symbol(t)->kind == SK_TEMPLATE_TYPE_PARAMETER_PACK))
+                                && named_type_get_symbol(t)->kind == SK_TEMPLATE_TYPE_PARAMETER_PACK)
+                            && !(IS_CXX11_LANGUAGE && is_scoped_enum_type(t)))
                     {
                         // This cannot be a class-name at all
                         entry_list_free(result);
@@ -2354,6 +2355,12 @@ static nodecl_t update_nodecl_constant_expression(nodecl_t nodecl,
 
     nodecl = instantiate_expression(nodecl, decl_context,
             instantiation_symbol_map, pack_index);
+
+    nodecl = cxx_nodecl_make_conversion(
+            nodecl,
+            no_ref(nodecl_get_type(nodecl)),
+            decl_context,
+            nodecl_get_locus(nodecl));
 
     if (!nodecl_is_constant(nodecl)
             && !nodecl_expr_is_value_dependent(nodecl))
@@ -3279,7 +3286,9 @@ static template_parameter_list_t* complete_template_parameters_of_template_class
         const decl_context_t* template_name_context,
         type_t* template_type,
         template_parameter_list_t* template_parameters,
-        const locus_t* locus);
+        const locus_t* locus,
+        // -1 if not expanding any pack
+        int pack_index);
 
 static type_t* update_type_aux_(type_t* orig_type, 
         const decl_context_t* decl_context,
@@ -3527,7 +3536,8 @@ static type_t* update_type_aux_(type_t* orig_type,
                 ERROR_CONDITION(orig_symbol == NULL, "This should not be NULL", 0);
 
                 // Now update the template_type with the new one
-                template_type = argument->type_information;
+                if (argument != NULL)
+                    template_type = argument->type_information;
 
                 if (template_related_symbol->kind == SK_TEMPLATE_TEMPLATE_PARAMETER_PACK
                         && pack_index >= 0)
@@ -3665,7 +3675,8 @@ static type_t* update_type_aux_(type_t* orig_type,
                     decl_context,
                     template_type,
                     expanded_template_parameters,
-                    locus);
+                    locus,
+                    pack_index);
 
             if (updated_template_arguments == NULL)
             {
@@ -4996,7 +5007,9 @@ static template_parameter_list_t* complete_template_parameters_of_template_class
         const decl_context_t* template_name_context,
         type_t* template_type,
         template_parameter_list_t* template_parameters,
-        const locus_t* locus)
+        const locus_t* locus,
+        // -1 if not expanding any pack
+        int pack_index)
 {
     DEBUG_CODE()
     {
@@ -5206,7 +5219,8 @@ static template_parameter_list_t* complete_template_parameters_of_template_class
             //
             if (is_template_alias
                 && !template_parameter_kind_is_pack(result->parameters[i]->kind)
-                && template_argument_is_pack(result->arguments[i]))
+                && template_argument_is_pack(result->arguments[i])
+                && /* we are not expanding anything */ pack_index < 0)
             {
                 error_printf_at(locus,
                                 "pack expansion in template argument %d cannot "
@@ -6765,7 +6779,8 @@ scope_entry_list_t* query_nodecl_template_id(
                 complete_template_parameters_of_template_class(decl_context,
                         generic_type,
                         template_parameters,
-                        nodecl_get_locus(nodecl_name));
+                        nodecl_get_locus(nodecl_name),
+                        /*pack_index*/ -1);
 
             if (completed_template_parameters == NULL)
             {
@@ -6805,7 +6820,8 @@ scope_entry_list_t* query_nodecl_template_id(
                 complete_template_parameters_of_template_class(decl_context,
                         generic_type,
                         template_parameters,
-                        nodecl_get_locus(nodecl_name));
+                        nodecl_get_locus(nodecl_name),
+                        /* pack_index */ -1);
 
             if (completed_template_parameters == NULL)
                 return NULL;
@@ -6915,7 +6931,8 @@ scope_entry_list_t* query_nodecl_template_id(
             complete_template_parameters_of_template_class(decl_context,
                     generic_type,
                     template_parameters,
-                    nodecl_get_locus(nodecl_name));
+                    nodecl_get_locus(nodecl_name),
+                    /* pack_index */ -1);
 
         if (completed_template_parameters == NULL)
         {

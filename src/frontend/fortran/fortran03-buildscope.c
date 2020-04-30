@@ -3130,35 +3130,94 @@ static void build_scope_program_unit_body_internal_subprograms_executable(
     if (internal_subprograms == NULL)
         return;
 
+    // Declarations in an internal subprogram may impact the declarations of
+    // other sibling internal subprograms, so traverse them in a breadth-first
+    // fashion.
+    ERROR_CONDITION(num_internal_program_units < 0,
+                    "Invalid number of internal program units",
+                    0);
+    internal_subprograms_info_t
+        *n_internal_subprograms_info[num_internal_program_units + 1];
+    int n_num_internal_program_units[num_internal_program_units + 1];
+
+    // Allocate information that we will need for further internal subprograms
+    // of this internal subprogram.
     int i = 0;
     AST it;
     for_each_element(internal_subprograms, it)
     {
         ERROR_CONDITION(i >= num_internal_program_units, "Too many internal program units", 0);
 
+        if (internal_subprograms_info[i].symbol != NULL)
+        {
+            AST n_internal_subprograms
+                = internal_subprograms_info[i].internal_subprograms;
+
+            n_num_internal_program_units[i]
+                = count_internal_subprograms(n_internal_subprograms);
+            n_internal_subprograms_info[i] = NEW_VEC0(
+                internal_subprograms_info_t, n_num_internal_program_units[i]);
+        }
+        i++;
+    }
+
+    // Declarations of all internal subprograms
+    i = 0;
+    for_each_element(internal_subprograms, it)
+    {
+        ERROR_CONDITION(i >= num_internal_program_units, "Too many internal program units", 0);
+
         build_scope_delay_list_push(&internal_subprograms_info[i].delayed_list);
 
-        // Some error happened during
-        // build_scope_program_unit_body_internal_subprograms_declarations and
-        // we could not get any symbol for this one. Skip it
+        // Skip if something was wrong
         if (internal_subprograms_info[i].symbol != NULL)
         {
             AST n_internal_subprograms = internal_subprograms_info[i].internal_subprograms;
 
-            int n_num_internal_program_units = count_internal_subprograms(n_internal_subprograms);
-            // Count how many internal subprograms are there
-            internal_subprograms_info_t n_internal_subprograms_info[n_num_internal_program_units + 1];
-            memset(n_internal_subprograms_info, 0, sizeof(n_internal_subprograms_info));
-
             build_scope_program_unit_body_internal_subprograms_declarations(
                     n_internal_subprograms, 
-                    n_num_internal_program_units,
-                    n_internal_subprograms_info,
+                    n_num_internal_program_units[i],
+                    n_internal_subprograms_info[i],
                     internal_subprograms_info[i].decl_context);
+        }
 
+        build_scope_delay_list_pop();
+        i++;
+    }
+
+    // Act on the side effects of declarations
+    i = 0;
+    for_each_element(internal_subprograms, it)
+    {
+        ERROR_CONDITION(i >= num_internal_program_units, "Too many internal program units", 0);
+
+        build_scope_delay_list_push(&internal_subprograms_info[i].delayed_list);
+
+        // Skip if something was wrong
+        if (internal_subprograms_info[i].symbol != NULL)
+        {
             build_scope_delay_list_run(
                     DELAY_AFTER_DECLARATIONS,
                     &(internal_subprograms_info[i].nodecl_output));
+        }
+
+        build_scope_delay_list_pop();
+        i++;
+    }
+
+    // The rest of each internal subprogram.
+    i = 0;
+    for_each_element(internal_subprograms, it)
+    {
+        ERROR_CONDITION(i >= num_internal_program_units, "Too many internal program units", 0);
+
+        build_scope_delay_list_push(&internal_subprograms_info[i].delayed_list);
+
+        // Skip if something was wrong
+        if (internal_subprograms_info[i].symbol != NULL)
+        {
+            AST n_internal_subprograms
+                = internal_subprograms_info[i].internal_subprograms;
 
             build_scope_program_unit_body_executable(
                     &internal_subprograms_info[i].constraint_checker,
@@ -3174,8 +3233,8 @@ static void build_scope_program_unit_body_internal_subprograms_executable(
 
             build_scope_program_unit_body_internal_subprograms_executable(
                     n_internal_subprograms, 
-                    n_num_internal_program_units,
-                    n_internal_subprograms_info,
+                    n_num_internal_program_units[i],
+                    n_internal_subprograms_info[i],
                     internal_subprograms_info[i].decl_context);
 
             build_scope_delay_list_run(
@@ -3185,17 +3244,17 @@ static void build_scope_program_unit_body_internal_subprograms_executable(
             // 6) Remember the internal subprogram nodecls
             nodecl_t nodecl_internal_subprograms = nodecl_null();
             int j;
-            for (j = 0; j < n_num_internal_program_units; j++)
+            for (j = 0; j < n_num_internal_program_units[i]; j++)
             {
                 nodecl_internal_subprograms =
                     nodecl_append_to_list(nodecl_internal_subprograms, 
-                            n_internal_subprograms_info[j].nodecl_output);
+                            n_internal_subprograms_info[i][j].nodecl_output);
 
-                if (!nodecl_is_null(n_internal_subprograms_info[j].nodecl_pragma))
+                if (!nodecl_is_null(n_internal_subprograms_info[i][j].nodecl_pragma))
                 {
                     nodecl_internal_subprograms =
                         nodecl_append_to_list(nodecl_internal_subprograms, 
-                                n_internal_subprograms_info[j].nodecl_pragma);
+                                n_internal_subprograms_info[i][j].nodecl_pragma);
                 }
             }
 
@@ -3239,7 +3298,20 @@ static void build_scope_program_unit_body_internal_subprograms_executable(
         }
 
         build_scope_delay_list_pop();
+        i++;
+    }
 
+    // Cleanup
+    i = 0;
+    for_each_element(internal_subprograms, it)
+    {
+        ERROR_CONDITION(i >= num_internal_program_units,
+                        "Too many internal program units",
+                        0);
+        if (internal_subprograms_info[i].symbol != NULL)
+        {
+            DELETE(n_internal_subprograms_info[i]);
+        }
         i++;
     }
 }
@@ -6274,7 +6346,7 @@ static void synthesize_procedure_type(
     symbol_entity_specs_set_is_implicit_basic_type(entry, 0);
 }
 
-static void build_scope_derived_type_proc_component_def(
+static void delayed_build_scope_derived_type_proc_component_def_(
 	AST component_def_stmt,
 	scope_entry_t *class_name,
 	char fields_are_private UNUSED_PARAMETER,
@@ -6295,9 +6367,6 @@ static void build_scope_derived_type_proc_component_def(
     {
 	if (ASTKind(proc_interface) == AST_SYMBOL)
         {
-            error_printf_at(ast_get_locus(proc_interface),
-                    "procedure components with interface are not supported yet\n");
-
             interface = fortran_query_name_str(decl_context,
                     strtolower(ASTText(proc_interface)),
                     ast_get_locus(proc_interface));
@@ -6325,7 +6394,7 @@ static void build_scope_derived_type_proc_component_def(
 	    }
 	    else
 	    {
-		error_printf_at(ast_get_locus(proc_interface), "'%s' is not an valid procedure interface\n",
+		error_printf_at(ast_get_locus(proc_interface), "'%s' is not a valid procedure interface\n",
 			interface->symbol_name);
 		interface = NULL;
 	    }
@@ -6385,7 +6454,7 @@ static void build_scope_derived_type_proc_component_def(
 
 	if (init != NULL)
 	{
-	    fortran_delay_check_initialization(
+	    fortran_immediate_check_initialization(
 		    entry,
 		    init,
 		    decl_context,
@@ -6400,6 +6469,49 @@ static void build_scope_derived_type_proc_component_def(
 		entry->decl_context,
 		/* is_definition */ 1);
     }
+}
+
+
+typedef struct delayed_proc_component_data_tag
+{
+    AST component_def_stmt;
+    scope_entry_t *class_name;
+    char fields_are_private;
+    const decl_context_t *decl_context;
+    const decl_context_t *inner_decl_context;
+
+} delayed_proc_component_data_t;
+
+static void delayed_build_scope_derived_type_proc_component_def(void *info, nodecl_t* nodecl_output UNUSED_PARAMETER)
+{
+    AST component_def_stmt = ((delayed_proc_component_data_t*)info)->component_def_stmt;
+    scope_entry_t *class_name =((delayed_proc_component_data_t*)info)->class_name;
+    char fields_are_private =((delayed_proc_component_data_t*)info)->fields_are_private;
+    const decl_context_t *decl_context =((delayed_proc_component_data_t*)info)->decl_context;
+    const decl_context_t *inner_decl_context = ((delayed_proc_component_data_t*)info)->inner_decl_context;
+
+    delayed_build_scope_derived_type_proc_component_def_(component_def_stmt, class_name,
+            fields_are_private, decl_context, inner_decl_context);
+}
+
+static void build_scope_derived_type_proc_component_def(
+	AST component_def_stmt,
+	scope_entry_t *class_name,
+	char fields_are_private UNUSED_PARAMETER,
+	const decl_context_t *decl_context,
+	const decl_context_t *inner_decl_context)
+{
+    ERROR_CONDITION(ASTKind(component_def_stmt) != AST_PROC_COMPONENT_DEF_STATEMENT, "Invalid tree", 0);
+
+    delayed_proc_component_data_t *data = NEW0(delayed_proc_component_data_t);
+    data->component_def_stmt = component_def_stmt;
+    data->class_name = class_name;
+    data->fields_are_private = fields_are_private;
+    data->decl_context = decl_context;
+    data->inner_decl_context = inner_decl_context;
+
+    build_scope_delay_list_add(
+            DELAY_AFTER_DECLARATIONS, delayed_build_scope_derived_type_proc_component_def, data);
 }
 
 
@@ -9014,8 +9126,13 @@ static void build_scope_print_stmt(AST a, const decl_context_t* decl_context, no
 }
 
 
-static void build_scope_procedure_decl_stmt(AST a, const decl_context_t* decl_context, 
-        nodecl_t* nodecl_output UNUSED_PARAMETER)
+typedef struct delayed_procedure_decl_stmt_data_tag
+{
+    AST a;
+    const decl_context_t* decl_context;
+} delayed_procedure_decl_stmt_data_t;
+
+static void delayed_build_scope_procedure_decl_stmt_(AST a, const decl_context_t* decl_context, nodecl_t* nodecl_output UNUSED_PARAMETER)
 {
     AST proc_interface = ASTSon0(a);
     AST proc_attr_spec_list = ASTSon1(a);
@@ -9054,7 +9171,7 @@ static void build_scope_procedure_decl_stmt(AST a, const decl_context_t* decl_co
             }
             else
             {
-                error_printf_at(ast_get_locus(proc_interface), "'%s' is not an valid procedure interface\n",
+                error_printf_at(ast_get_locus(proc_interface), "'%s' is not a valid procedure interface\n",
                         interface->symbol_name);
                 interface = NULL;
             }
@@ -9077,9 +9194,7 @@ static void build_scope_procedure_decl_stmt(AST a, const decl_context_t* decl_co
     for_each_element(proc_decl_list, it)
     {
         AST name = ASTSon1(it);
-
         AST init = NULL;
-
         if (ASTKind(name) == AST_PROCEDURE_DECL)
         {
             init = ASTSon1(name);
@@ -9101,7 +9216,7 @@ static void build_scope_procedure_decl_stmt(AST a, const decl_context_t* decl_co
             if (symbol_entity_specs_get_is_static(entry))
             {
                 error_printf_at(ast_get_locus(name),
-                        "SAVE attribute already specified for symbol '%s'\n", 
+                        "SAVE attribute already specified for symbol '%s'\n",
                         entry->symbol_name);
             }
             symbol_entity_specs_set_is_static(entry, 1);
@@ -9168,8 +9283,8 @@ static void build_scope_procedure_decl_stmt(AST a, const decl_context_t* decl_co
             else
             {
                 entry->kind = SK_VARIABLE;
-
-                synthesize_procedure_type(entry, interface, return_type, decl_context, /* do_pointer */ 1, /*is_pass_proc_component */ 0);
+                synthesize_procedure_type(entry, interface, return_type,
+                        decl_context, /* do_pointer */ 1, /*is_pass_proc_component */ 0);
             }
         }
 
@@ -9181,16 +9296,67 @@ static void build_scope_procedure_decl_stmt(AST a, const decl_context_t* decl_co
                         "only procedure pointers can be initialized in a procedure declaration statement\n");
             }
 
-            fortran_delay_check_initialization(
-                entry,
-                init,
-                decl_context,
-                /* is_pointer_init */ 1,
-                /* adjust_assumed_character_length */ 0,
-                /* is_parameter */ 0,
-                /* is_variable */ 1);
+            fortran_immediate_check_initialization(
+                    entry,
+                    init,
+                    decl_context,
+                    /* is_pointer_init */ 1,
+                    /* adjust_assumed_character_length */ 0,
+                    /* is_parameter */ 0,
+                    /* is_variable */ 1);
         }
     }
+}
+
+static void delayed_build_scope_procedure_decl_stmt(void* info, nodecl_t* nodecl_output UNUSED_PARAMETER)
+{
+    delayed_procedure_decl_stmt_data_t* data = (delayed_procedure_decl_stmt_data_t*) info;
+    delayed_build_scope_procedure_decl_stmt_(data->a, data->decl_context, nodecl_output);
+}
+
+static void build_scope_procedure_decl_stmt(AST a, const decl_context_t* decl_context,
+        nodecl_t* nodecl_output UNUSED_PARAMETER)
+{
+    // The computation of the type of a procedure declaration statement must be delayed since
+    // it may depend on other symbols that have not been completed yet.
+    //
+    //      PROCEDURE(IFOO), POINTER :: FOO1 => NULL()
+    //      INTERFACE
+    //          SUBROUTINE IFOO(X)
+    //              INTEGER :: X
+    //          END SUBROUTINE IFOO
+    //      END INTERFACE
+    //
+    // In some cases the symbols that represent a procedure declaration may already exist (e.g.
+    // when they are used as dummy arguments). Thus, we may have two delayed operations:
+    //    1) Checking that the type of that existant symbol is completed (because an IMPLICIT NONE).
+    //    2) The delayed computation of the procedure declaration statement itself.
+    //
+    // In order to avoid emmiting an error because of 1), what we do is marking the symbols that represent
+    // a procedure declaration as if they already have a valid non-implicit type.
+
+    AST proc_decl_list = ASTSon2(a);
+
+    AST it;
+    for_each_element(proc_decl_list, it)
+    {
+        AST name = ASTSon1(it);
+        if (ASTKind(name) == AST_PROCEDURE_DECL)
+        {
+            name = ASTSon0(name);
+        }
+
+        scope_entry_t* entry = get_symbol_for_name(decl_context, name, ASTText(name));
+        symbol_entity_specs_set_is_implicit_basic_type(entry, 0);
+    }
+
+
+    delayed_procedure_decl_stmt_data_t *data = NEW0(delayed_procedure_decl_stmt_data_t);
+    data->a = a;
+    data->decl_context = decl_context;
+
+    build_scope_delay_list_add(
+            DELAY_AFTER_DECLARATIONS, delayed_build_scope_procedure_decl_stmt, data);
 }
 
 static void build_scope_protected_stmt(AST a, const decl_context_t* decl_context UNUSED_PARAMETER, 

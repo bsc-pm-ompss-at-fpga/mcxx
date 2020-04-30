@@ -343,14 +343,14 @@ namespace TL { namespace OpenMP {
     OSS_TO_OMP_DECLARATION_HANDLER(atomic)
     OSS_TO_OMP_DECLARATION_HANDLER(critical)
     OSS_TO_OMP_DECLARATION_HANDLER(task)
+    OSS_TO_OMP_DECLARATION_HANDLER(taskloop)
 
     OSS_TO_OMP_DIRECTIVE_HANDLER(taskwait)
     OSS_TO_OMP_DIRECTIVE_HANDLER(declare_reduction)
 
-    OSS_INVALID_DECLARATION_HANDLER(loop)
+    OSS_INVALID_DECLARATION_HANDLER(lint)
 
 #include "tl-omp-def-undef-macros.hpp"
-
 
     void Base::set_simd(const std::string &simd_enabled_str)
     {
@@ -707,6 +707,16 @@ namespace TL { namespace OpenMP {
 
     void Base::task_handler_post(TL::PragmaCustomStatement directive)
     {
+
+        if (PragmaUtils::is_pragma_construct("oss", directive)
+                && (directive.get_pragma_line().get_clause("for").is_defined()
+                    || directive.get_pragma_line().get_clause("do").is_defined()))
+        {
+            // '#pragama oss task for' is handled as if it was a taskloop
+            oss_loop_handler_post(directive, /* is_worksharing */ true);
+            return;
+        }
+
         TL::PragmaCustomLine pragma_line = directive.get_pragma_line();
         OpenMP::DataEnvironment &ds = _core.get_openmp_info()->get_data_environment(directive);
 
@@ -753,6 +763,46 @@ namespace TL { namespace OpenMP {
             }
         }
 
+        if (pragma_line.get_clause("verified").is_defined())
+        {
+            ObjectList<Nodecl::NodeclBase> expr_list = pragma_line.get_clause("verified").get_arguments_as_expressions(directive);
+            if (expr_list.size() > 1)
+            {
+                error_printf_at(directive.get_locus(),
+                        "invalid number of arguments in 'verified' clause\n");
+            }
+            else
+            {
+                Nodecl::NodeclBase expr;
+                if (expr_list.size() == 1)
+                    expr = expr_list[0];
+                else
+                {
+                    if (IS_FORTRAN_LANGUAGE)
+                    {
+                        expr = Nodecl::BooleanLiteral::make(
+                                TL::Type::get_bool_type(),
+                                const_value_get_one(/* signed*/ 0, /*bytes*/1),
+                                directive.get_locus());
+                    }
+                    else
+                    {
+                        expr = const_value_to_nodecl(const_value_get_one(/* signed*/ 0, /*bytes*/ 4));
+                    }
+                }
+
+                execution_environment.append(Nodecl::OmpSs::LintVerified::make(expr, directive.get_locus()));
+            }
+
+            if (emit_omp_report())
+            {
+                *_omp_report_file
+                    << OpenMP::Report::indent
+                    << "This task VERIFIES its dependences.\n"
+                    ;
+            }
+        }
+
         if (pragma_line.get_clause("wait").is_defined())
         {
             execution_environment.append(
@@ -764,57 +814,6 @@ namespace TL { namespace OpenMP {
                     << OpenMP::Report::indent
                     << "This task waits for its children.\n"
                     ;
-            }
-        }
-
-        PragmaCustomClause cost = pragma_line.get_clause("cost");
-        {
-            Nodecl::NodeclBase cost_expression;
-            if (cost.is_defined())
-            {
-                TL::ObjectList<Nodecl::NodeclBase> expr_list = cost.get_arguments_as_expressions(directive);
-
-                if (expr_list.empty())
-                {
-                    warn_printf_at(directive.get_locus(),
-                                   "empty 'cost' clause. Ignoring\n");
-                }
-                else
-                {
-                    cost_expression = expr_list[0];
-                    if (expr_list.size() > 1)
-                    {
-                        warn_printf_at(
-                            expr_list[1].get_locus(),
-                            "too many expressions for 'cost' clause\n");
-                    }
-                }
-            }
-
-            if (!cost_expression.is_null())
-            {
-                execution_environment.append(
-                        Nodecl::OmpSs::Cost::make(
-                            cost_expression,
-                            directive.get_locus()));
-
-                if (emit_omp_report())
-                {
-                    *_omp_report_file
-                        << OpenMP::Report::indent
-                        << "This task has cost '" << cost_expression.prettyprint() << "'\n";
-                    ;
-                }
-            }
-            else
-            {
-                if (emit_omp_report())
-                {
-                    *_omp_report_file
-                        << OpenMP::Report::indent
-                        << "No cost was defined for this task\n";
-                    ;
-                }
             }
         }
 
@@ -830,9 +829,21 @@ namespace TL { namespace OpenMP {
 
         handle_label_clause(directive, execution_environment);
 
-        handle_task_if_clause(directive, /* parsing_context */ directive, execution_environment);
-        handle_task_final_clause(directive, /* parsing_context */ directive, execution_environment);
-        handle_task_priority_clause(directive, /* parsing_context */ directive, execution_environment);
+        handle_generic_clause_with_one_argument<Nodecl::OpenMP::If>(
+                "if", "Its execution may be deferred depending on",
+                directive, directive, execution_environment);
+
+        handle_generic_clause_with_one_argument<Nodecl::OpenMP::Final>(
+                "final", "It may be a final task depending on",
+                directive, directive, execution_environment);
+
+        handle_generic_clause_with_one_argument<Nodecl::OpenMP::Priority>(
+                "priority", "Its priority will be",
+                directive, directive, execution_environment);
+
+        handle_generic_clause_with_one_argument<Nodecl::OmpSs::Cost>(
+                "cost", "Its cost will be",
+                directive, directive, execution_environment);
 
         pragma_line.diagnostic_unused_clauses();
 
@@ -929,46 +940,9 @@ namespace TL { namespace OpenMP {
             Nodecl::OpenMP::BarrierAtEnd::make(
                 directive.get_locus()));
 
-        PragmaCustomClause if_clause = pragma_line.get_clause("if");
-        {
-            ObjectList<Nodecl::NodeclBase> expr_list = if_clause.get_arguments_as_expressions(directive);
-            if (if_clause.is_defined()
-                    && expr_list.size() == 1)
-            {
-                execution_environment.append(Nodecl::OpenMP::If::make(expr_list[0].shallow_copy()));
-
-                if (emit_omp_report())
-                {
-                    *_omp_report_file
-                        << OpenMP::Report::indent
-                        << "A team of threads will be created only if '"
-                        << expr_list[0].prettyprint()
-                        << "' holds\n";
-                }
-            }
-            else
-            {
-                if (if_clause.is_defined())
-                {
-                    error_printf_at(directive.get_locus(), "ignoring invalid 'if' clause\n");
-                }
-                if (emit_omp_report())
-                {
-                    // *_omp_report_file
-                    //     << OpenMP::Report::indent
-                    //     << "A team of threads will always be created\n"
-                    //     ;
-                }
-            }
-        }
-
-        // if (emit_omp_report())
-        // {
-        //     *_omp_report_file
-        //         << OpenMP::Report::indent
-        //         << "Recall that a PARALLEL construct always implies a BARRIER at the end\n"
-        //         ;
-        // }
+        handle_generic_clause_with_one_argument<Nodecl::OpenMP::If>(
+                "if", "It will be executed in parallel if",
+                directive, directive, execution_environment);
 
         Nodecl::NodeclBase parallel_code = Nodecl::OpenMP::Parallel::make(
                     execution_environment,
@@ -1499,9 +1473,18 @@ namespace TL { namespace OpenMP {
 
         handle_label_clause(directive, execution_environment);
 
-        handle_task_if_clause(directive, /* parsing_context */ context, execution_environment);
-        handle_task_final_clause(directive, /* parsing_context */ context, execution_environment);
-        handle_task_priority_clause(directive, /* parsing_context */ context, execution_environment);
+        handle_generic_clause_with_one_argument<Nodecl::OpenMP::If>(
+                "if", "Its execution may be deferred depending on",
+                directive, context, execution_environment);
+
+        handle_generic_clause_with_one_argument<Nodecl::OpenMP::Final>(
+                "final", "It may be a final task depending on",
+                directive, context, execution_environment);
+
+        handle_generic_clause_with_one_argument<Nodecl::OpenMP::Priority>(
+                "priority", "Its priority will be",
+                directive, context, execution_environment);
+
 
         pragma_line.diagnostic_unused_clauses();
 
@@ -1555,8 +1538,13 @@ namespace TL { namespace OpenMP {
         }
     }
 
-    void Base::oss_loop_handler_pre(TL::PragmaCustomStatement directive) { }
-    void Base::oss_loop_handler_post(TL::PragmaCustomStatement directive)
+    void Base::oss_taskloop_handler_pre(TL::PragmaCustomStatement directive) { }
+    void Base::oss_taskloop_handler_post(TL::PragmaCustomStatement directive) {
+      return oss_loop_handler_post(directive, /* is_worksharing */ false);
+    }
+
+    void Base::oss_loop_handler_post(TL::PragmaCustomStatement directive,
+        bool is_worksharing)
     {
         Nodecl::NodeclBase statement = directive.get_statements();
         ERROR_CONDITION(!statement.is<Nodecl::List>(), "Invalid tree", 0);
@@ -1577,31 +1565,40 @@ namespace TL { namespace OpenMP {
         OpenMP::DataEnvironment &ds = _core.get_openmp_info()->get_data_environment(directive);
         PragmaCustomLine pragma_line = directive.get_pragma_line();
 
-        Nodecl::NodeclBase chunksize;
+        Nodecl::List execution_environment = this->make_execution_environment(
+                ds, pragma_line, /* ignore_target_info */ false);
+
         PragmaCustomClause chunksize_clause = pragma_line.get_clause("chunksize");
         if (chunksize_clause.is_defined())
         {
-            TL::ObjectList<Nodecl::NodeclBase> args = chunksize_clause.get_arguments_as_expressions();
-            if (args.size() == 1)
-            {
-                chunksize = args[0];
-            }
-            else
-            {
-                error_printf_at(pragma_line.get_locus(),
-                        "Invalid number of expressions in the 'chunksize' clause\n");
-            }
+            handle_generic_clause_with_one_argument<Nodecl::OmpSs::Chunksize>(
+                    "chunksize", "Its chunksize is",
+                    directive, directive, execution_environment);
         }
         else
         {
             // When the 'chunksize' clause is not present we defined its value
             // to be 0. This is a special value that indicates to the runtime
             // that they can distribute the iterations in any way.
-            chunksize = const_value_to_nodecl(const_value_get_signed_int(0));
+            execution_environment.append(Nodecl::OmpSs::Chunksize::make(
+                        const_value_to_nodecl(const_value_get_signed_int(0))));
         }
 
-        Nodecl::List execution_environment = this->make_execution_environment(
-                ds, pragma_line, /* ignore_target_info */ false);
+        PragmaCustomClause grainsize_clause = pragma_line.get_clause("grainsize");
+        if (grainsize_clause.is_defined())
+        {
+            handle_generic_clause_with_one_argument<Nodecl::OpenMP::Grainsize>(
+                    "grainsize", "Its grainsize is",
+                    directive, directive, execution_environment);
+        }
+        else
+        {
+            // When the 'grainsize' clause is not present we defined its value
+            // to be 0. This is a special value that indicates to the runtime
+            // that they can distribute the iterations in any way.
+            execution_environment.append(Nodecl::OpenMP::Grainsize::make(
+                const_value_to_nodecl(const_value_get_signed_int(0))));
+        }
 
         if (pragma_line.get_clause("wait").is_defined())
         {
@@ -1613,12 +1610,21 @@ namespace TL { namespace OpenMP {
 
         handle_label_clause(directive, execution_environment);
 
-        handle_task_if_clause(directive, /* parsing_context */ context, execution_environment);
-        handle_task_final_clause(directive, /* parsing_context */ context, execution_environment);
-        handle_task_priority_clause(directive, /* parsing_context */ context, execution_environment);
+        handle_generic_clause_with_one_argument<Nodecl::OpenMP::If>(
+                "if", "Its execution may be deferred depending on",
+                directive, context, execution_environment);
+
+        handle_generic_clause_with_one_argument<Nodecl::OpenMP::Final>(
+                "final", "It may be a final task depending on",
+                directive, context, execution_environment);
+
+        handle_generic_clause_with_one_argument<Nodecl::OpenMP::Priority>(
+                "priority", "Its priority will be",
+                directive, context, execution_environment);
 
         pragma_line.diagnostic_unused_clauses();
 
+        ERROR_CONDITION(!context.get_in_context().is<Nodecl::List>(), "Expecting list", 0);
         Nodecl::NodeclBase original_for_stmt =
             context.get_in_context().as<Nodecl::List>().front();
 
@@ -1631,16 +1637,66 @@ namespace TL { namespace OpenMP {
 
         loop_normalize.normalize();
 
+        struct ReplaceDepExpressions : public Nodecl::ExhaustiveVisitor<void>
+        {
+            TL::HLT::LoopNormalize _loop_normalize;
+            ReplaceDepExpressions(TL::HLT::LoopNormalize &loop_normalize)
+                : _loop_normalize(loop_normalize)
+                {}
+
+            virtual void visit(const Nodecl::OpenMP::DepIn& node) {
+                _loop_normalize.normalize_expr(node.children()[0]);
+            }
+            virtual void visit(const Nodecl::OmpSs::DepWeakIn& node) {
+                _loop_normalize.normalize_expr(node.children()[0]);
+            }
+            virtual void visit(const Nodecl::OpenMP::DepOut& node) {
+                _loop_normalize.normalize_expr(node.children()[0]);
+            }
+            virtual void visit(const Nodecl::OmpSs::DepWeakOut& node) {
+                _loop_normalize.normalize_expr(node.children()[0]);
+            }
+            virtual void visit(const Nodecl::OpenMP::DepInout& node) {
+                _loop_normalize.normalize_expr(node.children()[0]);
+            }
+            virtual void visit(const Nodecl::OmpSs::DepWeakInout& node) {
+                _loop_normalize.normalize_expr(node.children()[0]);
+            }
+            virtual void visit(const Nodecl::OmpSs::DepConcurrent& node) {
+                _loop_normalize.normalize_expr(node.children()[0]);
+            }
+            virtual void visit(const Nodecl::OmpSs::DepCommutative& node) {
+                _loop_normalize.normalize_expr(node.children()[0]);
+            }
+            virtual void visit(const Nodecl::OmpSs::DepWeakCommutative& node) {
+                _loop_normalize.normalize_expr(node.children()[0]);
+            }
+        };
+
+        ReplaceDepExpressions replace_dep_expressions(loop_normalize);
+        replace_dep_expressions.walk(execution_environment);
+
         Nodecl::NodeclBase normalized_loop = loop_normalize.get_whole_transformation();
         ERROR_CONDITION(!normalized_loop.is<Nodecl::ForStatement>(), "Unexpected node\n", 0);
 
         original_for_stmt.replace(normalized_loop);
 
-        execution_environment.append(Nodecl::OmpSs::Chunksize::make(chunksize));
+        Nodecl::NodeclBase stmt;
 
-        Nodecl::NodeclBase stmt = Nodecl::OmpSs::Loop::make(
-                execution_environment,
-                context);
+        if (is_worksharing)
+        {
+            stmt = Nodecl::OmpSs::TaskWorksharing::make(
+                    execution_environment,
+                    context,
+                    directive.get_locus());
+        }
+        else
+        {
+            stmt = Nodecl::OpenMP::Taskloop::make(
+                    execution_environment,
+                    context,
+                    directive.get_locus());
+        }
 
         directive.replace(Nodecl::List::make(stmt));
     }
@@ -1770,17 +1826,9 @@ namespace TL { namespace OpenMP {
                 Nodecl::OpenMP::BarrierAtEnd::make(
                     directive.get_locus()));
 
-        PragmaCustomClause if_clause = pragma_line.get_clause("if");
-        if (if_clause.is_defined())
-        {
-            ObjectList<Nodecl::NodeclBase> expr_list = if_clause.get_arguments_as_expressions(directive);
-            if (expr_list.size() != 1)
-            {
-                error_printf_at(directive.get_locus(),
-                        "clause 'if' requires just one argument\n");
-            }
-            execution_environment.append(Nodecl::OpenMP::If::make(expr_list[0].shallow_copy()));
-        }
+        handle_generic_clause_with_one_argument<Nodecl::OpenMP::If>(
+                "if", "It will be executed in parallel if",
+                directive, directive, execution_environment);
 
         // for-statement
         Nodecl::NodeclBase for_statement_code = loop_handler_post(directive,
@@ -2633,38 +2681,9 @@ namespace TL { namespace OpenMP {
                 Nodecl::OpenMP::BarrierAtEnd::make(
                     directive.get_locus()));
 
-        PragmaCustomClause if_clause = pragma_line.get_clause("if");
-        {
-            ObjectList<Nodecl::NodeclBase> expr_list = if_clause.get_arguments_as_expressions(directive);
-            if (if_clause.is_defined()
-                    && expr_list.size() == 1)
-            {
-                execution_environment.append(Nodecl::OpenMP::If::make(expr_list[0].shallow_copy()));
-
-                if (emit_omp_report())
-                {
-                    *_omp_report_file
-                        << OpenMP::Report::indent
-                        << "A team of threads will be created only if '"
-                        << expr_list[0].prettyprint()
-                        << "' holds\n";
-                }
-            }
-            else
-            {
-                if (if_clause.is_defined())
-                {
-                    error_printf_at(directive.get_locus(),
-                            "clause 'if' requires just one argument\n");
-                }
-                // if (emit_omp_report())
-                // {
-                //     *_omp_report_file
-                //         << directive.get_locus_str() << ": " << "A team of threads will always be created\n"
-                //         ;
-                // }
-            }
-        }
+        handle_generic_clause_with_one_argument<Nodecl::OpenMP::If>(
+                "if", "It will be executed in parallel if",
+                directive, directive, execution_environment);
 
         Nodecl::NodeclBase sections_code = sections_handler_common(directive,
                 statement,
@@ -2780,38 +2799,9 @@ namespace TL { namespace OpenMP {
                 Nodecl::OpenMP::BarrierAtEnd::make(
                     directive.get_locus()));
 
-        PragmaCustomClause if_clause = pragma_line.get_clause("if");
-        {
-            ObjectList<Nodecl::NodeclBase> expr_list = if_clause.get_arguments_as_expressions(directive);
-            if (if_clause.is_defined()
-                    && expr_list.size() == 1)
-            {
-                execution_environment.append(Nodecl::OpenMP::If::make(expr_list[0].shallow_copy()));
-
-                if (emit_omp_report())
-                {
-                    *_omp_report_file
-                        << OpenMP::Report::indent
-                        << "A team of threads will be created only if '"
-                        << expr_list[0].prettyprint()
-                        << "' holds\n";
-                }
-            }
-            else
-            {
-                if (if_clause.is_defined())
-                {
-                    error_printf_at(directive.get_locus(), "ignoring invalid 'if' clause\n");
-                }
-                // if (emit_omp_report())
-                // {
-                //     *_omp_report_file
-                //         << OpenMP::Report::indent
-                //         << "A team of threads will always be created\n"
-                //         ;
-                // }
-            }
-        }
+        handle_generic_clause_with_one_argument<Nodecl::OpenMP::If>(
+                "if", "It will be executed in parallel if",
+                directive, directive, execution_environment);
 
         // for-statement
         Nodecl::NodeclBase for_statement_code = loop_handler_post(directive,
@@ -3038,15 +3028,55 @@ namespace TL { namespace OpenMP {
 
         pragma_line.diagnostic_unused_clauses();
 
-        TL::ObjectList<OpenMP::DependencyItem> dependences;
-        data_environment.get_all_dependences(dependences);
-
         directive.replace(
                 Nodecl::OmpSs::Release::make(
                     environment,
                     directive.get_locus()));
     }
 
+    void Base::oss_lint_handler_pre(TL::PragmaCustomStatement) { }
+    void Base::oss_lint_handler_post(TL::PragmaCustomStatement directive)
+    {
+        PragmaCustomLine pragma_line = directive.get_pragma_line();
+
+        if (emit_omp_report())
+        {
+            *_omp_report_file
+                << "\n"
+                << directive.get_locus_str() << ": " << "LINT construct\n"
+                << directive.get_locus_str() << ": " << "------------------\n"
+                ;
+        }
+
+        OpenMP::DataEnvironment &data_environment =
+            _core.get_openmp_info()->get_data_environment(directive);
+        Nodecl::List environment = this->make_execution_environment(
+                data_environment,
+                pragma_line,
+                /* ignore_target_info */ true);
+
+        PragmaCustomClause free_clause = pragma_line.get_clause("free");
+        if (free_clause.is_defined())
+        {
+            TL::ObjectList<Nodecl::NodeclBase> expr_list = free_clause.get_arguments_as_expressions(directive);
+            environment.append(Nodecl::OmpSs::LintFree::make(Nodecl::List::make(expr_list)));
+        }
+
+        PragmaCustomClause alloc_clause = pragma_line.get_clause("alloc");
+        if (alloc_clause.is_defined())
+        {
+            TL::ObjectList<Nodecl::NodeclBase> expr_list = alloc_clause.get_arguments_as_expressions(directive);
+            environment.append(Nodecl::OmpSs::LintAlloc::make(Nodecl::List::make(expr_list)));
+        }
+
+        pragma_line.diagnostic_unused_clauses();
+
+        directive.replace(
+                Nodecl::OmpSs::Lint::make(
+                    environment,
+                    directive.get_statements(),
+                    directive.get_locus()));
+    }
 
     struct SymbolBuilder
     {
@@ -4462,125 +4492,45 @@ namespace TL { namespace OpenMP {
         w.walk(execution_environment);
     }
 
-    void Base::handle_task_if_clause(
+    template < typename T>
+    void Base::handle_generic_clause_with_one_argument(
+            const std::string &clause_name,
+            const std::string &omp_report_message,
             const TL::PragmaCustomStatement& directive,
             Nodecl::NodeclBase parsing_context,
             Nodecl::List& execution_environment)
     {
-        PragmaCustomLine pragma_line = directive.get_pragma_line();
-        PragmaCustomClause if_clause = pragma_line.get_clause("if");
-        ObjectList<Nodecl::NodeclBase> expr_list = if_clause.get_arguments_as_expressions(parsing_context);
-        if (if_clause.is_defined()
-                && expr_list.size() == 1)
+        PragmaCustomClause clause = directive.get_pragma_line().get_clause(clause_name);
+        if (clause.is_defined())
         {
-            execution_environment.append(Nodecl::OpenMP::If::make(expr_list[0].shallow_copy()));
-
-            if (emit_omp_report())
+            ObjectList<Nodecl::NodeclBase> expr_list = clause.get_arguments_as_expressions(parsing_context);
+            if (expr_list.size() == 1)
             {
-                *_omp_report_file
-                    << OpenMP::Report::indent
-                    << "This task will be deferred only if expression '"
-                    << expr_list[0].prettyprint() << "'\n"
-                    // << OpenMP::Report::indent
-                    // << OpenMP::Report::indent
-                    // << "Note that this does not affect dependences: if "
-                    // "the task is not deferred the current thread will block until they are satisfied\n"
-                    // << OpenMP::Report::indent
-                    // << "Note also that there is some unavoidable overhead "
-                    // "caused by the required bookkeeping of the task context, even if the task is not deferred\n"
-                    ;
+                execution_environment.append(T::make(expr_list[0].shallow_copy(), clause.get_locus()));
+
+                if (emit_omp_report())
+                {
+                    *_omp_report_file
+                        << OpenMP::Report::indent
+                        << omp_report_message << " "
+                        << "'" << expr_list[0].prettyprint() << "'\n"
+                        ;
+                }
             }
-        }
-        else
-        {
-            if (if_clause.is_defined())
+            else
             {
                 error_printf_at(directive.get_locus(),
-                        "invalid number of arguments in 'if' clause\n");
+                        "invalid number of arguments in '%s' clause\n", clause_name.c_str());
             }
-
-            // if (emit_omp_report())
-            // {
-            //     *_omp_report_file
-            //         << OpenMP::Report::indent
-            //         "This task may run deferred because it does not have any 'if' clause\n"
-            //         // << OpenMP::Report::indent
-            //         // << "Note that the runtime may still choose not to run the task deferredly by a number of reasons\n"
-            //         ;
-            // }
         }
-    }
-
-    void Base::handle_task_final_clause(
-            const TL::PragmaCustomStatement& directive,
-            Nodecl::NodeclBase parsing_context,
-            Nodecl::List& execution_environment)
-    {
-        PragmaCustomLine pragma_line = directive.get_pragma_line();
-        PragmaCustomClause final_clause = pragma_line.get_clause("final");
-        ObjectList<Nodecl::NodeclBase> expr_list = final_clause.get_arguments_as_expressions(parsing_context);
-        if (final_clause.is_defined()
-                && expr_list.size() == 1)
+        else
         {
-            execution_environment.append(Nodecl::OpenMP::Final::make(expr_list[0].shallow_copy()));
-
             if (emit_omp_report())
             {
                 *_omp_report_file
                     << OpenMP::Report::indent
-                    << "When this task is executed it will be final "
-                    "if the expression '" << expr_list[0].prettyprint() << "' holds\n"
-                    // << OpenMP::Report::indent
-                    // << OpenMP::Report::indent
-                    // << "A final task does not create any deferred task when it is executed\n"
+                    << "'" << clause_name << "' was not present on the construct\n"
                     ;
-            }
-        }
-        else
-        {
-            if (final_clause.is_defined())
-            {
-                error_printf_at(directive.get_locus(),
-                        "invalid number of arguments in 'final' clause\n");
-            }
-        }
-    }
-
-    void Base::handle_task_priority_clause(
-            const TL::PragmaCustomStatement& directive,
-            Nodecl::NodeclBase parsing_context,
-            Nodecl::List& execution_environment)
-    {
-        PragmaCustomLine pragma_line = directive.get_pragma_line();
-        PragmaCustomClause priority = pragma_line.get_clause("priority");
-        TL::ObjectList<Nodecl::NodeclBase> expr_list = priority.get_arguments_as_expressions(parsing_context);
-
-        if (priority.is_defined()
-                && expr_list.size() == 1)
-        {
-            if (emit_omp_report())
-            {
-                *_omp_report_file
-                    << OpenMP::Report::indent
-                    << "This task generating construct has priority '" << expr_list[0].prettyprint() << "'\n";
-            }
-            execution_environment.append(
-                    Nodecl::OpenMP::Priority::make(
-                        expr_list[0],
-                        directive.get_locus()));
-        }
-        else
-        {
-            if (priority.is_defined())
-            {
-                warn_printf_at(directive.get_locus(),
-                        "invalid number of arguments in 'priority' clause\n");
-            }
-            if (emit_omp_report())
-            {
-                *_omp_report_file
-                    << OpenMP::Report::indent
-                    << "No priority was defined\n";
             }
         }
     }
@@ -4591,38 +4541,37 @@ namespace TL { namespace OpenMP {
     {
         PragmaCustomLine pragma_line = directive.get_pragma_line();
         PragmaCustomClause label_clause = pragma_line.get_clause("label");
-        TL::ObjectList<std::string> str_list = label_clause.get_tokenized_arguments();
-        if (label_clause.is_defined()
-                && str_list.size() == 1)
+        if (label_clause.is_defined())
         {
-            execution_environment.append(
-                    Nodecl::OmpSs::TaskLabel::make(
-                        str_list[0],
-                        directive.get_locus()));
-
-            if (emit_omp_report())
+            TL::ObjectList<std::string> str_list = label_clause.get_tokenized_arguments();
+            if (str_list.size() == 1)
             {
-                *_omp_report_file
-                    << OpenMP::Report::indent
-                    << "Parallel construct labeled '" << str_list[0] << "'\n";
+                execution_environment.append(
+                        Nodecl::OmpSs::TaskLabel::make(str_list[0], directive.get_locus()));
+
+                if (emit_omp_report())
+                {
+                    *_omp_report_file
+                        << OpenMP::Report::indent
+                        << "Its label is '" << str_list[0] << "'\n";
+                }
+            }
+            else
+            {
+                error_printf_at(directive.get_locus(),
+                        "invalid number of arguments in 'label' clause\n");
             }
         }
         else
         {
-            if (label_clause.is_defined())
-            {
-                warn_printf_at(directive.get_locus(), "ignoring invalid 'label' clause in 'parallel' construct\n");
-            }
             if (emit_omp_report())
             {
                 *_omp_report_file
                     << OpenMP::Report::indent
-                    << "This parallel construct does not have any label\n";
+                    << "It does not have any label\n";
             }
         }
     }
-
-
 } }
 
 EXPORT_PHASE(TL::OpenMP::Base)

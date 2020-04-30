@@ -1,5 +1,5 @@
 dnl Package definition: name, version, mail
-AC_INIT([mcxx],[2.3.0],[sergi.mateo@bsc.es])
+AC_INIT([mcxx],[2.3.0],[roger.ferrer@bsc.es])
 
 configure_orig_arguments="$@"
 
@@ -78,12 +78,25 @@ AX_CXX_COMPILE_STDCXX_11([noext],[optional])
 dnl Check GNU Bash.
 AC_PATH_PROG([BASH], [bash], [])
 
-dnl Check python 2.7
-AM_PATH_PYTHON2([2.7],, [:])
-
-if test "$PYTHON" = ":"; then
-   AC_MSG_ERROR([Python 2.7 not found (note that Python 3 can't be used)])
+# Prioritize Python 3.x
+if test -n "$PYTHON"; then
+  # When PYTHON is not empty, AM_PATH_PYTHON always fails with a hard error
+  # if the Python is too old so we first check if will fail or not.
+  AM_PYTHON_CHECK_VERSION([$PYTHON], [3.0],
+    [AM_PATH_PYTHON([3.0])],
+    [AM_PATH_PYTHON([2.7])])
+else
+  AM_PATH_PYTHON([3.0],, [:])
+  dnl Fallback to 2.7
+  if test "$PYTHON" = ":"; then
+     # The earlier result is cached which would make the next check a no-op
+     unset PYTHON
+     unset ac_cv_path_PYTHON
+     unset am_cv_pathless_PYTHON
+     AM_PATH_PYTHON([2.7])
+  fi
 fi
+
 
 if test x$BASH = x; then
   # If GNU Bash isn't available, use the current shell and hope for
@@ -435,6 +448,25 @@ then
 fi
 dnl --------------- END Cray Compilers ---------------------
 
+dnl --------------- PGI Compilers ---------------------
+AC_MSG_CHECKING([whether support for PGI Fortran/C/C++ compilers is enabled])
+AC_ARG_ENABLE([pgi-compilers],
+  AS_HELP_STRING([--disable-pgi-compilers], [Disables support for PGI Fortran/C/C++ compilers (enabled by default)]),
+  [ ], # enable_pgi_compilers=$enableval
+  [ enable_pgi_compilers="yes"])
+AC_MSG_RESULT([$enable_pgi_compilers])
+
+
+PGIFC=
+PGICC=
+PGICXX=
+if test x"$enable_pgi_compilers" = x"yes";
+then
+   AC_CHECK_PROG([PGIFC], [pgf90], [pgf90])
+   AC_CHECK_PROG([PGICC], [pgcc], [pgcc])
+   AC_CHECK_PROG([PGICXX],[pgc++],[pgc++])
+fi
+dnl --------------- END Intel Compilers ---------------------
 
 dnl --------------------- Support for plain profiles for Intel Compilers -------------
 if test x"$ICC" != x -o x"$ICPC" != x -o x"$IFORT" != x;
@@ -1264,7 +1296,6 @@ then
        INSTALL_CONFIG_FILES="${INSTALL_CONFIG_FILES} 50.config.omp.profiling"
    fi
 
-
    if test x"$ICC" != x -o x"$ICPC" != x -o x"$IFORT" != x;
    then
       INSTALL_CONFIG_FILES="${INSTALL_CONFIG_FILES} 55.config.omp.intel 57.config.omp.smp.intel"
@@ -1285,8 +1316,6 @@ then
           COMPILER_NAMES="${COMPILER_NAMES} imfc imf95 ifort-mfc ismpfc"
       fi
    fi
-
-
 
    if test x"$XLC" != x -o x"$XLCXX" != x -o x"$XLF" != x;
    then
@@ -1328,6 +1357,28 @@ then
       then
           COMPILER_NAMES="${COMPILER_NAMES} craymfc"
       fi
+   fi
+
+
+   if test x"$PGICC" != x -o x"$PGICXX" != x -o x"$PGIFC" != x;
+   then
+      INSTALL_CONFIG_FILES="${INSTALL_CONFIG_FILES} 55.config.omp.pgi"
+
+      # Intel Mercurium C/C++/Fortran profiles
+      if test x"$PGICC" != x;
+      then
+          COMPILER_NAMES="${COMPILER_NAMES} pgimcc"
+      fi
+
+      if test x"$PGICXX" != x;
+      then
+          COMPILER_NAMES="${COMPILER_NAMES} pgimcxx"
+      fi
+
+      ## if test -x"$PGIFC" != x;
+      ## then
+      ##     COMPILER_NAMES="${COMPILER_NAMES} pgimfc"
+      ## fi
    fi
 fi
 
@@ -1635,7 +1686,7 @@ then
             then
                force_flex=yes
                flex_good=yes
-            else if test x$enablevalo = xno;
+            else if test x$enableval = xno;
                  then
                      force_flex=no
                  else
@@ -1691,7 +1742,7 @@ then
             then
                force_bison=yes
                bison_good=yes
-            else if test x$enablevalo = xno;
+            else if test x$enableval = xno;
                  then
                      force_bison=no
                  else
@@ -1714,7 +1765,7 @@ then
           bison_good=no
           AC_MSG_ERROR(${bison_ver}[, this version is known to fail])
        ;;
-       x2.@<:@34567@:>@*|x3.@<:@012@:>@*)
+       x2.@<:@34567@:>@*|x3.@<:@012345@:>@*)
           AC_MSG_RESULT([${bison_ver}])
           bison_good=yes
           ;;
@@ -1745,7 +1796,7 @@ then
             then
                force_gperf=yes
                gperf_good=yes
-            else if test x$enablevalo = xno;
+            else if test x$enableval = xno;
                  then
                      force_gperf=no
                  else
@@ -2139,6 +2190,7 @@ AC_CONFIG_FILES([tests/config/mercurium-serial-simd-avx2], [chmod +x tests/confi
 AC_CONFIG_FILES([tests/config/mercurium-serial-simd-mic], [chmod +x tests/config/mercurium-serial-simd-mic])
 AC_CONFIG_FILES([tests/config/mercurium-serial-simd-romol], [chmod +x tests/config/mercurium-serial-simd-romol])
 AC_CONFIG_FILES([tests/config/test-generators-utilities], [chmod +x tests/config/test-generators-utilities])
+AC_CONFIG_FILES([tests/config/compute_random_taskset.py], [chmod +x tests/config/compute_random_taskset.py])
 
 ## Specific profiles
 AC_CONFIG_FILES([tests/05_torture_cxx_1.dg/mercurium], [chmod +x tests/05_torture_cxx_1.dg/mercurium])
@@ -2167,6 +2219,7 @@ echo "Mercurium configuration summary"
 echo "==============================="
 echo ""
 echo " * C++ dialect used to build Mercurium : $cxxdialect"
+echo " * Python : $PYTHON (version $PYTHON_VERSION)"
 echo ""
 echo " * Tools configured:"
 echo ""
@@ -2210,6 +2263,10 @@ print_tool "IBM XL Fortran compiler " "$XLF"
 print_tool "Cray C compiler " "$CRAYCC"
 print_tool "Cray C++ compiler " "$CRAYCXX"
 print_tool "Cray Fortran compiler " "$CRAYFC"
+
+print_tool "PGI C compiler " "$PGICC"
+print_tool "PGI C++ compiler " "$PGICXX"
+print_tool "PGI Fortran compiler " "$PGIFC"
 
 echo ""
 
@@ -2299,16 +2356,24 @@ then
 	AC_MSG_WARN([Fortran+MIC compiling requires k1om objdump/ar/objcpy binaries to be avaiable, configure folder with '--with-mic-tools=dir'. See --help.])
 fi
 
+dev_is_unfeasible=no
 if test x$flex_good = xno;
 then
   AC_MSG_WARN([flex files (*.l) will not be considered for regeneration])
+  dev_is_unfeasible=yes
 fi
 if test x$bison_good = xno;
 then
   AC_MSG_WARN([bison files (*.y) will not be considered for regeneration])
+  dev_is_unfeasible=yes
 fi
 if test x$gperf_good = xno;
 then
-   AC_MSG_WARN([gperf files (*.gperf) will not be considered for regeneration])
+  AC_MSG_WARN([gperf files (*.gperf) will not be considered for regeneration])
+  dev_is_unfeasible=yes
 fi
 
+if test x$dev_is_unfeasible = xyes;
+then
+  AC_MSG_WARN([some tools are missing. The resulting build will not be useable for development of Mercurium])
+fi

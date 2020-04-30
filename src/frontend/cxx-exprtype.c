@@ -524,6 +524,8 @@ static void check_shaping_expression(AST expression, const decl_context_t* decl_
 static void check_gcc_builtin_offsetof(AST expression, const decl_context_t* decl_context, nodecl_t* nodecl_output);
 static void check_gcc_builtin_choose_expr(AST expression, const decl_context_t* decl_context, nodecl_t* nodecl_output);
 static void check_gcc_builtin_types_compatible_p(AST expression, const decl_context_t* decl_context, nodecl_t* nodecl_output);
+static void check_gxx_builtin_addressof(AST expression, const decl_context_t* decl_context, nodecl_t* nodecl_output);
+
 static void check_gcc_label_addr(AST expression, const decl_context_t* decl_context, nodecl_t* nodecl_output);
 static void check_gcc_real_or_imag_part(AST expression, const decl_context_t* decl_context, nodecl_t* nodecl_output);
 static void check_gcc_alignof_expr(AST expression, const decl_context_t* decl_context, nodecl_t* nodecl_output);
@@ -1192,6 +1194,11 @@ static void check_expression_impl_(AST expression, const decl_context_t* decl_co
         case AST_GCC_BUILTIN_TYPES_COMPATIBLE_P :
             {
                 check_gcc_builtin_types_compatible_p(expression, decl_context, nodecl_output);
+                break;
+            }
+        case AST_GXX_BUILTIN_ADDRESSOF:
+            {
+                check_gxx_builtin_addressof(expression, decl_context, nodecl_output);
                 break;
             }
         case AST_GCC_PARENTHESIZED_EXPRESSION :
@@ -3270,6 +3277,28 @@ static void update_unresolved_overload_argument(type_t* arg_type,
             no_ref(param_type),
             decl_context,
             locus);
+
+    if (solved_function == NULL)
+    {
+        error_printf_at(locus, "cannot resolve address of type '%s' for overloaded function\n",
+                print_type_str(param_type, decl_context));
+        scope_entry_list_iterator_t *it = NULL;
+        info_printf_at(locus, "overloaded functions are:\n");
+        for (it = entry_list_iterator_begin(unresolved_set);
+                !entry_list_iterator_end(it);
+                entry_list_iterator_next(it))
+        {
+            scope_entry_t* current_overload = entry_list_iterator_current(it);
+            info_printf_at(locus, "  %s\n",
+                    print_decl_type_str(current_overload->type_information, decl_context,
+                        get_qualified_symbol_name(current_overload, decl_context)));
+        }
+        entry_list_iterator_free(it);
+
+        *nodecl_output = nodecl_make_err_expr(locus);
+        nodecl_set_type(*nodecl_output, get_error_type());
+        return;
+    }
 
     ERROR_CONDITION(solved_function == NULL, "Code unreachable", 0);
 
@@ -14791,7 +14820,8 @@ static void compute_implicit_captures(nodecl_t node,
                 || (entry->decl_context->current_scope->kind == BLOCK_SCOPE
                     && entry->decl_context->current_scope->related_entry == lambda_symbol)
                 || symbol_entity_specs_get_is_static(entry)
-                || symbol_entity_specs_get_is_extern(entry)))
+                || symbol_entity_specs_get_is_extern(entry)
+                || strcmp(entry->symbol_name, "__PRETTY_FUNCTION__") == 0))
         entry = NULL;
 
     if (entry != NULL)
@@ -14925,6 +14955,8 @@ static void implement_nongeneric_lambda_expression(
     scope_entry_t* ancillary = NULL;
     scope_entry_t* conversion = NULL;
 
+    scope_entry_list_t *symbols_to_push_declarations = NULL;
+
     if (num_captures == 0)
     {
         // Emit a trivial constructor
@@ -14950,7 +14982,7 @@ static void implement_nongeneric_lambda_expression(
 
         symbol_entity_specs_set_function_code(constructor,
                 constructor_function_code);
-        push_extra_declaration_symbol(constructor);
+        symbols_to_push_declarations = entry_list_add(symbols_to_push_declarations, constructor);
 
         class_type_add_member(lambda_class->type_information, constructor, inner_class_context, /* is_definition */ 1);
 
@@ -15180,7 +15212,7 @@ static void implement_nongeneric_lambda_expression(
 
         symbol_entity_specs_set_function_code(constructor,
                 constructor_function_code);
-        push_extra_declaration_symbol(constructor);
+        symbols_to_push_declarations = entry_list_add(symbols_to_push_declarations, constructor);
 
         class_type_add_member(lambda_class->type_information, constructor, inner_class_context, /* is_definition */ 1);
     }
@@ -15232,7 +15264,25 @@ static void implement_nongeneric_lambda_expression(
             lambda_class,
             locus);
     update_symbol_this(operator_call, block_context);
-    register_mercurium_pretty_print(operator_call, block_context);
+
+    // We need to introduce a new symbol that represents the value of __PRETTY_FUNCTION__.
+    // This new symbol has to be mapped with the previous __MERCURIUM_PRETTY_FUNCTION__ symbol.
+    scope_entry_t* mercurium_pretty_function = NULL;
+    {
+        scope_entry_list_t* entry_list = query_name_str(
+                block_context, UNIQUESTR_LITERAL("__MERCURIUM_PRETTY_FUNCTION__"), NULL);
+
+        // We may be in a context where it does not exist a previous __MERCURIUM_PRETTY_FUNCTION__ symbol
+        scope_entry_t* old_mercurium_pretty_function = NULL;
+        if (entry_list != NULL)
+            old_mercurium_pretty_function = entry_list_head(entry_list);
+
+        mercurium_pretty_function = register_mercurium_pretty_print(operator_call, block_context);
+
+        if (old_mercurium_pretty_function != NULL)
+            instantiation_symbol_map_add(
+                    instantiation_symbol_map, old_mercurium_pretty_function, mercurium_pretty_function);
+    }
 
     if (!is_void_type(function_type_get_return_type(operator_call->type_information)))
     {
@@ -15247,14 +15297,23 @@ static void implement_nongeneric_lambda_expression(
         symbol_entity_specs_set_result_var(operator_call, result_sym);
     }
 
+    // Because we are processing something that is like a nested function we
+    // need to make a copy of the stack of extra declarations here
+    push_extra_declaration_level();
+
     nodecl_t nodecl_lambda_body = instantiate_statement(
             nodecl_orig_lambda_body,
             nodecl_retrieve_context(nodecl_orig_lambda_body),
             block_context,
             instantiation_symbol_map);
+
+    pop_extra_declaration_level();
+
     instantiation_symbol_map_pop(instantiation_symbol_map);
     instantiation_symbol_map = NULL;
     ERROR_CONDITION(nodecl_is_list(nodecl_lambda_body), "Should not be a list", 0);
+
+    emit_mercurium_pretty_function(nodecl_lambda_body, mercurium_pretty_function);
 
     symbol_entity_specs_set_function_code(
             operator_call,
@@ -15266,7 +15325,7 @@ static void implement_nongeneric_lambda_expression(
                 nodecl_null(),
                 operator_call,
                 locus));
-    push_extra_declaration_symbol(operator_call);
+    symbols_to_push_declarations = entry_list_add(symbols_to_push_declarations, operator_call);
 
     class_type_add_member(lambda_class->type_information, operator_call,
             inner_class_context, /* is_definition */ 1);
@@ -15274,7 +15333,7 @@ static void implement_nongeneric_lambda_expression(
     // complete the class
     set_is_complete_type(lambda_class->type_information, 1);
 
-    push_extra_declaration_symbol(lambda_class);
+    symbols_to_push_declarations = entry_list_add(symbols_to_push_declarations, lambda_class);
 
     // rvalue of the class type
     type_t* lambda_type = get_user_defined_type(lambda_class);
@@ -15385,7 +15444,7 @@ static void implement_nongeneric_lambda_expression(
                     nodecl_null(),
                     ancillary,
                     locus));
-        push_extra_declaration_symbol(ancillary);
+        symbols_to_push_declarations = entry_list_add(symbols_to_push_declarations, ancillary);
 
         symbol_entity_specs_set_is_inline(ancillary, 1);
         symbol_entity_specs_set_is_defined_inside_class_specifier(ancillary, 1);
@@ -15425,7 +15484,7 @@ static void implement_nongeneric_lambda_expression(
                     nodecl_null(),
                     conversion,
                     locus));
-        push_extra_declaration_symbol(conversion);
+        symbols_to_push_declarations = entry_list_add(symbols_to_push_declarations, conversion);
 
         symbol_entity_specs_set_is_inline(conversion, 1);
         symbol_entity_specs_set_is_defined_inside_class_specifier(conversion, 1);
@@ -15459,6 +15518,16 @@ static void implement_nongeneric_lambda_expression(
             decl_context,
             nodecl_output,
             locus);
+
+    scope_entry_list_iterator_t *it;
+    for (it = entry_list_iterator_begin(symbols_to_push_declarations);
+        !entry_list_iterator_end(it);
+        entry_list_iterator_next(it))
+    {
+        scope_entry_t* current_entry = entry_list_iterator_current(it);
+        push_extra_declaration_symbol(current_entry);
+    }
+    entry_list_iterator_free(it);
 }
 
 static void implement_generic_lambda_expression(
@@ -16532,7 +16601,13 @@ static void check_lambda_expression(AST expression, const decl_context_t* decl_c
     symbol_entity_specs_set_result_var(lambda_symbol, result_symbol);
     result_symbol->type_information = function_type_get_return_type(function_type);
 
+    // Because we are processing something that is like a nested function we
+    // need to make a copy of the stack of extra declarations here
+    push_extra_declaration_level();
+
     build_scope_statement(compound_statement, lambda_block_context, &nodecl_lambda_body);
+
+    pop_extra_declaration_level();
 
     if (nodecl_contains_error_nodes(nodecl_lambda_body))
     {
@@ -17987,7 +18062,12 @@ static void check_nodecl_member_access(
                         get_unknown_dependent_type(),
                         locus);
 
-                nodecl_set_text(*nodecl_output, "template ");
+                if (nodecl_get_kind(nodecl_member) != NODECL_CXX_DEP_GLOBAL_NAME_NESTED
+                        && nodecl_get_kind(nodecl_member) != NODECL_CXX_DEP_NAME_NESTED)
+                {
+                    // We need to state this is a template, only if this name is unqualified.
+                    nodecl_set_text(*nodecl_output, "template ");
+                }
 
                 nodecl_expr_set_is_type_dependent(*nodecl_output, 1);
             }
@@ -18003,6 +18083,11 @@ static void check_nodecl_member_access(
             }
 
             ok = 1;
+        }
+        else
+        {
+            internal_error("Unexpected symbol kind %s\n",
+                           symbol_kind_to_str(entry->kind));
         }
     }
 
@@ -23785,6 +23870,50 @@ static void check_gcc_builtin_types_compatible_p(AST expression, const decl_cont
     }
 }
 
+static void check_nodecl_gxx_builtin_addressof(
+        nodecl_t nodecl_expr,
+        const decl_context_t* decl_context UNUSED_PARAMETER,
+        const locus_t* locus,
+        nodecl_t* nodecl_output)
+{
+    type_t *expr_type = nodecl_get_type(nodecl_expr);
+    if (!is_dependent_type(expr_type)
+            && !is_lvalue_reference_type(expr_type))
+    {
+        error_printf_at(locus, "'__builtin_addressof' expects a lvalue expression as argument\n");
+        *nodecl_output = nodecl_make_err_expr(locus);
+        return;
+    }
+
+    type_t* result_type = expr_type;
+    if (!is_dependent_type(result_type))
+        result_type = get_pointer_type(no_ref(expr_type));
+
+    *nodecl_output = nodecl_make_gxx_builtin_addressof(
+            nodecl_expr,
+            result_type,
+            locus);
+
+    nodecl_expr_set_is_type_dependent(*nodecl_output, is_dependent_type(result_type));
+}
+
+static void check_gxx_builtin_addressof(AST expression,
+        const decl_context_t* decl_context,
+        nodecl_t* nodecl_output)
+{
+    const locus_t* locus = ast_get_locus(expression);
+
+    nodecl_t nodecl_expr = nodecl_null();
+    check_expression_impl_(ASTSon0(expression), decl_context, &nodecl_expr);
+    if (nodecl_is_err_expr(nodecl_expr))
+    {
+        *nodecl_output = nodecl_make_err_expr(locus);
+        return;
+    }
+
+    check_nodecl_gxx_builtin_addressof(nodecl_expr, decl_context, locus, nodecl_output);
+}
+
 static void check_gcc_label_addr(AST expression, 
         const decl_context_t* decl_context,
         nodecl_t* nodecl_output)
@@ -25665,11 +25794,15 @@ static const_value_t* compute_value_of_regular_glvalue(nodecl_t expr,
         // There are a few nodes for which we do not compute their
         // const_value_t ahead of time to avoid creating unnecessary
         // const_value_t's of kind object
-        switch (nodecl_get_kind(expr))
+        nodecl_t aux_expr = expr;
+        switch (nodecl_get_kind(aux_expr))
         {
+            case NODECL_CLASS_MEMBER_ACCESS:
+              aux_expr = nodecl_get_child(aux_expr, 1);
+              // falls through
             case NODECL_SYMBOL:
                 {
-                    scope_entry_t* entry = nodecl_get_symbol(expr);
+                    scope_entry_t* entry = nodecl_get_symbol(aux_expr);
                     const_value_t* value = compute_value_of_symbol(entry, locus);
                     DEBUG_CODE()
                     {
@@ -31346,6 +31479,22 @@ static void instantiate_imag_part(nodecl_instantiate_expr_visitor_t* v, nodecl_t
             &v->nodecl_result);
 }
 
+static void instantiate_gxx_builtin_addressof(nodecl_instantiate_expr_visitor_t* v, nodecl_t node)
+{
+    const locus_t* locus = nodecl_get_locus(node);
+    nodecl_t nodecl_expr = instantiate_expr_walk(v, nodecl_get_child(node, 0));
+    if (nodecl_is_err_expr(nodecl_expr))
+    {
+        v->nodecl_result = nodecl_make_err_expr(locus);
+        return;
+    }
+
+    check_nodecl_gxx_builtin_addressof(nodecl_expr,
+            v->decl_context,
+            locus,
+            &v->nodecl_result);
+}
+
 // Initialization
 static void instantiate_expr_init_visitor(nodecl_instantiate_expr_visitor_t* v, const decl_context_t* decl_context)
 {
@@ -31506,6 +31655,9 @@ static void instantiate_expr_init_visitor(nodecl_instantiate_expr_visitor_t* v, 
     NODECL_VISITOR(v)->visit_real_part = instantiate_expr_visitor_fun(instantiate_real_part);
     // __imag__
     NODECL_VISITOR(v)->visit_imag_part = instantiate_expr_visitor_fun(instantiate_imag_part);
+
+    // __builtin_addressof
+    NODECL_VISITOR(v)->visit_gxx_builtin_addressof = instantiate_expr_visitor_fun(instantiate_gxx_builtin_addressof);
 }
 
 

@@ -314,6 +314,7 @@ c-cxx-expressions : NODECL_CONDITIONAL_EXPRESSION([condition]expression, [true]e
                   | NODECL_PSEUDO_DESTRUCTOR_NAME([accessed] expression) type const-value-opt
                   | NODECL_VECTOR_CONDITIONAL_EXPRESSION([condition]expression, [true]expression, [false]expression) type const-value-opt
                   | NODECL_VLA_WILDCARD() type
+                  | NODECL_GXX_BUILTIN_ADDRESSOF([expr]expression) type
                   | cxx-expr-dependent-nodecls
                   | cuda-expressions
                   | mask-expressions
@@ -720,7 +721,7 @@ parallel-statements: oss-specific-constructs
                     | release-deps-construct
 
 # OmpSs-2 specific constructs
-oss-specific-constructs: NODECL_OMP_SS*LOOP([environment]omp-exec-environment-seq-opt, [loop]statement)
+oss-specific-constructs: NODECL_OMP_SS*TASK_WORKSHARING([environment]omp-exec-environment-seq-opt, [loop]statement)
 
 # register
 data-coordination-constructs : NODECL_OMP_SS*REGISTER([registered_set]expression-seq)
@@ -733,6 +734,7 @@ omp-exec-environment: NODECL_OMP_SS*ALLOCA([exprs] expression-seq)
                 | NODECL_OMP_SS*SHARED_AND_ALLOCA([exprs]expression-seq)
                 | NODECL_OMP_SS*WEAK_REDUCTION([reductions]omp-reduction-item-seq)
                 | NODECL_OMP_SS*COST([cost]expression)
+                | NODECL_OMP_SS*LINT_VERIFIED([expr]expression)
                 | NODECL_OMP_SS*TASK_LABEL() text
                 | NODECL_OMP_SS*CREATION_CTX() text
                 | NODECL_OMP_SS*NUM_INNER_TASKS() text
@@ -841,3 +843,16 @@ checkpoint-environment : NODECL_CHECKPOINT*DATA([exprs] expression-seq)
                        | NODECL_CHECKPOINT*COMM([expr] expression)
                        | NODECL_CHECKPOINT*IF([expr] expression)
                        | NODECL_CHECKPOINT*KIND([expr] expression)
+
+
+##############################
+# LINT                       #
+##############################
+
+statement-but-object-init: lint-construct
+
+lint-construct : NODECL_OMP_SS*LINT([environment]lint-exec-environment-seq-opt,[statements]statement-seq-opt)
+
+lint-exec-environment : omp-exec-environment
+                      | NODECL_OMP_SS*LINT_FREE([exprs]expression-seq)
+                      | NODECL_OMP_SS*LINT_ALLOC([exprs]expression-seq)
