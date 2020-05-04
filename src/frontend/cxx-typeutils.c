@@ -3669,7 +3669,19 @@ static type_t* template_type_get_specialized_type_(
                     updated_exception_type);
         }
 
-        // FIXME - noexcept?
+        // Update noexcept expression
+        nodecl_t noexcept_expr = symbol_entity_specs_get_noexception(specialized_symbol);
+        if (is_dependent_type(nodecl_get_type(noexcept_expr)))
+        {
+            nodecl_t noexcept_expr_updated = instantiate_expression(
+                    noexcept_expr,
+                    specialized_symbol->decl_context,
+                    symbol_entity_specs_get_instantiation_symbol_map(specialized_symbol),
+                    /* pack_index */ -1);
+
+            symbol_entity_specs_set_noexception(specialized_symbol, noexcept_expr_updated);
+        }
+
         // Do not copy the function code because it must be first instantiated
         symbol_entity_specs_set_function_code(specialized_symbol, nodecl_null());
     }
@@ -9894,7 +9906,8 @@ static const char* get_gcc_attributes_string(type_t* type_info)
     {
         if (nodecl_is_null(type_info->info->gcc_attributes[i].expression_list))
         {
-            uniquestr_sprintf(&result, "__attribute__((%s)) ",
+            uniquestr_sprintf(&result, "%s__attribute__((%s)) ",
+                    result,
                     type_info->info->gcc_attributes[i].attribute_name);
         }
         else
@@ -9914,7 +9927,8 @@ static const char* get_gcc_attributes_string(type_t* type_info)
             }
             DELETE(n);
 
-            uniquestr_sprintf(&result, "__attribute__((%s(%s))) ",
+            uniquestr_sprintf(&result, "%s__attribute__((%s(%s))) ",
+                    result,
                     type_info->info->gcc_attributes[i].attribute_name,
                     expr_list_str);
         }

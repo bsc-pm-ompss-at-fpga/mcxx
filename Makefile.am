@@ -540,12 +540,12 @@ src/frontend/cxx-asttype.c : src/frontend/cxx-asttype.def src/frontend/cxx-astty
 	echo "};" >> $${OUT_FILE}; \
 	)
 
+if GPERF_BUILDING
 BUILT_SOURCES += src/frontend/cxx-asttype.def
 CLEANFILES += src/frontend/cxx-asttype.def
 src/frontend/cxx-asttype.def : $(TPP) $(addprefix $(top_srcdir)/, $(AST_NODE_TYPE_FILES)) $(AST_NODE_TYPE_FILES_GEN)
 	$(TPP_verbose)$(TPP) -o src/frontend/cxx-asttype.def -I$(top_srcdir)/src/frontend -I./src/frontend $(top_srcdir)/src/frontend/cxx-asttype-all.def
 
-if GPERF_BUILDING
 BUILT_SOURCES += src/frontend/cxx-asttype-str.gperf
 CLEANFILES += src/frontend/cxx-asttype-str.gperf
 src/frontend/cxx-asttype-str.gperf : src/frontend/cxx-asttype.def
@@ -570,7 +570,7 @@ CLEANFILES += src/frontend/cxx-asttype-str-internal.h
 endif
 
 if GPERF_BUILDING
-src/frontend/cxx-asttype-str-internal.h: src/frontend/cxx-asttype-str.gperf
+src/frontend/cxx-asttype-str-internal.h: src/frontend/cxx-asttype-str.gperf $(GPERF_COMPAT_TYPES_H)
 	$(GPERF_verbose)$(GPERF) --language=ANSI-C --hash-function-name=ast_node_kind_hash --struct-type \
       --lookup-function-name=ast_node_name_to_kind_ --output=src/frontend/cxx-asttype-str-internal.h \
       --initializer-suffix=,AST_INVALID_NODE src/frontend/cxx-asttype-str.gperf
@@ -847,7 +847,7 @@ EXTRA_DIST += src/frontend/fortran/prescanner-scanner.h
 if GPERF_BUILDING
 CLEANFILES += src/frontend/fortran/fortran03-keywords.c
 endif
-src/frontend/fortran/fortran03-keywords.c : $(srcdir)/src/frontend/fortran/fortran03-keywords.gperf
+src/frontend/fortran/fortran03-keywords.c : $(srcdir)/src/frontend/fortran/fortran03-keywords.gperf $(GPERF_COMPAT_TYPES_H)
 if GPERF_BUILDING
 	$(GPERF_verbose)$(GPERF) --language=ANSI-C --hash-function-name=fortran_keywords_hash --struct-type \
       --initializer-suffix=,0 --lookup-function-name=fortran_keywords_lookup --output=src/frontend/fortran/fortran03-keywords.c \
@@ -2394,8 +2394,9 @@ src_tl_ompss_nanos6_libtlnanos6_lowering_la_SOURCES = \
     src/tl/ompss/nanos6/tl-nanos6-lower.cpp \
     src/tl/ompss/nanos6/tl-nanos6-lower.hpp \
     src/tl/ompss/nanos6/tl-nanos6-task.cpp \
+    src/tl/ompss/nanos6/tl-nanos6-taskloop.cpp \
     src/tl/ompss/nanos6/tl-nanos6-taskcall.cpp \
-    src/tl/ompss/nanos6/tl-nanos6-loop.cpp \
+    src/tl/ompss/nanos6/tl-nanos6-task-worksharing.cpp \
     src/tl/ompss/nanos6/tl-nanos6-task-properties.hpp \
     src/tl/ompss/nanos6/tl-nanos6-task-properties.cpp \
     src/tl/ompss/nanos6/tl-nanos6-support.hpp \
@@ -2409,6 +2410,7 @@ src_tl_ompss_nanos6_libtlnanos6_lowering_la_SOURCES = \
     src/tl/ompss/nanos6/tl-nanos6-interface.hpp \
     src/tl/ompss/nanos6/tl-nanos6-interface.cpp \
     src/tl/ompss/nanos6/tl-nanos6-release.cpp \
+    src/tl/ompss/nanos6/tl-nanos6-lint.cpp \
     src/tl/ompss/nanos6/devices/tl-nanos6-device-manager.hpp \
     src/tl/ompss/nanos6/devices/tl-nanos6-device-factory.hpp \
     src/tl/ompss/nanos6/devices/tl-nanos6-device.hpp \
@@ -2417,6 +2419,8 @@ src_tl_ompss_nanos6_libtlnanos6_lowering_la_SOURCES = \
     src/tl/ompss/nanos6/devices/smp/tl-nanos6-smp-device.cpp \
     src/tl/ompss/nanos6/devices/cuda/tl-nanos6-cuda-device.hpp \
     src/tl/ompss/nanos6/devices/cuda/tl-nanos6-cuda-device.cpp \
+    src/tl/ompss/nanos6/devices/openacc/tl-nanos6-openacc-device.hpp \
+    src/tl/ompss/nanos6/devices/openacc/tl-nanos6-openacc-device.cpp \
     $(END)
 
 endif
@@ -3112,7 +3116,7 @@ endif
 
 CLEANFILES += src/driver/cxx-target-tools.h
 
-src/driver/cxx-configoptions.c : $(srcdir)/src/driver/cxx-configoptions.gperf $(top_srcdir)/src/driver/cxx-driver.h $(srcdir)/src/driver/cxx-configfile.h
+src/driver/cxx-configoptions.c : $(srcdir)/src/driver/cxx-configoptions.gperf $(top_srcdir)/src/driver/cxx-driver.h $(srcdir)/src/driver/cxx-configfile.h $(GPERF_COMPAT_TYPES_H)
 if GPERF_BUILDING
 	$(GPERF_verbose)$(GPERF) --language=ANSI-C --hash-function-name=configoptions_hash --struct-type \
       --lookup-function-name=configoptions_lookup --output=src/driver/cxx-configoptions.c \
@@ -3122,7 +3126,7 @@ else
 	@exit 1
 endif
 
-src/driver/cxx-fileextensions.c : $(srcdir)/src/driver/cxx-fileextensions.gperf $(top_srcdir)/src/driver/cxx-driver.h
+src/driver/cxx-fileextensions.c : $(srcdir)/src/driver/cxx-fileextensions.gperf $(top_srcdir)/src/driver/cxx-driver.h $(GPERF_COMPAT_TYPES_H)
 if GPERF_BUILDING
 	$(GPERF_verbose)$(GPERF) --language=ANSI-C --hash-function-name=fileextensions_hash --struct-type \
       --lookup-function-name=fileextensions_lookup --output=src/driver/cxx-fileextensions.c \
@@ -3132,7 +3136,7 @@ else
 	@exit 1
 endif
 
-src/driver/cxx-debugflags.c : $(srcdir)/src/driver/cxx-debugflags.gperf $(top_srcdir)/src/driver/cxx-driver.h $(top_srcdir)/src/frontend/cxx-utils.h
+src/driver/cxx-debugflags.c : $(srcdir)/src/driver/cxx-debugflags.gperf $(top_srcdir)/src/driver/cxx-driver.h $(top_srcdir)/src/frontend/cxx-utils.h $(GPERF_COMPAT_TYPES_H)
 if GPERF_BUILDING
 	$(GPERF_verbose)$(GPERF) --language=ANSI-C --hash-function-name=debugflags_hash --struct-type \
       --lookup-function-name=debugflags_lookup --output=src/driver/cxx-debugflags.c \
@@ -3300,6 +3304,7 @@ CONFIG_FILES =  \
        config/55.config.omp.cray   \
        config/55.config.omp.ibm    \
        config/55.config.omp.intel  \
+       config/55.config.omp.pgi   \
        config/56.config.omp.mpi \
        config/56.config.omp.intel.mpi \
        config/57.config.omp.smp \
@@ -3366,6 +3371,9 @@ config_edit = \
      -e 's|@CRAYCC[@]|$(CRAYCC)|g' \
      -e 's|@CRAYCXX[@]|$(CRAYCXX)|g' \
      -e 's|@CRAYFC[@]|$(CRAYFC)|g' \
+     -e 's|@PGICC[@]|$(PGICC)|g' \
+     -e 's|@PGICXX[@]|$(PGICXX)|g' \
+     -e 's|@PGIFC[@]|$(PGIFC)|g' \
      -e 's|@NVCC[@]|$(NVCC)|g' \
      -e 's|@PKGDATADIR[@]|$(pkgdatadir)|g' \
      -e 's|@SIMD_FLAGS[@]|$(SIMD_FLAGS)|g' \
@@ -3519,6 +3527,7 @@ GXX_X86_DEPRECATED_BUILTINS = g++-5
 GXX_X86_COMMON_FLAGS =
 GXX_X86_COMMON_FLAGS += -fabi-version=6
 GXX_X86_COMMON_FLAGS += -m3dnow
+GXX_X86_COMMON_FLAGS += -m3dnowa
 GXX_X86_COMMON_FLAGS += -mabm
 GXX_X86_COMMON_FLAGS += -maes
 GXX_X86_COMMON_FLAGS += -mavx
@@ -3568,6 +3577,8 @@ GXX_X86_COMMON_FLAGS += -mxsave
 GXX_X86_COMMON_FLAGS += -mxsavec
 GXX_X86_COMMON_FLAGS += -mxsaveopt
 GXX_X86_COMMON_FLAGS += -mxsaves
+GXX_X86_COMMON_FLAGS += -mclzero
+GXX_X86_COMMON_FLAGS += -mpku
 
 GXX_X86_BUILTINS_FLAGS = $(GXX_X86_COMMON_FLAGS)
 GXX_X86_BUILTINS_FLAGS += -mavx5124fmaps     # introduced in GCC-7
@@ -3740,6 +3751,8 @@ PLAINFC=$(top_builddir)/src/driver/plaincxx --config-dir=$(top_builddir)/config 
 # support/gperf
 ##########################################################################
 
+
+
 if GPERF_BUILDING
 BUILT_SOURCES += support/gperf/gperf-compat-types.h
 CLEANFILES += support/gperf/gperf-compat-types.h
@@ -3748,6 +3761,7 @@ endif
 EXTRA_DIST += support/gperf/gperf-compat-types.h
 
 if GPERF_BUILDING
+GPERF_COMPAT_TYPES_H=support/gperf/gperf-compat-types.h
 GPERF_LEN_TYPE=@GPERF_LENGTH_TYPE@
 support/gperf/gperf-compat-types.h: Makefile
 	$(AM_V_GEN)( \
@@ -3762,6 +3776,8 @@ support/gperf/gperf-compat-types.h: Makefile
 	echo >> $${OUT_FILE}; \
 	echo "#endif /* GPERF_COMPAT_TYPES_H */" >> $${OUT_FILE}; \
     )
+else
+GPERF_COMPAT_TYPES_H=
 endif
 
 ##########################################################################

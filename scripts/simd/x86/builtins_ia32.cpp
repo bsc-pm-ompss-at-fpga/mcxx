@@ -186,6 +186,7 @@ VECTOR_INTRIN(__builtin_ia32_bzhi_si) \
 VECTOR_INTRIN(__builtin_ia32_clflush) \
 VECTOR_INTRIN(__builtin_ia32_clflushopt) \
 VECTOR_INTRIN(__builtin_ia32_clwb) \
+VECTOR_INTRIN(__builtin_ia32_clzero) \
 VECTOR_INTRIN(__builtin_ia32_cmpb128_mask) \
 VECTOR_INTRIN(__builtin_ia32_cmpb256_mask) \
 VECTOR_INTRIN(__builtin_ia32_cmpb512_mask) \
@@ -1861,6 +1862,7 @@ VECTOR_INTRIN(__builtin_ia32_rdfsbase64) \
 VECTOR_INTRIN(__builtin_ia32_rdgsbase32) \
 VECTOR_INTRIN(__builtin_ia32_rdgsbase64) \
 VECTOR_INTRIN(__builtin_ia32_rdpid) \
+VECTOR_INTRIN(__builtin_ia32_rdpkru) \
 VECTOR_INTRIN(__builtin_ia32_rdpmc) \
 VECTOR_INTRIN(__builtin_ia32_rdrand16_step) \
 VECTOR_INTRIN(__builtin_ia32_rdrand32_step) \
@@ -2492,6 +2494,7 @@ VECTOR_INTRIN(__builtin_ia32_wrfsbase64) \
 VECTOR_INTRIN(__builtin_ia32_wrgsbase32) \
 VECTOR_INTRIN(__builtin_ia32_wrgsbase64) \
 VECTOR_INTRIN(__builtin_ia32_writeeflags_u64) \
+VECTOR_INTRIN(__builtin_ia32_wrpkru) \
 VECTOR_INTRIN(__builtin_ia32_xabort) \
 VECTOR_INTRIN(__builtin_ia32_xbegin) \
 VECTOR_INTRIN(__builtin_ia32_xend) \
@@ -2518,6 +2521,11 @@ VECTOR_INTRIN(__builtin_ia32_xsaveopt64) \
 VECTOR_INTRIN(__builtin_ia32_xsaves) \
 VECTOR_INTRIN(__builtin_ia32_xsaves64) \
 VECTOR_INTRIN(__builtin_ia32_xtest) \
+VECTOR_INTRIN(__builtin_ia32_pf2iw) \
+VECTOR_INTRIN(__builtin_ia32_pfnacc) \
+VECTOR_INTRIN(__builtin_ia32_pfpnacc) \
+VECTOR_INTRIN(__builtin_ia32_pi2fw) \
+VECTOR_INTRIN(__builtin_ia32_pswapdsf) \
 \
 VECTOR_ALIAS(__builtin_ia32_pbroadcastq512_mem_mask, __builtin_ia32_pbroadcastq512_gpr_mask) \
 END

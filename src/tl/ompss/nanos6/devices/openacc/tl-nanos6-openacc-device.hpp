@@ -24,38 +24,27 @@
   Cambridge, MA 02139, USA.
 --------------------------------------------------------------------*/
 
+#ifndef TL_NANOS6_OPENACC_DEVICE_HPP
+#define TL_NANOS6_OPENACC_DEVICE_HPP
 
-#ifndef TL_NANOS6_LOOP_HPP
-#define TL_NANOS6_LOOP_HPP
-
-#include "tl-nanos6-lower.hpp"
+#include "tl-nanos6-device.hpp"
 
 namespace TL { namespace Nanos6 {
 
-    void Lower::visit(const Nodecl::OmpSs::Loop& construct)
+    class OpenACCDevice : public Device
     {
-        Nodecl::NodeclBase loop = construct.get_loop();
+        public:
+			OpenACCDevice();
 
-        walk(loop);
+			~OpenACCDevice();
 
-        Nodecl::List exec_env = construct.get_environment().as<Nodecl::List>();
-        exec_env.append(Nodecl::OmpSs::TaskIsLoop::make());
+            //! This function returns a symbol that represents the device type id
+            TL::Symbol get_device_type_id() const;
 
-        construct.replace(
-                Nodecl::OpenMP::Task::make(exec_env, Nodecl::List::make(loop)));
+			//! This function returns whether the current device requires arguments translation
+            bool requires_arguments_translation() const;
+    };
 
-        Nodecl::NodeclBase serial_stmts;
-        // If disabled, act normally
-        if (!_phase->_final_clause_transformation_disabled)
-        {
-            std::map<Nodecl::NodeclBase, Nodecl::NodeclBase>::iterator it = _final_stmts_map.find(construct);
-            ERROR_CONDITION(it == _final_stmts_map.end(), "Invalid serial statemtents", 0);
-            serial_stmts = Nodecl::List::make(it->second);
-        }
+} }
 
-        lower_task(construct.as<Nodecl::OpenMP::Task>(), serial_stmts);
-    }
-
-}}
-
-#endif // TL_NANOS6_LOOP_HPP
+#endif // TL_NANOS6_OPENACC_DEVICE_HPP

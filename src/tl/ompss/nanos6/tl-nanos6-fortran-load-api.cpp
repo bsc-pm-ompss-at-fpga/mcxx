@@ -26,6 +26,7 @@
 
 
 #include "tl-nanos6.hpp"
+#include "tl-nanos6-interface.hpp"
 
 #include "tl-omp-lowering-utils.hpp"
 
@@ -41,8 +42,6 @@ const char *entry_points[] = {
     "nanos6_user_lock",
     "nanos6_user_unlock",
     "nanos6_get_reduction_storage1",
-    "nanos6_register_taskloop_bounds",
-    "nanos6_bzero",
     NULL
 };
 
@@ -78,5 +77,51 @@ const char *multidimensional_entry_points[] =
         ERROR_CONDITION(!IS_FORTRAN_LANGUAGE, "This is only for Fortran", 0);
         TL::OpenMP::Lowering::Utils::Fortran::fixup_entry_points(
                 entry_points, multidimensional_entry_points, nanos6_api_max_dimensions());
+
+
+        if (Interface::family_is_at_least("nanos6_loop_api", 2)) {
+            const char *loop_entry_points[] = {
+                "nanos6_register_loop_bounds",
+                NULL,
+            };
+            const char *empty[] = { NULL };
+
+            TL::OpenMP::Lowering::Utils::Fortran::fixup_entry_points(
+                    loop_entry_points, empty, nanos6_api_max_dimensions());
+        }
+        else
+        {
+            const char *loop_entry_points[] = {
+                "nanos6_register_taskloop_bounds",
+                NULL,
+            };
+            const char *empty[] = { NULL };
+
+            TL::OpenMP::Lowering::Utils::Fortran::fixup_entry_points(
+                    loop_entry_points, empty, nanos6_api_max_dimensions());
+        }
+
+        if (Interface::family_is_at_least("nanos6_lint_multidimensional_accesses_api", 1))
+        {
+            const char* lint_entry_points[] =
+            {
+                "nanos6_lint_ignore_region_begin",
+                "nanos6_lint_ignore_region_end",
+                "nanos6_lint_register_alloc",
+                "nanos6_lint_register_free",
+                NULL
+            };
+
+            const char* lint_multidimensional_entry_points[] =
+            {
+                "nanos6_lint_register_region_read_",
+                "nanos6_lint_register_region_write_",
+                "nanos6_lint_register_region_readwrite_",
+                NULL
+            };
+
+            TL::OpenMP::Lowering::Utils::Fortran::fixup_entry_points(
+                    lint_entry_points, lint_multidimensional_entry_points, nanos6_api_max_dimensions());
+        }
     }
 } }

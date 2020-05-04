@@ -22,12 +22,17 @@
 
 // OmpSs-2 constructs
 OSS_CONSTRUCT("task", task, true)
-OSS_CONSTRUCT_NOEND("loop", loop, true)
+
 OSS_CONSTRUCT("critical", critical, true)
 
 OSS_DIRECTIVE("taskwait", taskwait, true)
+
 OSS_DIRECTIVE("release", release, true)
 
 OSS_CONSTRUCT_NOEND("atomic", atomic, true)
 
 OSS_DIRECTIVE("declare|reduction", declare_reduction, true)
+
+OSS_CONSTRUCT("lint", lint, true)
+
+OSS_CONSTRUCT_NOEND("taskloop", taskloop, true)
