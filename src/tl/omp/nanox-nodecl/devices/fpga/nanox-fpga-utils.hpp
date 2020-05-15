@@ -35,16 +35,16 @@
 
 #define STR_ACCID              "accID"
 #define STR_COMPONENTS_COUNT   "__mcxx_taskComponents"
-#define STR_OUTPORT            "__mcxx_outPort"
-#define STR_GLOB_EINPORT       "__mcxx_eInPort"
+#define STR_OUTPORT            "mcxx_outPort"
+#define STR_GLOB_EINPORT       "mcxx_eInPort"
 #define STR_TASKID             "__mcxx_taskId"
 #define STR_PARENT_TASKID      "__mcxx_parent_taskId"
 #define STR_REP_NUM            "__mcxx_periTask_repNum"
 #define STR_NUM_REPS           "__mcxx_periTask_numReps"
 #define STR_WRAPPERDATA        "mcxx_wrapper_data"
-#define STR_INPUTSTREAM        "inStream"
+#define STR_INPUTSTREAM        "mcxx_inStream"
 #define STR_INSTR_PORT         "mcxx_instr"
-#define STR_HWCOUNTER_PORT     "__mcxx_hwcounterPort"
+#define STR_HWCOUNTER_PORT     "mcxx_hwcounterPort"
 
 //Default instrumentation events codes
 #define EV_DEVCOPYIN            78
