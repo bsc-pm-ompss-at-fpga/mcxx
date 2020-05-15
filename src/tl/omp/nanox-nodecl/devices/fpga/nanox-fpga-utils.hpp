@@ -35,14 +35,13 @@
 
 #define STR_ACCID              "accID"
 #define STR_COMPONENTS_COUNT   "__mcxx_taskComponents"
-#define STR_GLOB_EOUTPORT      "__mcxx_eOutPort"
+#define STR_OUTPORT            "__mcxx_outPort"
 #define STR_GLOB_EINPORT       "__mcxx_eInPort"
 #define STR_TASKID             "__mcxx_taskId"
 #define STR_PARENT_TASKID      "__mcxx_parent_taskId"
 #define STR_REP_NUM            "__mcxx_periTask_repNum"
 #define STR_NUM_REPS           "__mcxx_periTask_numReps"
 #define STR_WRAPPERDATA        "mcxx_wrapper_data"
-#define STR_OUTPUTSTREAM       "outStream"
 #define STR_INPUTSTREAM        "inStream"
 #define STR_INSTR_PORT         "mcxx_instr"
 #define STR_HWCOUNTER_PORT     "__mcxx_hwcounterPort"
@@ -805,7 +804,8 @@ void get_hls_wrapper_decls(
     wrapper_decls_before_user_code
         << "extern const unsigned char " << STR_ACCID << ";"
         << "static unsigned long long int " << STR_TASKID << ";"
-        << "static unsigned long long int " << STR_PARENT_TASKID << ";";
+        << "static unsigned long long int " << STR_PARENT_TASKID << ";"
+        << "extern ap_uint<72> " << STR_OUTPORT << ";";
 
     if (instrumentation)
     {
@@ -819,12 +819,10 @@ void get_hls_wrapper_decls(
     if (task_creation)
     {
         wrapper_decls_before_user_code
-            << "extern ap_uint<72> " << STR_GLOB_EOUTPORT << ";"
             << "extern volatile ap_uint<8> " << STR_GLOB_EINPORT << ";"
             << "static ap_uint<32> " << STR_COMPONENTS_COUNT << ";";
 
         wrapper_body_pragmas
-            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_EOUTPORT << "\n"
             << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_EINPORT << "\n";
 
         if (shared_memory_port_width != "")
@@ -846,8 +844,14 @@ void get_hls_wrapper_decls(
 
     /*** Function declarations ***/
     wrapper_decls_before_user_code
-        << "void __mcxx_write_stream(axiStream_t &stream, const unsigned long long int data, const unsigned short dest, const unsigned char last);"
-        << "void __mcxx_send_finished_task_cmd(axiStream_t& stream, const unsigned char destId);";
+        << "void __mcxx_send_finished_task_cmd(const unsigned char destId);";
+
+    if (!IS_C_LANGUAGE)
+    {
+        // NOTE: The following declarations will be placed in the source by the codegen in C lang
+        wrapper_decls_before_user_code
+            << "void __mcxx_write_out_port(const unsigned long long int data, const unsigned short dest, const unsigned char last);";
+	}
 
     if (user_calls_set.count("mcxx_memcpy") > 0 && !IS_C_LANGUAGE)
     {
@@ -892,7 +896,6 @@ void get_hls_wrapper_decls(
         {
             // NOTE: The following declarations will be placed in the source by the codegen in C lang
             wrapper_decls_before_user_code
-                << "void __mcxx_write_eout_port(const unsigned long long int data, const unsigned short dest, const unsigned char last);"
                 << "ap_uint<8> __mcxx_read_ein_port();"
                 << "unsigned long long int nanos_fpga_current_wd();"
                 << "void nanos_handle_error(nanos_err_t err);"
@@ -1018,27 +1021,23 @@ void get_hls_wrapper_defs(
     //NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
 
     wrapper_defs
-        << "void __mcxx_write_stream(axiStream_t &stream, const unsigned long long int data, const unsigned short dest, const unsigned char last)"
+        << "void __mcxx_write_out_port(const unsigned long long int data, const unsigned short dest, const unsigned char last)"
         << "{"
-        << "#pragma HLS INLINE\n"
-        << "#pragma HLS INTERFACE axis port=stream\n"
-        << "  axiData_t __data = {0, 0, 0, 0, 0, 0, 0};"
-        << "  __data.id = " << STR_ACCID << ";"
-        << "  __data.keep = 0xFF;"
-        << "  __data.dest = dest;"
-        << "  __data.last = last;"
-        << "  __data.data = data;"
-        << "  stream.write(__data);"
+        << "#pragma HLS INTERFACE ap_hs port=" << STR_OUTPORT << " register\n"
+        // NOTE: Pack the axiData_t info: data(64bits) + dest(6bits) + last(2bit). It can be done
+        //       with less bits but this way the info is HEX friendly
+        << "  ap_uint<72> tmp = data;"
+        << "  tmp = (tmp << 8) | ((dest & 0x3F) << 2) | (last & 0x3);"
+        << "  " << STR_OUTPORT << " = tmp;"
         << "}"
 
-        << "void __mcxx_send_finished_task_cmd(axiStream_t& stream, const unsigned char destId)"
+        << "void __mcxx_send_finished_task_cmd(const unsigned char destId)"
         << "{"
-        << "#pragma HLS INTERFACE axis port=stream\n"
         << "  unsigned long long int header = " << STR_ACCID << ";"
         << "  header = (header << 8) | 0x03;"
-        << "  __mcxx_write_stream(stream, header, destId, 0);"
-        << "  __mcxx_write_stream(stream, " << STR_TASKID << ", destId, 0);"
-        << "  __mcxx_write_stream(stream, " << STR_PARENT_TASKID << ", destId, 1);"
+        << "  __mcxx_write_out_port(header, destId, 0);"
+        << "  __mcxx_write_out_port(" << STR_TASKID << ", destId, 0);"
+        << "  __mcxx_write_out_port(" << STR_PARENT_TASKID << ", destId, 1);"
         << "}";
 
     if (user_calls_set.count("mcxx_memcpy") > 0)
@@ -1134,16 +1133,6 @@ void get_hls_wrapper_defs(
     if (task_creation)
     {
         wrapper_defs
-            << "void __mcxx_write_eout_port(const unsigned long long int data, const unsigned short dest, const unsigned char last)"
-            << "{"
-            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_EOUTPORT << " register\n"
-            // NOTE: Pack the axiData_t info: data(64bits) + dest(6bits) + last(2bit). It can be done
-            //       with less bits but this way the info is HEX friendly
-            << "  ap_uint<72> tmp = data;"
-            << "  tmp = (tmp << 8) | ((dest & 0x3F) << 2) | (last & 0x3);"
-            << "  " << STR_GLOB_EOUTPORT << " = tmp;"
-            << "}"
-
             << "ap_uint<8> __mcxx_read_ein_port()"
             << "{"
             << "  #pragma HLS INTERFACE ap_hs port=" << STR_GLOB_EINPORT << "\n"
@@ -1165,8 +1154,8 @@ void get_hls_wrapper_defs(
             << "  unsigned long long int tmp = " << STR_ACCID << ";"
             << "  tmp = tmp << 48 /*ACC_ID info uses bits [48:55]*/;"
             << "  tmp = 0x8000000100000000 | tmp | " << STR_COMPONENTS_COUNT << ";"
-            << "  __mcxx_write_eout_port(tmp /*TASKWAIT_DATA_BLOCK*/, " << HWR_TASKWAIT_ID << ", 0 /*last*/);"
-            << "  __mcxx_write_eout_port(" << STR_TASKID << " /*data*/, " << HWR_TASKWAIT_ID << ", 1 /*last*/);"
+            << "  __mcxx_write_out_port(tmp /*TASKWAIT_DATA_BLOCK*/, " << HWR_TASKWAIT_ID << ", 0 /*last*/);"
+            << "  __mcxx_write_out_port(" << STR_TASKID << " /*data*/, " << HWR_TASKWAIT_ID << ", 1 /*last*/);"
             << "  {\n"
             << "#pragma HLS PROTOCOL fixed\n"
             << "    __mcxx_read_ein_port();"
@@ -1192,36 +1181,36 @@ void get_hls_wrapper_defs(
             << "    tmp = (tmp << 8) | currentNumDeps;"
             << "    tmp = (tmp << 8) | numArgs;"
             << "    tmp = tmp << 8;"
-            << "    __mcxx_write_eout_port(tmp, destId, 0);"
+            << "    __mcxx_write_out_port(tmp, destId, 0);"
             //2nd word: [ parent_task_id (64b) ]
-            << "    __mcxx_write_eout_port(" << STR_TASKID << ", destId, 0);"
+            << "    __mcxx_write_out_port(" << STR_TASKID << ", destId, 0);"
             //3rd word: [ type_value (64b) ]
-            << "    __mcxx_write_eout_port(type, destId, 0);"
+            << "    __mcxx_write_out_port(type, destId, 0);"
             << "    for (unsigned char idx = 0; idx < currentNumDeps; ++idx) {"
             << "      tmp = depsFlags[idx];"
             << "      tmp = (tmp << 56) | deps[idx];"
             //dep words: [ arg_flags (8b) | arg_value (56b) ]
             //NOTE: Using numDeps here instead of currentNumDeps, which still correct, to allow compiler optimize the expression
-            << "      __mcxx_write_eout_port(tmp, destId, (idx == (numDeps - 1))&&(numArgs == 0)&&(numCopies == 0));"
+            << "      __mcxx_write_out_port(tmp, destId, (idx == (numDeps - 1))&&(numArgs == 0)&&(numCopies == 0));"
             << "    }"
             //copy words
             << "    for (unsigned char idx = 0; idx < numCopies; ++idx) {"
             //1st copy word: [ address (64b) ]
             << "      tmp = copies[idx].address;"
-            << "      __mcxx_write_eout_port(tmp, destId, 0);"
+            << "      __mcxx_write_out_port(tmp, destId, 0);"
             //2nd copy word: [ size (32b) | not_used (16b) | arg_idx (8b) | flags (8b) ]
             << "      tmp = copies[idx].size;"
             << "      tmp = (tmp << 24) | copies[idx].arg_idx;"
             << "      tmp = (tmp << 8) | copies[idx].flags;"
-            << "      __mcxx_write_eout_port(tmp, destId, 0);"
+            << "      __mcxx_write_out_port(tmp, destId, 0);"
             //3rd copy word: [ accessed_length (32b) | offset (32b) ]
             << "      tmp = copies[idx].accessed_length;"
             << "      tmp = (tmp << 32) | copies[idx].offset;"
-            << "      __mcxx_write_eout_port(tmp, destId, (idx == (numCopies - 1))&&(numArgs == 0));"
+            << "      __mcxx_write_out_port(tmp, destId, (idx == (numCopies - 1))&&(numArgs == 0));"
             << "    }"
             << "    for (unsigned char idx = 0; idx < numArgs; ++idx) {"
             //arg words: [ arg_value (64b) ]
-            << "      __mcxx_write_eout_port(args[idx], destId, (idx == (numArgs - 1)));"
+            << "      __mcxx_write_out_port(args[idx], destId, (idx == (numArgs - 1)));"
             << "    }"
             << "    {\n"
             << "#pragma HLS PROTOCOL fixed\n"
