@@ -957,13 +957,12 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     memset(function_parameters_passed, 0, param_list.size());
 
     params_src
-        << "axiStream_t& " << STR_INPUTSTREAM
-        << ", axiStream_t& " << STR_OUTPUTSTREAM;
+        << "axiStream_t& " << STR_INPUTSTREAM;
 
     pragmas_src
         << "#pragma HLS INTERFACE ap_ctrl_none port=return\n"
         << "#pragma HLS INTERFACE axis port=" << STR_INPUTSTREAM << "\n"
-        << "#pragma HLS INTERFACE axis port=" << STR_OUTPUTSTREAM << "\n";
+        << "#pragma HLS INTERFACE ap_hs port=" << STR_OUTPORT << "\n";
 
     local_decls_src
         << "unsigned long long int __commandArgs, __bufferData;"
@@ -1445,7 +1444,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         <<    profiling_3
         << "  send_finished_task_cmd: {"
         << "    #pragma HLS PROTOCOL fixed\n"
-        << "    __mcxx_send_finished_task_cmd(" << STR_OUTPUTSTREAM << ", __destID);"
+        << "    __mcxx_send_finished_task_cmd(__destID);"
         << "  }";
 
     // Get the declarations of wrapper types, variables and functions that are non-local
