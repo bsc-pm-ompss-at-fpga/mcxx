@@ -125,6 +125,8 @@ namespace TL
                 bool        _unaligned_memory_port;
                 std::string _force_periodic_support_str;
                 bool        _force_periodic_support;
+                std::string _ignore_deps_spawn_str;
+                bool        _ignore_deps_spawn;
                 std::string _function_copy_suffix;
                 str_set_t   _registered_tasks;
                 Nodecl::NodeclBase _root;
@@ -137,6 +139,7 @@ namespace TL
                 void set_unaligned_memory_port_from_str(const std::string& str);
                 void set_force_periodic_support_from_str(const std::string& str);
                 void set_funcion_copy_suffix_from_str(const std::string& str);
+                void set_ignore_deps_spawn_from_str(const std::string& str);
 
                 Nodecl::Utils::SimpleSymbolMap                 _global_copied_fpga_symbols;
                 Nodecl::List                                   _stuff_to_copy;
