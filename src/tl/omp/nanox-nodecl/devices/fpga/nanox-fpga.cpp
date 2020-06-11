@@ -557,6 +557,11 @@ DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_gener
         "Forces the suffix placed at the end of functions moved to fpga HLS source",
         _function_copy_suffix,
         "").connect(std::bind(&DeviceFPGA::set_funcion_copy_suffix_from_str, this, std::placeholders::_1));
+
+    register_parameter("fpga_ignore_deps_task_spawn",
+        "Ignores the task dependences information when spawning a task inside another FPGA task",
+        _ignore_deps_spawn_str,
+        "0").connect(std::bind(&DeviceFPGA::set_ignore_deps_spawn_from_str, this, std::placeholders::_1));
 }
 
 void DeviceFPGA::pre_run(DTO& dto) {
@@ -1724,7 +1729,7 @@ void DeviceFPGA::emit_async_device(
 
         TL::ObjectList<OutlineDataItem::DependencyItem> dependences = (*it)->get_dependences();
         for (TL::ObjectList<OutlineDataItem::DependencyItem>::iterator dep_it = dependences.begin();
-                dep_it != dependences.end();
+                dep_it != dependences.end() && !_ignore_deps_spawn;
                 dep_it++)
         {
             if ((dep_it->directionality & (~OutlineDataItem::DEP_INOUT)) != OutlineDataItem::DEP_NONE)
@@ -2370,6 +2375,11 @@ void DeviceFPGA::set_force_periodic_support_from_str(const std::string& str)
 void DeviceFPGA::set_funcion_copy_suffix_from_str(const std::string& in_str)
 {
     _function_copy_suffix = in_str;
+}
+
+void DeviceFPGA::set_ignore_deps_spawn_from_str(const std::string& str)
+{
+    TL::parse_boolean_option("fpga_ignore_deps_task_spawn", str, _ignore_deps_spawn, "Assuming false.");
 }
 
 std::string DeviceFPGA::FpgaOutlineInfo::get_filename() const
