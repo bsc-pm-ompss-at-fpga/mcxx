@@ -158,6 +158,7 @@ std::string get_mcxx_ptr_declaration(TL::Scope scope, const TL::Type& type_to_po
 void add_fpga_header(
     FILE* file,
     const bool instrumentation,
+    const bool task_creation,
     const bool periodic_support,
     const std::string name,
     const std::string type,
@@ -181,7 +182,7 @@ void add_fpga_header(
 #define __HLS_AUTOMATIC_MCXX__ 1\n\n"
     );
 
-    if (instrumentation || periodic_support)
+    if (instrumentation || task_creation || periodic_support)
     {
         fprintf(file, "#include <systemc.h>\n");
     }
@@ -1158,7 +1159,9 @@ void get_hls_wrapper_defs(
             << "  __mcxx_write_out_port(" << STR_TASKID << " /*data*/, " << HWR_TASKWAIT_ID << ", 1 /*last*/);"
             << "  {\n"
             << "#pragma HLS PROTOCOL fixed\n"
+            << "    wait();"
             << "    __mcxx_read_ein_port();"
+            << "    wait();"
             << "  }\n"
             << "  " << STR_COMPONENTS_COUNT << " = 0;"
             << "  return NANOS_OK;"
