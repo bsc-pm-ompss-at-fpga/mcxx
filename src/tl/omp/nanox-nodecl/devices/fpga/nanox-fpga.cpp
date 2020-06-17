@@ -282,6 +282,7 @@ void DeviceFPGA::create_outline(
                     called_task.get_name(),
                     get_num_instances(info._target_info),
                     acc_type,
+                    creates_children_tasks,
                     periodic_support);
 
                 // Duplicate the called task into the fpga source
@@ -726,6 +727,7 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
             add_fpga_header(
                 ancillary_file,
                 instrumentation_enabled(),
+                it->_creates_children_tasks,
                 it->_periodic_support,
                 it->get_wrapper_name(),
                 it->_type,
