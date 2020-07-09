@@ -1123,6 +1123,7 @@ void get_hls_wrapper_defs(
             << "  do {"
             << "    wait();"
             << "  } while (" << STR_HWCOUNTER_PORT << " < __usec_cycles);"
+            << "  return 0;"
             << "}";
     }
 
