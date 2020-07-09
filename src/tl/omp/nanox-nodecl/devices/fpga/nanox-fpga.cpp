@@ -1427,7 +1427,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             << "  {"
             << "    const unsigned long long int __time_delay = " << STR_HWCOUNTER_PORT << " + "
             <<        "((" << STR_REP_NUM << "+1 < " << STR_NUM_REPS << " || 0xFFFFFFFF == " << STR_NUM_REPS << ") ? "
-            <<        "__task_period*" << STR_FREQ_PORT << " : 0);";
+            <<        "__task_period*(unsigned int)" << STR_FREQ_PORT << " : 0);";
 
         periodic_command_post
             << "    do {"
