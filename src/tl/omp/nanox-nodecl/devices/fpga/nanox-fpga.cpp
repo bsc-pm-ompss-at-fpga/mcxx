@@ -1421,13 +1421,15 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             << "  }";
 
         periodic_command_pre
+            << "  const unsigned int __acc_freq = " << STR_FREQ_PORT << ";"
+            << "  __task_period = __task_period*__acc_freq;"
             << "  for (" << STR_REP_NUM << " = 0" << "; "
             <<      STR_REP_NUM << " < " << STR_NUM_REPS << " || 0xFFFFFFFF == " << STR_NUM_REPS << "; "
             <<      "++" << STR_REP_NUM << ")"
             << "  {"
             << "    const unsigned long long int __time_delay = " << STR_HWCOUNTER_PORT << " + "
-            <<        "((" << STR_REP_NUM << "+1 < " << STR_NUM_REPS << " || 0xFFFFFFFF == " << STR_NUM_REPS << ") ? "
-            <<        "__task_period*(unsigned int)" << STR_FREQ_PORT << " : 0);";
+            <<        "((((" << STR_REP_NUM << "+1) < " << STR_NUM_REPS << ") || (0xFFFFFFFF == " << STR_NUM_REPS << ")) ? "
+            <<        "__task_period : 0);";
 
         periodic_command_post
             << "    do {"

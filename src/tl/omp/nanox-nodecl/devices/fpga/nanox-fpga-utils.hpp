@@ -862,7 +862,7 @@ void get_hls_wrapper_decls(
     {
         wrapper_decls_before_user_code
             << "extern volatile unsigned long long int " << STR_HWCOUNTER_PORT << ";"
-            << "extern volatile ap_uint<10> " << STR_FREQ_PORT << ";";
+            << "extern ap_uint<10> " << STR_FREQ_PORT << ";";
 
         wrapper_body_pragmas
             << "#pragma HLS INTERFACE ap_none port=" << STR_HWCOUNTER_PORT << "\n"
@@ -1119,7 +1119,8 @@ void get_hls_wrapper_defs(
             << "#pragma HLS INLINE\n"
             << "#pragma HLS INTERFACE ap_none port=" << STR_HWCOUNTER_PORT << "\n"
             << "#pragma HLS INTERFACE ap_none port=" << STR_FREQ_PORT << "\n"
-            << "  const unsigned long long int __usec_cycles = " << STR_HWCOUNTER_PORT << " + usec*(unsigned int)" << STR_FREQ_PORT << ";"
+            << "  const unsigned int __acc_freq = " << STR_FREQ_PORT << ";"
+            << "  const unsigned long long int __usec_cycles = " << STR_HWCOUNTER_PORT << " + usec*__acc_freq;"
             << "  do {"
             << "    wait();"
             << "  } while (" << STR_HWCOUNTER_PORT << " < __usec_cycles);"
