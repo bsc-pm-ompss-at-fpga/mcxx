@@ -45,6 +45,7 @@
 #define STR_INPUTSTREAM        "mcxx_inStream"
 #define STR_INSTR_PORT         "mcxx_instr"
 #define STR_HWCOUNTER_PORT     "mcxx_hwcounterPort"
+#define STR_FREQ_PORT          "mcxx_freqPort"
 
 //Default instrumentation events codes
 #define EV_DEVCOPYIN            78
@@ -157,9 +158,7 @@ std::string get_mcxx_ptr_declaration(TL::Scope scope, const TL::Type& type_to_po
 
 void add_fpga_header(
     FILE* file,
-    const bool instrumentation,
-    const bool task_creation,
-    const bool periodic_support,
+    const bool needs_systemc_header,
     const std::string name,
     const std::string type,
     const std::string num_instances)
@@ -182,7 +181,7 @@ void add_fpga_header(
 #define __HLS_AUTOMATIC_MCXX__ 1\n\n"
     );
 
-    if (instrumentation || task_creation || periodic_support)
+    if (needs_systemc_header)
     {
         fprintf(file, "#include <systemc.h>\n");
     }
@@ -548,6 +547,29 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
                     //NOTE: Replace the called symbol: sqrtf --> __mcxx_sqrtf
                     called.set_symbol(_symbol_map->map(sym));
                 }
+                else if (sym.get_name() == "usleep")
+                {
+                    if (_symbol_map->map(sym) == sym)
+                    {
+                        // This is the first occurence of usleep, create the __mcxx_usleep symbol
+                        ObjectList<std::string> param_names;
+                        ObjectList<TL::Type> param_types;
+
+                        param_names.append("usec");
+                        param_types.append(TL::Type::get_unsigned_int_type());
+
+                        _symbol_map->add_map(sym, SymbolUtils::new_function_symbol(
+                            sym.get_scope(),
+                            "__mcxx_usleep",
+                            sym.get_type().returns(),
+                            param_names,
+                            param_types));
+                        _user_calls_set.insert("mcxx_usleep");
+                    }
+
+                    //NOTE: Replace the called symbol: usleep --> __mcxx_usleep
+                    called.set_symbol(_symbol_map->map(sym));
+                }
                 else if (sym.get_name().find("nanos_instrument_") != std::string::npos)
                 {
                     _user_calls_set.insert("nanos_instrument");
@@ -836,6 +858,17 @@ void get_hls_wrapper_decls(
         }
     }
 
+    if (periodic_support || user_calls_set.count("mcxx_usleep") > 0)
+    {
+        wrapper_decls_before_user_code
+            << "extern volatile unsigned long long int " << STR_HWCOUNTER_PORT << ";"
+            << "extern volatile unsigned short " << STR_FREQ_PORT << ";";
+
+        wrapper_body_pragmas
+            << "#pragma HLS INTERFACE ap_none port=" << STR_HWCOUNTER_PORT << "\n"
+            << "#pragma HLS INTERFACE ap_none port=" << STR_FREQ_PORT << "\n";
+    }
+
     if (periodic_support)
     {
         wrapper_decls_before_user_code
@@ -852,7 +885,7 @@ void get_hls_wrapper_decls(
         // NOTE: The following declarations will be placed in the source by the codegen in C lang
         wrapper_decls_before_user_code
             << "void __mcxx_write_out_port(const unsigned long long int data, const unsigned short dest, const unsigned char last);";
-	}
+    }
 
     if (user_calls_set.count("mcxx_memcpy") > 0 && !IS_C_LANGUAGE)
     {
@@ -873,6 +906,13 @@ void get_hls_wrapper_decls(
         // NOTE: The following declaration will be placed in the source by the codegen in C lang
         wrapper_decls_before_user_code
             << "float __mcxx_sqrtf(float x);";
+    }
+
+    if (user_calls_set.count("mcxx_usleep") > 0 && !IS_C_LANGUAGE)
+    {
+        // NOTE: The following declaration will be placed in the source by the codegen in C lang
+        wrapper_decls_before_user_code
+            << "int __mcxx_usleep(unsigned int usec);";
     }
 
     if (put_instr_nanos_api)
@@ -1068,6 +1108,21 @@ void get_hls_wrapper_defs(
             << "{"
             << "#pragma HLS INLINE\n"
             << "  return sqrtf(x);"
+            << "}";
+    }
+
+    if (user_calls_set.count("mcxx_usleep") > 0)
+    {
+        wrapper_defs
+            << "int __mcxx_usleep(unsigned int usec)"
+            << "{"
+            << "#pragma HLS INLINE\n"
+            << "#pragma HLS INTERFACE ap_none port=" << STR_HWCOUNTER_PORT << "\n"
+            << "#pragma HLS INTERFACE ap_none port=" << STR_FREQ_PORT << "\n"
+            << "  const unsigned long long int __usec_cycles = " << STR_HWCOUNTER_PORT << " + usec*" << STR_FREQ_PORT << ";"
+            << "  do {"
+            << "    wait();"
+            << "  } while (" << STR_HWCOUNTER_PORT << " < __usec_cycles);"
             << "}";
     }
 

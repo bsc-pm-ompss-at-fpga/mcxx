@@ -92,6 +92,7 @@ namespace TL
                     const std::string  _type;
                     const bool         _creates_children_tasks;
                     const bool         _periodic_support;
+                    bool               _needs_systemc_header;
                     Source             _wrapper_decls;
                     Source             _wrapper_code;
                     Nodecl::List       _user_code;
@@ -99,7 +100,8 @@ namespace TL
                     FpgaOutlineInfo(const std::string name, const std::string num,
                             const std::string type, const bool creates_children_tasks, const bool periodic_support) :
                             _name(name), _num_instances(num), _type(type), _creates_children_tasks(creates_children_tasks),
-                            _periodic_support(periodic_support), _wrapper_decls(), _wrapper_code(), _user_code() {}
+                            _periodic_support(periodic_support), _needs_systemc_header(false),
+                            _wrapper_decls(), _wrapper_code(), _user_code() {}
 
                     std::string get_filename() const;
                     std::string get_wrapper_name() const;
