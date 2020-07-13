@@ -321,6 +321,13 @@ void DeviceFPGA::create_outline(
                     to_outline_info._wrapper_decls,
                     to_outline_info._wrapper_code);
 
+                // Update the needs_systemc_header boolean
+                to_outline_info._needs_systemc_header =
+                    instrumentation_enabled() ||
+                    creates_children_tasks ||
+                    periodic_support ||
+                    fpga_task_code_visitor._user_calls_set.count("mcxx_usleep") > 0;
+
                 // Set the user code for the current task: called source + task user code
                 to_outline_info._user_code.append(fpga_task_code_visitor._called_functions);
                 to_outline_info._user_code.append(fun_code);
@@ -726,9 +733,7 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
 
             add_fpga_header(
                 ancillary_file,
-                instrumentation_enabled(),
-                it->_creates_children_tasks,
-                it->_periodic_support,
+                it->_needs_systemc_header,
                 it->get_wrapper_name(),
                 it->_type,
                 it->_num_instances);
@@ -954,7 +959,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         wrapper_decls_after_user_code, condition_task_execution_cmd_src;
     Source periodic_command_read, periodic_command_pre, periodic_command_post;
     Source in_copies, out_copies, in_copies_switch_body, out_copies_switch_body;
-    Source profiling_0, profiling_1, profiling_2, profiling_3;
+    Source profiling_0, profiling_1, profiling_2, profiling_3, profiling_4, profiling_5;
     unsigned int n_params_id = 0;
     unsigned int n_params_out = 0;
     unsigned int wrapper_memport_width;
@@ -986,15 +991,19 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         profiling_0 //copy in begin
             << "  nanos_instrument_burst_begin(" << EV_DEVCOPYIN << ", " << STR_TASKID << ");";
 
-        profiling_1 //copy in end, task exec begin
-            << "  nanos_instrument_burst_end(" << EV_DEVCOPYIN << ", " << STR_TASKID << ");"
+        profiling_1 //copy in end
+            << "  nanos_instrument_burst_end(" << EV_DEVCOPYIN << ", " << STR_TASKID << ");";
+
+        profiling_2 //task exec begin
             << "  nanos_instrument_burst_begin(" << EV_DEVEXEC << ", " << STR_TASKID << ");";
 
-        profiling_2 //task exec end, copy out end
-            << "  nanos_instrument_burst_end(" << EV_DEVEXEC << ", " << STR_TASKID << ");"
+        profiling_3 //task exec end
+            << "  nanos_instrument_burst_end(" << EV_DEVEXEC << ", " << STR_TASKID << ");";
+
+        profiling_4 //copy out begin
             << "  nanos_instrument_burst_begin(" << EV_DEVCOPYOUT << ", " << STR_TASKID << ");";
 
-        profiling_3 //copy out end
+        profiling_5 //copy out end
             << "  nanos_instrument_burst_end(" << EV_DEVCOPYOUT << ", " << STR_TASKID << ");";
 
         init_hw_instr_cmd_src
@@ -1399,11 +1408,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
     if (periodic_support)
     {
-        params_src.append_with_separator("volatile unsigned long long int &" STR_HWCOUNTER_PORT, ", ");
-
-        pragmas_src
-            << "#pragma HLS INTERFACE ap_none port=" << STR_HWCOUNTER_PORT << "\n";
-
         condition_task_execution_cmd_src
             << " || __commandCode == 5";
 
@@ -1417,11 +1421,15 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             << "  }";
 
         periodic_command_pre
+            << "  const unsigned int __acc_freq = " << STR_FREQ_PORT << ";"
+            << "  __task_period = __task_period*__acc_freq;"
             << "  for (" << STR_REP_NUM << " = 0" << "; "
             <<      STR_REP_NUM << " < " << STR_NUM_REPS << " || 0xFFFFFFFF == " << STR_NUM_REPS << "; "
             <<      "++" << STR_REP_NUM << ")"
             << "  {"
-            << "    const unsigned long long int __time_delay = " << STR_HWCOUNTER_PORT << " + __task_period;";
+            << "    const unsigned long long int __time_delay = " << STR_HWCOUNTER_PORT << " + "
+            <<        "((((" << STR_REP_NUM << "+1) < " << STR_NUM_REPS << ") || (0xFFFFFFFF == " << STR_NUM_REPS << ")) ? "
+            <<        "__task_period : 0);";
 
         periodic_command_post
             << "    do {"
@@ -1443,12 +1451,14 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         << "  if (__comp_needed) {"
         <<      clear_components_count
         <<      periodic_command_pre
+        <<      profiling_2
         << "    " << func_symbol.get_name() << "(" << user_function_args << ");"
+        <<      profiling_3
         <<      periodic_command_post
         << "  }"
-        <<    profiling_2
+        <<    profiling_4
         <<    out_copies
-        <<    profiling_3
+        <<    profiling_5
         << "  send_finished_task_cmd: {"
         << "    #pragma HLS PROTOCOL fixed\n"
         << "    __mcxx_send_finished_task_cmd(__destID);"
