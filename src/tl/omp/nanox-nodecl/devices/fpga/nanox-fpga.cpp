@@ -1258,6 +1258,12 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 pragmas_src
                     << "#pragma HLS INTERFACE m_axi port=" << port_name << "\n";
 
+                if (elem_type.is_class())
+                {
+                    pragmas_src
+                        << "#pragma HLS DATA_PACK variable=" << port_name << "\n";
+                }
+
                 in_copies_switch_body
                     << "      memcpy(" << field_name << ", "
                     <<        "(" << casting_const_pointer << ")("
@@ -1327,6 +1333,12 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
             pragmas_src
                 << "#pragma HLS INTERFACE m_axi port=" << port_name << "\n";
+
+            if (elem_type.is_class())
+            {
+                pragmas_src
+                    << "#pragma HLS DATA_PACK variable=" << port_name << "\n";
+            }
 
             in_copies_switch_body
                 << "    case " << param_id << ":\n"
