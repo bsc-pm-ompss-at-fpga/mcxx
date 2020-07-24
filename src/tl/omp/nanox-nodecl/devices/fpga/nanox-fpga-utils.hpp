@@ -583,6 +583,10 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
                 {
                     _user_calls_set.insert("nanos_set_lock");
                 }
+                else if (sym.get_name().find("nanos_try_lock") != std::string::npos)
+                {
+                    _user_calls_set.insert("nanos_try_lock");
+                }
                 else if (sym.get_name().find("nanos_unset_lock") != std::string::npos)
                 {
                     _user_calls_set.insert("nanos_unset_lock");
@@ -751,6 +755,7 @@ void get_hls_wrapper_decls(
     const bool user_calls_nanos_instrument = user_calls_set.count("nanos_instrument") > 0;
     const bool user_calls_nanos_handle_err = user_calls_set.count("nanos_handle_error") > 0;
     const bool user_calls_nanos_set_lock = user_calls_set.count("nanos_set_lock") > 0;
+    const bool user_calls_nanos_try_lock = user_calls_set.count("nanos_set_lock") > 0;
     const bool user_calls_nanos_unset_lock = user_calls_set.count("nanos_unset_lock") > 0;
     const bool put_instr_nanos_api =
         (!IS_C_LANGUAGE && (instrumentation || user_calls_nanos_instrument)) ||
@@ -843,7 +848,7 @@ void get_hls_wrapper_decls(
         }
     }
 
-    if ((user_calls_nanos_set_lock || user_calls_nanos_unset_lock) && !IS_C_LANGUAGE)
+    if ((user_calls_nanos_set_lock || user_calls_nanos_try_lock || user_calls_nanos_unset_lock) && !IS_C_LANGUAGE)
     {
         wrapper_decls_before_user_code
             << "typedef const unsigned char nanos_lock_t;";
@@ -856,7 +861,7 @@ void get_hls_wrapper_decls(
         << "static unsigned long long int " << STR_PARENT_TASKID << ";"
         << "extern ap_uint<72> " << STR_OUTPORT << ";";
 
-    if (task_creation || user_calls_nanos_set_lock || user_calls_nanos_unset_lock)
+    if (task_creation || user_calls_nanos_set_lock || user_calls_nanos_try_lock || user_calls_nanos_unset_lock)
     {
         wrapper_decls_before_user_code
             << "extern volatile ap_uint<8> " << STR_GLOB_EINPORT << ";";
@@ -907,7 +912,7 @@ void get_hls_wrapper_decls(
             << "static unsigned int " << STR_REP_NUM << ";";
     }
 
-    if (user_calls_nanos_set_lock || user_calls_nanos_unset_lock)
+    if (user_calls_nanos_set_lock || user_calls_nanos_try_lock || user_calls_nanos_unset_lock)
     {
         wrapper_decls_before_user_code
             << "nanos_lock_t nanos_default_critical_lock = 0;";
@@ -923,7 +928,7 @@ void get_hls_wrapper_decls(
         wrapper_decls_before_user_code
             << "void __mcxx_write_out_port(const unsigned long long int data, const unsigned short dest, const unsigned char last);";
 
-        if (task_creation || user_calls_nanos_set_lock || user_calls_nanos_unset_lock)
+        if (task_creation || user_calls_nanos_set_lock || user_calls_nanos_try_lock || user_calls_nanos_unset_lock)
         {
             wrapper_decls_before_user_code
                 << "ap_uint<8> __mcxx_read_ein_port();";
@@ -1006,6 +1011,12 @@ void get_hls_wrapper_decls(
     {
         wrapper_decls_before_user_code
             << "nanos_err_t nanos_set_lock(nanos_lock_t * lock);";
+    }
+
+    if (user_calls_nanos_try_lock && !IS_C_LANGUAGE)
+    {
+        wrapper_decls_before_user_code
+            << "nanos_err_t nanos_try_lock(nanos_lock_t * lock, bool * result);";
     }
 
     if (user_calls_nanos_unset_lock && !IS_C_LANGUAGE)
@@ -1120,6 +1131,7 @@ void get_hls_wrapper_defs(
 {
     //NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
     const bool user_calls_nanos_set_lock = user_calls_set.count("nanos_set_lock") > 0;
+    const bool user_calls_nanos_try_lock = user_calls_set.count("nanos_try_lock") > 0;
     const bool user_calls_nanos_unset_lock = user_calls_set.count("nanos_unset_lock") > 0;
 
     wrapper_defs
@@ -1142,7 +1154,7 @@ void get_hls_wrapper_defs(
         << "  __mcxx_write_out_port(" << STR_PARENT_TASKID << ", destId, 1);"
         << "}";
 
-    if (task_creation || user_calls_nanos_set_lock || user_calls_nanos_unset_lock)
+    if (task_creation || user_calls_nanos_set_lock || user_calls_nanos_try_lock || user_calls_nanos_unset_lock)
     {
         wrapper_defs
             << "ap_uint<8> __mcxx_read_ein_port()"
@@ -1214,13 +1226,34 @@ void get_hls_wrapper_defs(
             << "{"
             << "  unsigned long long int tmp = lock[0];"
             << "  tmp = (tmp << 8) & 0x04 /*cmd code*/;"
+            << "  ap_uint<8> ack = " << ACK_REJECT_CODE << ";"
+            << "  do {"
+            << "    __mcxx_write_out_port(tmp , " << HWR_LOCK_ID << ", 1 /*last*/);"
+            << "    {\n"
+            << "#pragma HLS PROTOCOL fixed\n"
+            << "      wait();"
+            << "      ack = __mcxx_read_ein_port();"
+            << "    }\n"
+            << "  } while (ack != " << ACK_OK_CODE << ");"
+            << "  return NANOS_OK;"
+            << "}";
+    }
+
+    if (user_calls_nanos_try_lock)
+    {
+        wrapper_defs
+            << "nanos_err_t nanos_try_lock(nanos_lock_t * lock, bool * result)"
+            << "{"
+            << "  unsigned long long int tmp = lock[0];"
+            << "  tmp = (tmp << 8) & 0x04 /*cmd code*/;"
+            << "  ap_uint<8> ack = " << ACK_REJECT_CODE << ";"
             << "  __mcxx_write_out_port(tmp , " << HWR_LOCK_ID << ", 1 /*last*/);"
             << "  {\n"
             << "#pragma HLS PROTOCOL fixed\n"
             << "    wait();"
-            << "    __mcxx_read_ein_port();"
-            << "    wait();"
+            << "    ack = __mcxx_read_ein_port();"
             << "  }\n"
+            << "  result[0] = (ack == " << ACK_OK_CODE << ");"
             << "  return NANOS_OK;"
             << "}";
     }
