@@ -47,11 +47,16 @@
 #define STR_HWCOUNTER_PORT     "mcxx_hwcounterPort"
 #define STR_FREQ_PORT          "mcxx_freqPort"
 
-//Default instrumentation events codes
+//Default instrumentation events codes and values
+#define EV_APICALL              1
 #define EV_DEVCOPYIN            78
 #define EV_DEVCOPYOUT           79
 #define EV_DEVEXEC              80
 #define EV_INSTEVLOST           82
+#define EV_VAL_WG_WAIT          2
+#define EV_VAL_SET_LOCK         9
+#define EV_VAL_UNSET_LOCK       10
+#define EV_VAL_TRY_LOCK         11
 
 //Ack codes
 #define ACK_REJECT_CODE         0x0
@@ -912,7 +917,7 @@ void get_hls_wrapper_decls(
             << "static unsigned int " << STR_REP_NUM << ";";
     }
 
-    if (user_calls_nanos_set_lock || user_calls_nanos_try_lock || user_calls_nanos_unset_lock)
+    if ((user_calls_nanos_set_lock || user_calls_nanos_try_lock || user_calls_nanos_unset_lock) && !IS_C_LANGUAGE)
     {
         wrapper_decls_before_user_code
             << "nanos_lock_t nanos_default_critical_lock = 0;";
@@ -1221,11 +1226,23 @@ void get_hls_wrapper_defs(
 
     if (user_calls_nanos_set_lock)
     {
+        Source instr_pre, instr_post;
+
+        if (instrumentation)
+        {
+            instr_pre
+                << "  __mcxx_instr_write(" << EV_APICALL << ", " << EV_VAL_SET_LOCK << ", MCXX_EVENT_TYPE_BURST_OPEN);";
+
+            instr_post
+                << "  __mcxx_instr_write(" << EV_APICALL << ", " << EV_VAL_SET_LOCK << ", MCXX_EVENT_TYPE_BURST_CLOSE);";
+        }
+
         wrapper_defs
             << "nanos_err_t nanos_set_lock(nanos_lock_t * lock)"
             << "{"
+            <<    instr_pre
             << "  unsigned long long int tmp = lock[0];"
-            << "  tmp = (tmp << 8) & 0x04 /*cmd code*/;"
+            << "  tmp = (tmp << 8) | 0x04 /*cmd code*/;"
             << "  ap_uint<8> ack = " << ACK_REJECT_CODE << ";"
             << "  do {"
             << "    __mcxx_write_out_port(tmp , " << HWR_LOCK_ID << ", 1 /*last*/);"
@@ -1235,17 +1252,30 @@ void get_hls_wrapper_defs(
             << "      ack = __mcxx_read_ein_port();"
             << "    }\n"
             << "  } while (ack != " << ACK_OK_CODE << ");"
+            <<    instr_post
             << "  return NANOS_OK;"
             << "}";
     }
 
     if (user_calls_nanos_try_lock)
     {
+        Source instr_pre, instr_post;
+
+        if (instrumentation)
+        {
+            instr_pre
+                << "  __mcxx_instr_write(" << EV_APICALL << ", " << EV_VAL_TRY_LOCK << ", MCXX_EVENT_TYPE_BURST_OPEN);";
+
+            instr_post
+                << "  __mcxx_instr_write(" << EV_APICALL << ", " << EV_VAL_TRY_LOCK << ", MCXX_EVENT_TYPE_BURST_CLOSE);";
+        }
+
         wrapper_defs
             << "nanos_err_t nanos_try_lock(nanos_lock_t * lock, bool * result)"
             << "{"
+            <<    instr_pre
             << "  unsigned long long int tmp = lock[0];"
-            << "  tmp = (tmp << 8) & 0x04 /*cmd code*/;"
+            << "  tmp = (tmp << 8) | 0x04 /*cmd code*/;"
             << "  ap_uint<8> ack = " << ACK_REJECT_CODE << ";"
             << "  __mcxx_write_out_port(tmp , " << HWR_LOCK_ID << ", 1 /*last*/);"
             << "  {\n"
@@ -1254,19 +1284,33 @@ void get_hls_wrapper_defs(
             << "    ack = __mcxx_read_ein_port();"
             << "  }\n"
             << "  result[0] = (ack == " << ACK_OK_CODE << ");"
+            <<    instr_post
             << "  return NANOS_OK;"
             << "}";
     }
 
     if (user_calls_nanos_unset_lock)
     {
+        Source instr_pre, instr_post;
+
+        if (instrumentation)
+        {
+            instr_pre
+                << "  __mcxx_instr_write(" << EV_APICALL << ", " << EV_VAL_UNSET_LOCK << ", MCXX_EVENT_TYPE_BURST_OPEN);";
+
+            instr_post
+                << "  __mcxx_instr_write(" << EV_APICALL << ", " << EV_VAL_UNSET_LOCK << ", MCXX_EVENT_TYPE_BURST_CLOSE);";
+        }
+
         wrapper_defs
             << "nanos_err_t nanos_unset_lock(nanos_lock_t * lock)"
             << "{"
+            <<    instr_pre
             << "  unsigned long long int tmp = lock[0];"
-            << "  tmp = (tmp << 8) & 0x06 /*cmd code*/;"
+            << "  tmp = (tmp << 8) | 0x06 /*cmd code*/;"
             << "  __mcxx_write_out_port(tmp , " << HWR_LOCK_ID << ", 1 /*last*/);"
             << "  wait();"
+            <<    instr_post
             << "  return NANOS_OK;"
             << "}";
     }
@@ -1333,6 +1377,17 @@ void get_hls_wrapper_defs(
 
     if (task_creation)
     {
+        Source instr_wait_pre, instr_wait_post;
+
+        if (instrumentation)
+        {
+            instr_wait_pre
+                << "  __mcxx_instr_write(" << EV_APICALL << ", " << EV_VAL_WG_WAIT << ", MCXX_EVENT_TYPE_BURST_OPEN);";
+
+            instr_wait_post
+                << "  __mcxx_instr_write(" << EV_APICALL << ", " << EV_VAL_WG_WAIT << ", MCXX_EVENT_TYPE_BURST_CLOSE);";
+        }
+
         wrapper_defs
             << "unsigned long long int nanos_fpga_current_wd()"
             << "{"
@@ -1341,19 +1396,22 @@ void get_hls_wrapper_defs(
 
             << "nanos_err_t nanos_fpga_wg_wait_completion(unsigned long long int uwg, unsigned char avoid_flush)"
             << "{"
-            << "  if (" << STR_COMPONENTS_COUNT << " == 0) { return NANOS_OK; }"
-            << "  unsigned long long int tmp = " << STR_ACCID << ";"
-            << "  tmp = tmp << 48 /*ACC_ID info uses bits [48:55]*/;"
-            << "  tmp = 0x8000000100000000 | tmp | " << STR_COMPONENTS_COUNT << ";"
-            << "  __mcxx_write_out_port(tmp /*TASKWAIT_DATA_BLOCK*/, " << HWR_TASKWAIT_ID << ", 0 /*last*/);"
-            << "  __mcxx_write_out_port(" << STR_TASKID << " /*data*/, " << HWR_TASKWAIT_ID << ", 1 /*last*/);"
-            << "  {\n"
+            <<    instr_wait_pre
+            << "  if (" << STR_COMPONENTS_COUNT << " != 0) {"
+            << "    unsigned long long int tmp = " << STR_ACCID << ";"
+            << "    tmp = tmp << 48 /*ACC_ID info uses bits [48:55]*/;"
+            << "    tmp = 0x8000000100000000 | tmp | " << STR_COMPONENTS_COUNT << ";"
+            << "    __mcxx_write_out_port(tmp /*TASKWAIT_DATA_BLOCK*/, " << HWR_TASKWAIT_ID << ", 0 /*last*/);"
+            << "    __mcxx_write_out_port(" << STR_TASKID << " /*data*/, " << HWR_TASKWAIT_ID << ", 1 /*last*/);"
+            << "    {\n"
             << "#pragma HLS PROTOCOL fixed\n"
-            << "    wait();"
-            << "    __mcxx_read_ein_port();"
-            << "    wait();"
-            << "  }\n"
+            << "      wait();"
+            << "      __mcxx_read_ein_port();"
+            << "      wait();"
+            << "    }\n"
+            << "  }"
             << "  " << STR_COMPONENTS_COUNT << " = 0;"
+            <<    instr_wait_post
             << "  return NANOS_OK;"
             << "}"
 
