@@ -1241,7 +1241,7 @@ void get_hls_wrapper_defs(
             << "nanos_err_t nanos_set_lock(nanos_lock_t * lock)"
             << "{"
             <<    instr_pre
-            << "  unsigned long long int tmp = lock[0];"
+            << "  unsigned long long int tmp = 0 /*lock[0]*/;"
             << "  tmp = (tmp << 8) | 0x04 /*cmd code*/;"
             << "  ap_uint<8> ack = " << ACK_REJECT_CODE << ";"
             << "  do {"
@@ -1274,7 +1274,7 @@ void get_hls_wrapper_defs(
             << "nanos_err_t nanos_try_lock(nanos_lock_t * lock, bool * result)"
             << "{"
             <<    instr_pre
-            << "  unsigned long long int tmp = lock[0];"
+            << "  unsigned long long int tmp = 0 /*lock[0]*/;"
             << "  tmp = (tmp << 8) | 0x04 /*cmd code*/;"
             << "  ap_uint<8> ack = " << ACK_REJECT_CODE << ";"
             << "  __mcxx_write_out_port(tmp , " << HWR_LOCK_ID << ", 1 /*last*/);"
@@ -1306,7 +1306,7 @@ void get_hls_wrapper_defs(
             << "nanos_err_t nanos_unset_lock(nanos_lock_t * lock)"
             << "{"
             <<    instr_pre
-            << "  unsigned long long int tmp = lock[0];"
+            << "  unsigned long long int tmp = 0 /*lock[0]*/;"
             << "  tmp = (tmp << 8) | 0x06 /*cmd code*/;"
             << "  __mcxx_write_out_port(tmp , " << HWR_LOCK_ID << ", 1 /*last*/);"
             << "  wait();"
