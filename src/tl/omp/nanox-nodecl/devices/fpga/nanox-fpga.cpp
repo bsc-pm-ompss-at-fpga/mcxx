@@ -326,6 +326,9 @@ void DeviceFPGA::create_outline(
                     instrumentation_enabled() ||
                     creates_children_tasks ||
                     periodic_support ||
+                    fpga_task_code_visitor._user_calls_set.count("nanos_set_lock") > 0 ||
+                    fpga_task_code_visitor._user_calls_set.count("nanos_try_lock") > 0 ||
+                    fpga_task_code_visitor._user_calls_set.count("nanos_unset_lock") > 0 ||
                     fpga_task_code_visitor._user_calls_set.count("mcxx_usleep") > 0;
 
                 // Set the user code for the current task: called source + task user code
@@ -989,22 +992,22 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     if (instrumentation_enabled())
     {
         profiling_0 //copy in begin
-            << "  nanos_instrument_burst_begin(" << EV_DEVCOPYIN << ", " << STR_TASKID << ");";
+            << "  __mcxx_instr_write(" << EV_DEVCOPYIN << ", " << STR_TASKID << ", MCXX_EVENT_TYPE_BURST_OPEN);";
 
         profiling_1 //copy in end
-            << "  nanos_instrument_burst_end(" << EV_DEVCOPYIN << ", " << STR_TASKID << ");";
+            << "  __mcxx_instr_write(" << EV_DEVCOPYIN << ", " << STR_TASKID << ", MCXX_EVENT_TYPE_BURST_CLOSE);";
 
         profiling_2 //task exec begin
-            << "  nanos_instrument_burst_begin(" << EV_DEVEXEC << ", " << STR_TASKID << ");";
+            << "  __mcxx_instr_write(" << EV_DEVEXEC << ", " << STR_TASKID << ", MCXX_EVENT_TYPE_BURST_OPEN);";
 
         profiling_3 //task exec end
-            << "  nanos_instrument_burst_end(" << EV_DEVEXEC << ", " << STR_TASKID << ");";
+            << "  __mcxx_instr_write(" << EV_DEVEXEC << ", " << STR_TASKID << ", MCXX_EVENT_TYPE_BURST_CLOSE);";
 
         profiling_4 //copy out begin
-            << "  nanos_instrument_burst_begin(" << EV_DEVCOPYOUT << ", " << STR_TASKID << ");";
+            << "  __mcxx_instr_write(" << EV_DEVCOPYOUT << ", " << STR_TASKID << ", MCXX_EVENT_TYPE_BURST_OPEN);";
 
         profiling_5 //copy out end
-            << "  nanos_instrument_burst_end(" << EV_DEVCOPYOUT << ", " << STR_TASKID << ");";
+            << "  __mcxx_instr_write(" << EV_DEVCOPYOUT << ", " << STR_TASKID << ", MCXX_EVENT_TYPE_BURST_CLOSE);";
 
         init_hw_instr_cmd_src
             << "else if (__commandCode == 2) {"
@@ -1258,6 +1261,12 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 pragmas_src
                     << "#pragma HLS INTERFACE m_axi port=" << port_name << "\n";
 
+                if (elem_type.is_class())
+                {
+                    pragmas_src
+                        << "#pragma HLS DATA_PACK variable=" << port_name << "\n";
+                }
+
                 in_copies_switch_body
                     << "      memcpy(" << field_name << ", "
                     <<        "(" << casting_const_pointer << ")("
@@ -1327,6 +1336,12 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
             pragmas_src
                 << "#pragma HLS INTERFACE m_axi port=" << port_name << "\n";
+
+            if (elem_type.is_class())
+            {
+                pragmas_src
+                    << "#pragma HLS DATA_PACK variable=" << port_name << "\n";
+            }
 
             in_copies_switch_body
                 << "    case " << param_id << ":\n"

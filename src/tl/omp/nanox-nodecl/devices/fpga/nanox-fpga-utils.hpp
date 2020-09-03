@@ -47,11 +47,16 @@
 #define STR_HWCOUNTER_PORT     "mcxx_hwcounterPort"
 #define STR_FREQ_PORT          "mcxx_freqPort"
 
-//Default instrumentation events codes
+//Default instrumentation events codes and values
+#define EV_APICALL              1
 #define EV_DEVCOPYIN            78
 #define EV_DEVCOPYOUT           79
 #define EV_DEVEXEC              80
 #define EV_INSTEVLOST           82
+#define EV_VAL_WG_WAIT          2
+#define EV_VAL_SET_LOCK         9
+#define EV_VAL_UNSET_LOCK       10
+#define EV_VAL_TRY_LOCK         11
 
 //Ack codes
 #define ACK_REJECT_CODE         0x0
@@ -62,6 +67,7 @@
 #define HWR_DEPS_ID             0x12
 #define HWR_SCHED_ID            0x13
 #define HWR_TASKWAIT_ID         0x14
+#define HWR_LOCK_ID             0x15
 
 namespace TL
 {
@@ -574,6 +580,22 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
                 {
                     _user_calls_set.insert("nanos_instrument");
                 }
+                else if (sym.get_name().find("nanos_handle_error") != std::string::npos)
+                {
+                    _user_calls_set.insert("nanos_handle_error");
+                }
+                else if (sym.get_name().find("nanos_set_lock") != std::string::npos)
+                {
+                    _user_calls_set.insert("nanos_set_lock");
+                }
+                else if (sym.get_name().find("nanos_try_lock") != std::string::npos)
+                {
+                    _user_calls_set.insert("nanos_try_lock");
+                }
+                else if (sym.get_name().find("nanos_unset_lock") != std::string::npos)
+                {
+                    _user_calls_set.insert("nanos_unset_lock");
+                }
 
                 return;
             }
@@ -736,9 +758,17 @@ void get_hls_wrapper_decls(
     // NOTE: The declarations of Nanos++ APIs must be coherent with the ones in the Nanos++ headers.
     //       The only declarations that changes is nanos_wd_t which is a integer type inside the FPGA
     const bool user_calls_nanos_instrument = user_calls_set.count("nanos_instrument") > 0;
+    const bool user_calls_nanos_handle_err = user_calls_set.count("nanos_handle_error") > 0;
+    const bool user_calls_nanos_set_lock = user_calls_set.count("nanos_set_lock") > 0;
+    const bool user_calls_nanos_try_lock = user_calls_set.count("nanos_set_lock") > 0;
+    const bool user_calls_nanos_unset_lock = user_calls_set.count("nanos_unset_lock") > 0;
     const bool put_instr_nanos_api =
         (!IS_C_LANGUAGE && (instrumentation || user_calls_nanos_instrument)) ||
         (IS_C_LANGUAGE && instrumentation && !user_calls_nanos_instrument);
+    const bool put_nanos_err_api = !IS_C_LANGUAGE ||
+        (IS_C_LANGUAGE && !task_creation && !user_calls_nanos_instrument && instrumentation && !user_calls_nanos_handle_err);
+    const bool put_nanos_handle_err_api =
+        !IS_C_LANGUAGE && (task_creation || user_calls_nanos_handle_err);
     bool is_nanos_err_declared = false;
 
     /*** Type declarations ***/
@@ -747,7 +777,7 @@ void get_hls_wrapper_decls(
         << "typedef hls::stream<axiData_t> axiStream_t;"
         /*<< "typedef unsigned long long int nanos_wd_t;"*/;
 
-    if (!IS_C_LANGUAGE || (IS_C_LANGUAGE && !task_creation && !user_calls_nanos_instrument && instrumentation))
+    if (put_nanos_err_api)
     {
         // NOTE: The following declarations will be placed in the source by the codegen in C lang
         wrapper_decls_before_user_code
@@ -823,12 +853,27 @@ void get_hls_wrapper_decls(
         }
     }
 
+    if ((user_calls_nanos_set_lock || user_calls_nanos_try_lock || user_calls_nanos_unset_lock) && !IS_C_LANGUAGE)
+    {
+        wrapper_decls_before_user_code
+            << "typedef const unsigned char nanos_lock_t;";
+    }
+
     /*** Variable declarations ***/
     wrapper_decls_before_user_code
         << "extern const unsigned char " << STR_ACCID << ";"
         << "static unsigned long long int " << STR_TASKID << ";"
         << "static unsigned long long int " << STR_PARENT_TASKID << ";"
         << "extern ap_uint<72> " << STR_OUTPORT << ";";
+
+    if (task_creation || user_calls_nanos_set_lock || user_calls_nanos_try_lock || user_calls_nanos_unset_lock)
+    {
+        wrapper_decls_before_user_code
+            << "extern volatile ap_uint<8> " << STR_GLOB_EINPORT << ";";
+
+        wrapper_body_pragmas
+            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_EINPORT << "\n";
+    }
 
     if (instrumentation)
     {
@@ -842,11 +887,7 @@ void get_hls_wrapper_decls(
     if (task_creation)
     {
         wrapper_decls_before_user_code
-            << "extern volatile ap_uint<8> " << STR_GLOB_EINPORT << ";"
             << "static ap_uint<32> " << STR_COMPONENTS_COUNT << ";";
-
-        wrapper_body_pragmas
-            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_EINPORT << "\n";
 
         if (shared_memory_port_width != "")
         {
@@ -876,6 +917,12 @@ void get_hls_wrapper_decls(
             << "static unsigned int " << STR_REP_NUM << ";";
     }
 
+    if ((user_calls_nanos_set_lock || user_calls_nanos_try_lock || user_calls_nanos_unset_lock) && !IS_C_LANGUAGE)
+    {
+        wrapper_decls_before_user_code
+            << "nanos_lock_t nanos_default_critical_lock = 0;";
+    }
+
     /*** Function declarations ***/
     wrapper_decls_before_user_code
         << "void __mcxx_send_finished_task_cmd(const unsigned char destId);";
@@ -885,6 +932,12 @@ void get_hls_wrapper_decls(
         // NOTE: The following declarations will be placed in the source by the codegen in C lang
         wrapper_decls_before_user_code
             << "void __mcxx_write_out_port(const unsigned long long int data, const unsigned short dest, const unsigned char last);";
+
+        if (task_creation || user_calls_nanos_set_lock || user_calls_nanos_try_lock || user_calls_nanos_unset_lock)
+        {
+            wrapper_decls_before_user_code
+                << "ap_uint<8> __mcxx_read_ein_port();";
+        }
     }
 
     if (user_calls_set.count("mcxx_memcpy") > 0 && !IS_C_LANGUAGE)
@@ -915,6 +968,12 @@ void get_hls_wrapper_decls(
             << "int __mcxx_usleep(unsigned int usec);";
     }
 
+    if (put_nanos_handle_err_api)
+    {
+        wrapper_decls_before_user_code
+            << "void nanos_handle_error(nanos_err_t err);";
+    }
+
     if (put_instr_nanos_api)
     {
         // NOTE: Postpone the declarations if nanos_err_t is not yet defined
@@ -937,9 +996,7 @@ void get_hls_wrapper_decls(
         {
             // NOTE: The following declarations will be placed in the source by the codegen in C lang
             wrapper_decls_before_user_code
-                << "ap_uint<8> __mcxx_read_ein_port();"
                 << "unsigned long long int nanos_fpga_current_wd();"
-                << "void nanos_handle_error(nanos_err_t err);"
                 << "nanos_err_t nanos_fpga_wg_wait_completion(unsigned long long int uwg, unsigned char avoid_flush);"
                 << "void nanos_fpga_create_wd_async(const unsigned long long int type,"
                 << "    const unsigned char numArgs, const unsigned long long int * args,"
@@ -953,6 +1010,24 @@ void get_hls_wrapper_decls(
         wrapper_decls_before_user_code
             << "unsigned int nanos_get_periodic_task_repetition_num();"
             << "void nanos_cancel_periodic_task();";
+    }
+
+    if (user_calls_nanos_set_lock && !IS_C_LANGUAGE)
+    {
+        wrapper_decls_before_user_code
+            << "nanos_err_t nanos_set_lock(nanos_lock_t * lock);";
+    }
+
+    if (user_calls_nanos_try_lock && !IS_C_LANGUAGE)
+    {
+        wrapper_decls_before_user_code
+            << "nanos_err_t nanos_try_lock(nanos_lock_t * lock, bool * result);";
+    }
+
+    if (user_calls_nanos_unset_lock && !IS_C_LANGUAGE)
+    {
+        wrapper_decls_before_user_code
+            << "nanos_err_t nanos_unset_lock(nanos_lock_t * lock);";
     }
 
     /*** Full mcxx_ptr_t and mcxx_ref_t definition ***/
@@ -1060,6 +1135,9 @@ void get_hls_wrapper_defs(
   Source& wrapper_defs)
 {
     //NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
+    const bool user_calls_nanos_set_lock = user_calls_set.count("nanos_set_lock") > 0;
+    const bool user_calls_nanos_try_lock = user_calls_set.count("nanos_try_lock") > 0;
+    const bool user_calls_nanos_unset_lock = user_calls_set.count("nanos_unset_lock") > 0;
 
     wrapper_defs
         << "void __mcxx_write_out_port(const unsigned long long int data, const unsigned short dest, const unsigned char last)"
@@ -1080,6 +1158,17 @@ void get_hls_wrapper_defs(
         << "  __mcxx_write_out_port(" << STR_TASKID << ", destId, 0);"
         << "  __mcxx_write_out_port(" << STR_PARENT_TASKID << ", destId, 1);"
         << "}";
+
+    if (task_creation || user_calls_nanos_set_lock || user_calls_nanos_try_lock || user_calls_nanos_unset_lock)
+    {
+        wrapper_defs
+            << "ap_uint<8> __mcxx_read_ein_port()"
+            << "{"
+            << "  #pragma HLS INTERFACE ap_hs port=" << STR_GLOB_EINPORT << "\n"
+            << "  ap_uint<8> sync = " << STR_GLOB_EINPORT << ";"
+            << "  return sync;"
+            << "}";
+    }
 
     if (user_calls_set.count("mcxx_memcpy") > 0)
     {
@@ -1125,6 +1214,104 @@ void get_hls_wrapper_defs(
             << "    wait();"
             << "  } while (" << STR_HWCOUNTER_PORT << " < __usec_cycles);"
             << "  return 0;"
+            << "}";
+    }
+
+    if (user_calls_set.count("nanos_handle_error") > 0)
+    {
+        wrapper_defs
+            << "void nanos_handle_error(nanos_err_t err)"
+            << "{}";
+    }
+
+    if (user_calls_nanos_set_lock)
+    {
+        Source instr_pre, instr_post;
+
+        if (instrumentation)
+        {
+            instr_pre
+                << "  __mcxx_instr_write(" << EV_APICALL << ", " << EV_VAL_SET_LOCK << ", MCXX_EVENT_TYPE_BURST_OPEN);";
+
+            instr_post
+                << "  __mcxx_instr_write(" << EV_APICALL << ", " << EV_VAL_SET_LOCK << ", MCXX_EVENT_TYPE_BURST_CLOSE);";
+        }
+
+        wrapper_defs
+            << "nanos_err_t nanos_set_lock(nanos_lock_t * lock)"
+            << "{"
+            <<    instr_pre
+            << "  unsigned long long int tmp = 0 /*lock[0]*/;"
+            << "  tmp = (tmp << 8) | 0x04 /*cmd code*/;"
+            << "  ap_uint<8> ack = " << ACK_REJECT_CODE << ";"
+            << "  do {"
+            << "    __mcxx_write_out_port(tmp , " << HWR_LOCK_ID << ", 1 /*last*/);"
+            << "    {\n"
+            << "#pragma HLS PROTOCOL fixed\n"
+            << "      wait();"
+            << "      ack = __mcxx_read_ein_port();"
+            << "    }\n"
+            << "  } while (ack != " << ACK_OK_CODE << ");"
+            <<    instr_post
+            << "  return NANOS_OK;"
+            << "}";
+    }
+
+    if (user_calls_nanos_try_lock)
+    {
+        Source instr_pre, instr_post;
+
+        if (instrumentation)
+        {
+            instr_pre
+                << "  __mcxx_instr_write(" << EV_APICALL << ", " << EV_VAL_TRY_LOCK << ", MCXX_EVENT_TYPE_BURST_OPEN);";
+
+            instr_post
+                << "  __mcxx_instr_write(" << EV_APICALL << ", " << EV_VAL_TRY_LOCK << ", MCXX_EVENT_TYPE_BURST_CLOSE);";
+        }
+
+        wrapper_defs
+            << "nanos_err_t nanos_try_lock(nanos_lock_t * lock, bool * result)"
+            << "{"
+            <<    instr_pre
+            << "  unsigned long long int tmp = 0 /*lock[0]*/;"
+            << "  tmp = (tmp << 8) | 0x04 /*cmd code*/;"
+            << "  ap_uint<8> ack = " << ACK_REJECT_CODE << ";"
+            << "  __mcxx_write_out_port(tmp , " << HWR_LOCK_ID << ", 1 /*last*/);"
+            << "  {\n"
+            << "#pragma HLS PROTOCOL fixed\n"
+            << "    wait();"
+            << "    ack = __mcxx_read_ein_port();"
+            << "  }\n"
+            << "  result[0] = (ack == " << ACK_OK_CODE << ");"
+            <<    instr_post
+            << "  return NANOS_OK;"
+            << "}";
+    }
+
+    if (user_calls_nanos_unset_lock)
+    {
+        Source instr_pre, instr_post;
+
+        if (instrumentation)
+        {
+            instr_pre
+                << "  __mcxx_instr_write(" << EV_APICALL << ", " << EV_VAL_UNSET_LOCK << ", MCXX_EVENT_TYPE_BURST_OPEN);";
+
+            instr_post
+                << "  __mcxx_instr_write(" << EV_APICALL << ", " << EV_VAL_UNSET_LOCK << ", MCXX_EVENT_TYPE_BURST_CLOSE);";
+        }
+
+        wrapper_defs
+            << "nanos_err_t nanos_unset_lock(nanos_lock_t * lock)"
+            << "{"
+            <<    instr_pre
+            << "  unsigned long long int tmp = 0 /*lock[0]*/;"
+            << "  tmp = (tmp << 8) | 0x06 /*cmd code*/;"
+            << "  __mcxx_write_out_port(tmp , " << HWR_LOCK_ID << ", 1 /*last*/);"
+            << "  wait();"
+            <<    instr_post
+            << "  return NANOS_OK;"
             << "}";
     }
 
@@ -1190,37 +1377,41 @@ void get_hls_wrapper_defs(
 
     if (task_creation)
     {
-        wrapper_defs
-            << "ap_uint<8> __mcxx_read_ein_port()"
-            << "{"
-            << "  #pragma HLS INTERFACE ap_hs port=" << STR_GLOB_EINPORT << "\n"
-            << "  ap_uint<8> sync = " << STR_GLOB_EINPORT << ";"
-            << "  return sync;"
-            << "}"
+        Source instr_wait_pre, instr_wait_post;
 
+        if (instrumentation)
+        {
+            instr_wait_pre
+                << "  __mcxx_instr_write(" << EV_APICALL << ", " << EV_VAL_WG_WAIT << ", MCXX_EVENT_TYPE_BURST_OPEN);";
+
+            instr_wait_post
+                << "  __mcxx_instr_write(" << EV_APICALL << ", " << EV_VAL_WG_WAIT << ", MCXX_EVENT_TYPE_BURST_CLOSE);";
+        }
+
+        wrapper_defs
             << "unsigned long long int nanos_fpga_current_wd()"
             << "{"
             << " return " << STR_TASKID << ";"
             << "}"
 
-            << "void nanos_handle_error(nanos_err_t err)"
-            << "{}"
-
             << "nanos_err_t nanos_fpga_wg_wait_completion(unsigned long long int uwg, unsigned char avoid_flush)"
             << "{"
-            << "  if (" << STR_COMPONENTS_COUNT << " == 0) { return NANOS_OK; }"
-            << "  unsigned long long int tmp = " << STR_ACCID << ";"
-            << "  tmp = tmp << 48 /*ACC_ID info uses bits [48:55]*/;"
-            << "  tmp = 0x8000000100000000 | tmp | " << STR_COMPONENTS_COUNT << ";"
-            << "  __mcxx_write_out_port(tmp /*TASKWAIT_DATA_BLOCK*/, " << HWR_TASKWAIT_ID << ", 0 /*last*/);"
-            << "  __mcxx_write_out_port(" << STR_TASKID << " /*data*/, " << HWR_TASKWAIT_ID << ", 1 /*last*/);"
-            << "  {\n"
+            <<    instr_wait_pre
+            << "  if (" << STR_COMPONENTS_COUNT << " != 0) {"
+            << "    unsigned long long int tmp = " << STR_ACCID << ";"
+            << "    tmp = tmp << 48 /*ACC_ID info uses bits [48:55]*/;"
+            << "    tmp = 0x8000000100000000 | tmp | " << STR_COMPONENTS_COUNT << ";"
+            << "    __mcxx_write_out_port(tmp /*TASKWAIT_DATA_BLOCK*/, " << HWR_TASKWAIT_ID << ", 0 /*last*/);"
+            << "    __mcxx_write_out_port(" << STR_TASKID << " /*data*/, " << HWR_TASKWAIT_ID << ", 1 /*last*/);"
+            << "    {\n"
             << "#pragma HLS PROTOCOL fixed\n"
-            << "    wait();"
-            << "    __mcxx_read_ein_port();"
-            << "    wait();"
-            << "  }\n"
+            << "      wait();"
+            << "      __mcxx_read_ein_port();"
+            << "      wait();"
+            << "    }\n"
+            << "  }"
             << "  " << STR_COMPONENTS_COUNT << " = 0;"
+            <<    instr_wait_post
             << "  return NANOS_OK;"
             << "}"
 
