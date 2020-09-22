@@ -2223,14 +2223,11 @@ void DeviceFPGA::register_task_creation(
         fun_name << "nanos_xlate_fun_" << filename << "_" << fun_num;
         fun_num++;
 
-        TL::Type argument_type = ::get_user_defined_type(structure_symbol.get_internal_symbol());
-        argument_type = argument_type.get_lvalue_reference_to();
-
         ObjectList<std::string> parameter_names;
         ObjectList<TL::Type> parameter_types;
 
-        parameter_names.append("arg");
-        parameter_types.append(argument_type);
+        parameter_names.append("args");
+        parameter_types.append(TL::Type(TL::Type::get_unsigned_long_long_int_type()).get_pointer_to());
 
         TL::Symbol sym_nanos_wd_t = ReferenceScope(construct).get_scope().get_symbol_from_name("nanos_wd_t");
         ERROR_CONDITION(!sym_nanos_wd_t.is_valid(), "Typename nanos_wd_t not found", 0);
@@ -2256,9 +2253,10 @@ void DeviceFPGA::register_task_creation(
 
         // Check the data items and generate the translation function
         int current_copy_num = 0;
+        int current_param_idx = 0;
         for (TL::ObjectList<OutlineDataItem*>::iterator it = data_items.begin();
                 it != data_items.end();
-                it++)
+                it++, current_param_idx++)
         {
             TL::ObjectList<OutlineDataItem::CopyItem> copies = (*it)->get_copies();
 
@@ -2306,7 +2304,7 @@ void DeviceFPGA::register_task_creation(
                 ERROR_CONDITION(!(*it)->get_field_type().is_pointer(), "Invalid type, expecting a pointer", 0);
 
                 translations
-                    << "arg." << (*it)->get_field_name() << " = (" << as_type((*it)->get_field_type()) << ")device_base_address;"
+                    << "args[" << current_param_idx << "] = (uintptr_t)device_base_address;"
                     << "}"
                     ;
             }
