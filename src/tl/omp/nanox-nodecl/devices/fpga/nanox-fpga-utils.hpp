@@ -48,15 +48,15 @@
 #define STR_FREQ_PORT          "mcxx_freqPort"
 
 //Default instrumentation events codes and values
-#define EV_APICALL              1
+#define EV_APICALL              85
 #define EV_DEVCOPYIN            78
 #define EV_DEVCOPYOUT           79
 #define EV_DEVEXEC              80
 #define EV_INSTEVLOST           82
-#define EV_VAL_WG_WAIT          2
-#define EV_VAL_SET_LOCK         9
-#define EV_VAL_UNSET_LOCK       10
-#define EV_VAL_TRY_LOCK         11
+#define EV_VAL_WG_WAIT          1
+#define EV_VAL_SET_LOCK         2
+#define EV_VAL_UNSET_LOCK       3
+#define EV_VAL_TRY_LOCK         4
 
 //Ack codes
 #define ACK_REJECT_CODE         0x0
