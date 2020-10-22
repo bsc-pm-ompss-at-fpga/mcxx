@@ -596,9 +596,9 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
                 {
                     _user_calls_set.insert("nanos_unset_lock");
                 }
-                else if (sym.get_name().find("nanos_fpga_get_time_cycles") != std::string::npos)
+                else if (sym.get_name().find("nanos_fpga_get_time_cycle") != std::string::npos)
                 {
-                    _user_calls_set.insert("nanos_fpga_get_time_cycles");
+                    _user_calls_set.insert("nanos_fpga_get_time_cycle");
                 }
                 else if (sym.get_name().find("nanos_fpga_get_time_us") != std::string::npos)
                 {
@@ -770,7 +770,7 @@ void get_hls_wrapper_decls(
     const bool user_calls_nanos_set_lock = user_calls_set.count("nanos_set_lock") > 0;
     const bool user_calls_nanos_try_lock = user_calls_set.count("nanos_set_lock") > 0;
     const bool user_calls_nanos_unset_lock = user_calls_set.count("nanos_unset_lock") > 0;
-    const bool user_calls_nanos_time = user_calls_set.count("nanos_fpga_get_time_cycles") > 0 || user_calls_set.count("nanos_fpga_get_time_us") > 0;
+    const bool user_calls_nanos_time = user_calls_set.count("nanos_fpga_get_time_cycle") > 0 || user_calls_set.count("nanos_fpga_get_time_us") > 0;
     const bool put_instr_nanos_api =
         (!IS_C_LANGUAGE && (instrumentation || user_calls_nanos_instrument)) ||
         (IS_C_LANGUAGE && instrumentation && !user_calls_nanos_instrument);
@@ -1154,7 +1154,7 @@ void get_hls_wrapper_defs(
     const bool user_calls_nanos_set_lock = user_calls_set.count("nanos_set_lock") > 0;
     const bool user_calls_nanos_try_lock = user_calls_set.count("nanos_try_lock") > 0;
     const bool user_calls_nanos_unset_lock = user_calls_set.count("nanos_unset_lock") > 0;
-    const bool user_calls_nanos_time = user_calls_set.count("nanos_fpga_get_time_cycles") > 0 || user_calls_set.count("nanos_fpga_get_time_us") > 0;
+    const bool user_calls_nanos_time = user_calls_set.count("nanos_fpga_get_time_cycle") > 0 || user_calls_set.count("nanos_fpga_get_time_us") > 0;
 
     wrapper_defs
         << "void __mcxx_write_out_port(const unsigned long long int data, const unsigned short dest, const unsigned char last)"
