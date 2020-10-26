@@ -596,6 +596,14 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
                 {
                     _user_calls_set.insert("nanos_unset_lock");
                 }
+                else if (sym.get_name().find("nanos_fpga_get_time_cycle") != std::string::npos)
+                {
+                    _user_calls_set.insert("nanos_fpga_get_time_cycle");
+                }
+                else if (sym.get_name().find("nanos_fpga_get_time_us") != std::string::npos)
+                {
+                    _user_calls_set.insert("nanos_fpga_get_time_us");
+                }
 
                 return;
             }
@@ -762,6 +770,7 @@ void get_hls_wrapper_decls(
     const bool user_calls_nanos_set_lock = user_calls_set.count("nanos_set_lock") > 0;
     const bool user_calls_nanos_try_lock = user_calls_set.count("nanos_set_lock") > 0;
     const bool user_calls_nanos_unset_lock = user_calls_set.count("nanos_unset_lock") > 0;
+    const bool user_calls_nanos_time = user_calls_set.count("nanos_fpga_get_time_cycle") > 0 || user_calls_set.count("nanos_fpga_get_time_us") > 0;
     const bool put_instr_nanos_api =
         (!IS_C_LANGUAGE && (instrumentation || user_calls_nanos_instrument)) ||
         (IS_C_LANGUAGE && instrumentation && !user_calls_nanos_instrument);
@@ -899,7 +908,7 @@ void get_hls_wrapper_decls(
         }
     }
 
-    if (periodic_support || user_calls_set.count("mcxx_usleep") > 0)
+    if (periodic_support || user_calls_nanos_time || user_calls_set.count("mcxx_usleep") > 0)
     {
         wrapper_decls_before_user_code
             << "extern volatile unsigned long long int " << STR_HWCOUNTER_PORT << ";"
@@ -1030,6 +1039,13 @@ void get_hls_wrapper_decls(
             << "nanos_err_t nanos_unset_lock(nanos_lock_t * lock);";
     }
 
+    if (user_calls_nanos_time && !IS_C_LANGUAGE)
+    {
+        wrapper_decls_before_user_code
+            << "unsigned long long int nanos_fpga_get_time_cycle();"
+            << "unsigned long long int nanos_fpga_get_time_us();";
+    }
+
     /*** Full mcxx_ptr_t and mcxx_ref_t definition ***/
     // NOTE: This has to be done here, otherwise the user code cannot instantiate those variable types
     if (task_creation)
@@ -1138,6 +1154,7 @@ void get_hls_wrapper_defs(
     const bool user_calls_nanos_set_lock = user_calls_set.count("nanos_set_lock") > 0;
     const bool user_calls_nanos_try_lock = user_calls_set.count("nanos_try_lock") > 0;
     const bool user_calls_nanos_unset_lock = user_calls_set.count("nanos_unset_lock") > 0;
+    const bool user_calls_nanos_time = user_calls_set.count("nanos_fpga_get_time_cycle") > 0 || user_calls_set.count("nanos_fpga_get_time_us") > 0;
 
     wrapper_defs
         << "void __mcxx_write_out_port(const unsigned long long int data, const unsigned short dest, const unsigned char last)"
@@ -1490,6 +1507,23 @@ void get_hls_wrapper_defs(
             << "{"
             << "#pragma HLS inline\n"
             << "  " << STR_NUM_REPS <<" = 0;"
+            << "}";
+    }
+
+    if (user_calls_nanos_time)
+    {
+        wrapper_defs
+            << "unsigned long long int nanos_fpga_get_time_cycle()"
+            << "{"
+            << "#pragma HLS inline\n"
+            << "#pragma HLS INTERFACE ap_none port=" << STR_HWCOUNTER_PORT << "\n"
+            << "  return " << STR_HWCOUNTER_PORT <<";"
+            << "}"
+            << "unsigned long long int nanos_fpga_get_time_us()"
+            << "{"
+            << "#pragma HLS inline\n"
+            << "#pragma HLS INTERFACE ap_none port=" << STR_HWCOUNTER_PORT << "\n"
+            << "  return " << STR_HWCOUNTER_PORT <<"/(unsigned long long int)" << STR_FREQ_PORT << ";"
             << "}";
     }
 }
