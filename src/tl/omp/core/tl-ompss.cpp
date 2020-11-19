@@ -598,6 +598,17 @@ namespace TL { namespace OmpSs {
     {
     }
 
+    FunctionTaskInfo::FunctionTaskInfo(Symbol sym,
+            ObjectList<TL::OpenMP::DependencyItem> parameter_info,
+            ObjectList<Nodecl::NodeclBase> parameter_red_info,
+            ObjectList<Nodecl::NodeclBase> parameter_weakred_info)
+        : _sym(sym),
+        _parameters(parameter_info),
+        _parameter_reductions(parameter_red_info),
+        _parameter_weakreductions(parameter_weakred_info)
+    {
+    }
+
     FunctionTaskInfo::FunctionTaskInfo(
             const FunctionTaskInfo& task_info,
             Nodecl::Utils::SimpleSymbolMap& translation_map,
@@ -679,6 +690,8 @@ namespace TL { namespace OmpSs {
 
             new_function_task_info.add_function_task_dependency(TL::OpenMP::DependencyItem(new_expr, dir));
         }
+
+        // TODO: reductions
 
 
         // Third, instantiate the if clause, the final clause and the priority clause
@@ -786,6 +799,16 @@ namespace TL { namespace OmpSs {
     ObjectList<TL::OpenMP::DependencyItem> FunctionTaskInfo::get_parameter_info() const
     {
         return _parameters;
+    }
+
+    ObjectList<Nodecl::NodeclBase> FunctionTaskInfo::get_parameter_red_info() const
+    {
+        return _parameter_reductions;
+    }
+
+    ObjectList<Nodecl::NodeclBase> FunctionTaskInfo::get_parameter_weakred_info() const
+    {
+        return _parameter_weakreductions;
     }
 
     void FunctionTaskInfo::add_function_task_dependency(const TL::OpenMP::DependencyItem& dependence)
@@ -911,6 +934,7 @@ namespace TL { namespace OmpSs {
     {
         mw.write(_sym);
         mw.write(_parameters);
+        // TODO: reductions
         mw.write(_target_info);
         mw.write(_if_clause_cond_expr);
         mw.write(_final_clause_cond_expr);
@@ -928,6 +952,7 @@ namespace TL { namespace OmpSs {
     {
         mr.read(_sym);
         mr.read(_parameters);
+        // TODO: reductions
         mr.read(_target_info);
         mr.read(_if_clause_cond_expr);
         mr.read(_final_clause_cond_expr);
@@ -955,6 +980,11 @@ namespace TL { namespace OmpSs {
     bool FunctionTaskSet::empty() const
     {
         return _map.empty();
+    }
+
+    std::map<Symbol, FunctionTaskInfo> FunctionTaskSet::get_map() const
+    {
+        return _map;
     }
 
     void FunctionTaskSet::emit_module_info()
@@ -1021,6 +1051,20 @@ namespace TL { namespace OmpSs {
                 this->add_function_task(info.get_symbol(), info);
             }
         }
+    }
+
+    AssertInfo::AssertInfo()
+    {
+    }
+
+    void AssertInfo::add_assert_string(const std::string str)
+    {
+        list.push_back(str);
+    }
+
+    const std::vector<std::string> &AssertInfo::get_assert_list() const
+    {
+        return list;
     }
 
     CopyItem::CopyItem(DataReference copy_expr, ItemDirection direction)

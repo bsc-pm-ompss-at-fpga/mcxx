@@ -197,6 +197,7 @@
 "                           Optionally you can define a static \n" \
 "                           number of THREADS.\n" \
 "  --cuda                   Enables CUDA support in OmpSs/OmpSs-2\n" \
+"  --openacc                Enables OpenACC support in OmpSs-2\n" \
 "  --opencl                 Enables experimental support for OpenCL\n" \
 "  --opencl-build-opts=<options>\n" \
 "                           Options passed to OpenCL compiler\n" \
@@ -1415,15 +1416,21 @@ int parse_arguments(int argc, const char* argv[],
                 case OPTION_DISABLE_SIZEOF:
                     {
                         CURRENT_CONFIGURATION->disable_sizeof = 1;
-                        fprintf(stderr, "%s: option '--disable-sizeof' should be used only to work around problems. Please, report a bug.\n",
-                                compilation_process.exec_basename);
+                        if (from_command_line)
+                        {
+                            fprintf(stderr, "%s: option '--disable-sizeof' should be used only to work around problems. Please, report a bug.\n",
+                                    compilation_process.exec_basename);
+                        }
                         break;
                     }
                 case OPTION_DISABLE_FLOAT128_TOKEN:
                     {
                         CURRENT_CONFIGURATION->disable_float128_token = 1;
-                        fprintf(stderr, "%s: option '--disable-float128-token' should be used only to work around problems with PGI back-end. Please, report a bug.\n",
-                                compilation_process.exec_basename);
+                        if (from_command_line)
+                        {
+                            fprintf(stderr, "%s: option '--disable-float128-token' should be used only to work around problems with PGI back-end. Please, report a bug.\n",
+                                    compilation_process.exec_basename);
+                        }
                         break;
                     }
                 case OPTION_SET_ENVIRONMENT:

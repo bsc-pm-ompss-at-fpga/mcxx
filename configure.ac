@@ -448,14 +448,13 @@ then
 fi
 dnl --------------- END Cray Compilers ---------------------
 
-dnl --------------- PGI Compilers ---------------------
+dnl ----------------- PGI Compilers ------------------------
 AC_MSG_CHECKING([whether support for PGI Fortran/C/C++ compilers is enabled])
 AC_ARG_ENABLE([pgi-compilers],
   AS_HELP_STRING([--disable-pgi-compilers], [Disables support for PGI Fortran/C/C++ compilers (enabled by default)]),
   [ ], # enable_pgi_compilers=$enableval
   [ enable_pgi_compilers="yes"])
 AC_MSG_RESULT([$enable_pgi_compilers])
-
 
 PGIFC=
 PGICC=
@@ -466,7 +465,31 @@ then
    AC_CHECK_PROG([PGICC], [pgcc], [pgcc])
    AC_CHECK_PROG([PGICXX],[pgc++],[pgc++])
 fi
-dnl --------------- END Intel Compilers ---------------------
+
+# Check the case it isn't in the PATH, or we don't want to load the module (e.g. CTE-P9)
+if test x"$PGICXX" = x"" -o x"$PGICC" = x"" -o x"$PGIFC" = x"";
+then
+   AC_ARG_WITH([pgi-installation],
+     AS_HELP_STRING([--with-pgi-installation=prefix], [specify the installation prefix of PGI compilers]),
+     [ ac_cv_use_pgi_prefix=$withval ],
+     [ ac_cv_use_pgi_prefix="" ]
+   )
+   if test x"$ac_cv_use_pgi_prefix" != x"";
+   then
+      AC_PATH_PROG([PGIFC],  [pgf90], [], [ ${ac_cv_use_pgi_prefix}/bin ])
+      AC_PATH_PROG([PGICC],  [pgcc],  [], [ ${ac_cv_use_pgi_prefix}/bin ])
+      AC_PATH_PROG([PGICXX], [pgc++], [], [ ${ac_cv_use_pgi_prefix}/bin ])
+      # Checking return value of just 1 of them is enough
+      if test x"$PGICXX" != x"";
+      then
+         enable_pgi_compilers=yes
+      fi
+   else
+      enable_pgi_compilers=no
+   fi
+fi
+
+dnl ----------------- END PGI Compilers ------------------------
 
 dnl --------------------- Support for plain profiles for Intel Compilers -------------
 if test x"$ICC" != x -o x"$ICPC" != x -o x"$IFORT" != x;
@@ -809,7 +832,7 @@ AC_MSG_RESULT([$enable_nanox_cuda_device])
 
 
 nanox_supports_cuda=no
-if test x"$is_enabled_tl_omp_nanox" = x"yes";
+if test x"$is_enabled_tl_omp_nanox" = x"yes" -a x"$enable_nanox_cuda_device" = x"yes";
 then
     AC_CHECK_FILE([$nanox_include/nanos-gpu.h],[nanox_supports_cuda=yes])
     AC_MSG_CHECKING([whether Nanos++ was configured with CUDA support])
@@ -1540,6 +1563,7 @@ AM_CONDITIONAL([BUILD_OPTIMIZATIONS], test x$is_enabled_analysis = xyes)
 AM_CONDITIONAL([BUILD_AUTO_SCOPE],    test x$is_enabled_analysis = xyes)
 AM_CONDITIONAL([BUILD_OMP_LINT],      test x$is_enabled_analysis = xyes)
 AM_CONDITIONAL([BUILD_TL_COMPLEXITY], test x$is_enabled_analysis = xyes)
+AM_CONDITIONAL([BUILD_OSS_LINT],      test x$is_enabled_analysis = xyes)
 
 CORRECTNESS_LOG_DIR=""
 
@@ -1666,12 +1690,16 @@ AC_ARG_VAR([CRAYCXX], [Cray C++ Compiler])
 AC_ARG_VAR([CRAYFC], [Cray Fortran Compiler])
 AC_ARG_VAR([GPERF], [GNU gperf])
 AC_ARG_VAR([GIT], [git content tracker])
+AC_ARG_VAR([PGIFC], [PGI Fortran Compiler])
+AC_ARG_VAR([PGICC], [PGI C Compiler])
+AC_ARG_VAR([PGICXX], [PGI C++ Compiler])
 
 force_flex=no
 flex_good=no
 
 force_bison=no
 bison_good=no
+bison_reporting="--report=none"
 
 force_gperf=no
 gperf_good=no
@@ -1752,6 +1780,22 @@ then
           ]
   )
 
+  AC_ARG_ENABLE([bison-reporting],
+          AS_HELP_STRING([--enable-bison-reporting], [Use this when debugging bison grammars. This is disabled by default]),
+          [
+            if test x$enableval = xyes -o x$enableval = x;
+            then
+               bison_reporting="--report=all"
+            else if test x$enableval = xno;
+                 then
+                   bison_reporting="--report=none"
+                 else
+                     AC_MSG_ERROR([This option can only be given 'yes' or 'no' values])
+                 fi
+            fi
+          ]
+  )
+
   AC_CHECK_PROG([BISON], [bison], [bison])
   if test x$BISON = x;
   then
@@ -1765,7 +1809,7 @@ then
           bison_good=no
           AC_MSG_ERROR(${bison_ver}[, this version is known to fail])
        ;;
-       x2.@<:@34567@:>@*|x3.@<:@012345@:>@*)
+       x2.@<:@34567@:>@*|x3.@<:@01234567@:>@*)
           AC_MSG_RESULT([${bison_ver}])
           bison_good=yes
           ;;
@@ -1836,6 +1880,8 @@ then
 fi
 
 AC_SUBST([GPERF_LENGTH_TYPE])
+BISON_REPORTING="$bison_reporting"
+AC_SUBST([BISON_REPORTING])
 
 AM_CONDITIONAL([TPP_BUILDING], test "(" x$bison_good = xyes ")" -o "(" x$flex_good = xyes ")")
 AM_CONDITIONAL([BISON_BUILDING], test x$bison_good = xyes)

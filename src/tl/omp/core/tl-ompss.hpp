@@ -176,6 +176,8 @@ namespace TL { namespace OmpSs {
             Symbol _sym;
 
             ObjectList<TL::OpenMP::DependencyItem> _parameters;
+            ObjectList<Nodecl::NodeclBase> _parameter_reductions;
+            ObjectList<Nodecl::NodeclBase> _parameter_weakreductions;
             ObjectList<TL::Symbol> _shared_closure;
 
             TargetInfo _target_info;
@@ -200,6 +202,11 @@ namespace TL { namespace OmpSs {
             FunctionTaskInfo(Symbol sym,
                     ObjectList<TL::OpenMP::DependencyItem> parameter_info);
 
+            FunctionTaskInfo(Symbol sym,
+                    ObjectList<TL::OpenMP::DependencyItem> parameter_info,
+                    ObjectList<Nodecl::NodeclBase> parameter_red_info,
+                    ObjectList<Nodecl::NodeclBase> parameter_weakred_info);
+
             FunctionTaskInfo(
                     const FunctionTaskInfo& task_info,
                     Nodecl::Utils::SimpleSymbolMap& translation_map,
@@ -211,6 +218,8 @@ namespace TL { namespace OmpSs {
                     instantiation_symbol_map_t* instantiation_symbol_map);
 
             ObjectList<TL::OpenMP::DependencyItem> get_parameter_info() const;
+            ObjectList<Nodecl::NodeclBase> get_parameter_red_info() const;
+            ObjectList<Nodecl::NodeclBase> get_parameter_weakred_info() const;
 
             void add_function_task_dependency(const TL::OpenMP::DependencyItem& dep);
 
@@ -276,10 +285,24 @@ namespace TL { namespace OmpSs {
             void remove_function_task(Symbol sym);
 
             bool empty() const;
+            std::map<Symbol, FunctionTaskInfo> get_map() const;
 
             // Fortran
             void emit_module_info();
             void load_from_module(TL::Symbol module);
+    };
+
+    // OmpSs-2 Assert string list
+    class LIBTL_CLASS AssertInfo : public TL::Object
+    {
+        private:
+            std::vector<std::string> list;
+
+        public:
+            AssertInfo ();
+
+            void add_assert_string(const std::string str);
+            const std::vector<std::string> &get_assert_list() const;
     };
 
 } }

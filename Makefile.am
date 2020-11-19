@@ -166,7 +166,7 @@ CLEANFILES += lib/perish.o
 
 EXTRA_DIST += lib/perish.c
 lib/perish.o : lib/perish.c
-	$(CCBUILD_verbose)$(CC_FOR_BUILD) $(CFLAGS) -c -o $@ $(top_srcdir)/lib/perish.c $(DEFAULT_INCLUDES) \
+	$(CCBUILD_verbose)$(CC_FOR_BUILD) $(CFLAGS) -fPIC -c -o $@ $(top_srcdir)/lib/perish.c $(DEFAULT_INCLUDES) \
 	         -DPACKAGE=\"$(PACKAGE)\" -DVERSION=\"$(PACKAGE_VERSION)\"
 
 
@@ -602,7 +602,7 @@ src/frontend/cxx03.y : $(TPP) $(top_srcdir)/src/frontend/cxx03.y.in $(addprefix 
 src/frontend/cxx-parser-internal.h : src/frontend/cxx-parser.c
 if BISON_BUILDING
 src/frontend/cxx-parser.c : src/frontend/cxx03.y
-	$(BISON_verbose)$(BISON) -pmcxx --debug --defines=src/frontend/cxx-parser-internal.h --report=all --output=src/frontend/cxx-parser.c src/frontend/cxx03.y
+	$(BISON_verbose)$(BISON) -pmcxx --debug --defines=src/frontend/cxx-parser-internal.h $(BISON_REPORTING) --output=src/frontend/cxx-parser.c src/frontend/cxx03.y
 endif
 
 # These are obtained when invoking bison, if we write a rule like 'a b : d' it
@@ -636,7 +636,7 @@ src/frontend/c99.y : $(TPP) $(top_srcdir)/src/frontend/c99.y.in $(addprefix $(to
 src/frontend/c99-parser-internal.h : src/frontend/c99-parser.c
 if BISON_BUILDING
 src/frontend/c99-parser.c : src/frontend/c99.y
-	$(BISON_verbose)$(BISON) -pmc99 --debug --defines=src/frontend/c99-parser-internal.h --report=all --output=src/frontend/c99-parser.c src/frontend/c99.y
+	$(BISON_verbose)$(BISON) -pmc99 --debug --defines=src/frontend/c99-parser-internal.h $(BISON_REPORTING) --output=src/frontend/c99-parser.c src/frontend/c99.y
 endif
 
 # These are obtained when invoking bison, if we write a rule like 'a b : d' it
@@ -876,7 +876,7 @@ EXTRA_DIST += src/frontend/fortran/fortran03-parser.c
 src/frontend/fortran/fortran03-parser-internal.h : src/frontend/fortran/fortran03-parser.c
 if BISON_BUILDING
 src/frontend/fortran/fortran03-parser.c : src/frontend/fortran/fortran03.y
-	$(BISON_verbose)$(BISON) -pmf03 --debug --defines=src/frontend/fortran/fortran03-parser-internal.h --report=all --output=src/frontend/fortran/fortran03-parser.c src/frontend/fortran/fortran03.y
+	$(BISON_verbose)$(BISON) -pmf03 --debug --defines=src/frontend/fortran/fortran03-parser-internal.h $(BISON_REPORTING) --output=src/frontend/fortran/fortran03-parser.c src/frontend/fortran/fortran03.y
 endif
 
 if FLEX_BUILDING
@@ -1016,14 +1016,14 @@ src/tl/tl-lexer-tokens.hpp : $(PARSER_INFO_C) $(PARSER_INFO_CXX) $(PARSER_INFO_F
 	 echo "#define TL_LEXER_TOKENS_HPP" ; \
 	 echo "namespace TL {"  ; \
 	 echo "namespace TokensC {"  ; \
-	 $(SED) -n '/enum\s\+yytokentype/,/}/p' $(PARSER_INFO_C) ; \
+	 $(SED) -n '/^\s*enum\s\+yytokentype/,/};/p' $(PARSER_INFO_C) ; \
 	 echo "}"  ; \
 	 echo "namespace TokensCXX {" ; \
-	 $(SED) -n '/enum\s\+yytokentype/,/}/p' $(PARSER_INFO_CXX) ; \
+	 $(SED) -n '/^\s*enum\s\+yytokentype/,/};/p' $(PARSER_INFO_CXX) ; \
 	 echo "}"  ; \
 	 if [ -e "$(PARSER_INFO_FORTRAN)" ]; then \
 	    echo "namespace TokensFortran {"  ; \
-	    $(SED) -n '/enum\s\+yytokentype/,/}/p' $(PARSER_INFO_FORTRAN) ; \
+	    $(SED) -n '/^\s*enum\s\+yytokentype/,/};/p' $(PARSER_INFO_FORTRAN) ; \
 	    echo "}"  ; \
 	 fi; \
 	 echo "}";  \
@@ -1225,6 +1225,30 @@ src_tl_analysis_aliasing_libaliasing_la_SOURCES = \
         src/tl/analysis/aliasing/tl-alias-analysis.hpp \
         src/tl/analysis/aliasing/tl-alias-analysis.cpp \
         $(END)
+
+##########################################################################
+# src/tl/analysis/dom_tree
+##########################################################################
+
+lib_LTLIBRARIES += src/tl/analysis/dom_tree/libdom_tree.la
+
+src_tl_analysis_dom_tree_libdom_tree_la_CFLAGS   = $(tl_cflags) \
+                                                   -I$(top_srcdir)/src/tl/analysis/common \
+                                                   -I $(srcdir)/src/tl/omp/common
+src_tl_analysis_dom_tree_libdom_tree_la_CXXFLAGS = $(tl_cflags) \
+                                                   -I$(top_srcdir)/src/tl/analysis/common \
+                                                   -I $(srcdir)/src/tl/omp/common
+src_tl_analysis_dom_tree_libdom_tree_la_LDFLAGS  = $(tl_ldflags)
+src_tl_analysis_dom_tree_libdom_tree_la_LIBADD   = $(tl_libadd) \
+                                                   src/tl/libtl.la \
+                                                   src/tl/omp/common/libtlomp-common.la \
+                                                   src/tl/analysis/common/libanalysis_utils.la \
+                                                   $(END)
+
+src_tl_analysis_dom_tree_libdom_tree_la_SOURCES = \
+                    src/tl/analysis/dom_tree/tl-dom-tree.hpp \
+                    src/tl/analysis/dom_tree/tl-dom-tree.cpp \
+                    $(END)
 
 ##########################################################################
 # src/tl/analysis/pcfg
@@ -1486,6 +1510,7 @@ src_tl_analysis_interface_libanalysis_interface_la_CXXFLAGS= $(tl_cflags) \
 				-I$(srcdir)/src/tl/optimizations \
 				-I$(srcdir)/src/tl/analysis/common \
 				-I$(srcdir)/src/tl/analysis/aliasing \
+				-I$(srcdir)/src/tl/analysis/dom_tree \
 				-I$(srcdir)/src/tl/analysis/pcfg \
 				-I$(srcdir)/src/tl/analysis/pointers \
 				-I$(srcdir)/src/tl/analysis/use_def \
@@ -1508,6 +1533,7 @@ src_tl_analysis_interface_libanalysis_interface_la_LIBADD= \
 				src/tl/optimizations/libtloptimizations.la \
 				src/tl/analysis/common/libanalysis_utils.la \
 				src/tl/analysis/aliasing/libaliasing.la \
+				src/tl/analysis/dom_tree/libdom_tree.la \
 				src/tl/analysis/pcfg/libpcfg.la \
 				src/tl/analysis/pointers/libpointer_size.la \
 				src/tl/analysis/use_def/libuse_def.la \
@@ -1540,11 +1566,13 @@ phases_LTLIBRARIES += src/tl/analysis/test_phase/libtest_analysis.la
 src_tl_analysis_test_phase_libtest_analysis_la_CFLAGS = $(phases_cflags)
 src_tl_analysis_test_phase_libtest_analysis_la_CXXFLAGS = $(phases_cxxflags) \
 							  $(ANALYSIS_CFLAGS) \
+							  -I$(srcdir)/src/tl/analysis/dom_tree \
 							  -I$(srcdir)/src/tl/analysis/interface \
 							  -I$(srcdir)/src/tl/analysis/tdg
 src_tl_analysis_test_phase_libtest_analysis_la_LDFLAGS = $(phases_ldflags)
 src_tl_analysis_test_phase_libtest_analysis_la_LIBADD = $(phases_libadd) \
 							$(ANALYSIS_LIBADD) \
+							src/tl/analysis/dom_tree/libdom_tree.la \
 							src/tl/analysis/interface/libanalysis_interface.la \
 							src/tl/analysis/tdg/libtdg.la
 
@@ -1783,6 +1811,7 @@ src_tl_omp_base_libtlomp_base_la_CXXFLAGS = $(phases_cxxflags) \
                          -I $(srcdir)/src/tl/vectorization/vectorizer \
                          -I $(srcdir)/src/tl/analysis/interface\
                          -I $(srcdir)/src/tl/analysis/common \
+                         -I $(srcdir)/src/tl/analysis/dom_tree \
                          -I $(srcdir)/src/tl/analysis/pcfg \
                          -I $(srcdir)/src/tl/analysis/tdg \
                          $(END)
@@ -1824,6 +1853,7 @@ phases_LTLIBRARIES += src/tl/omp/auto-scope/libtlomp_auto_scope.la
 src_tl_omp_auto_scope_libtlomp_auto_scope_la_CFLAGS = $(tl_cflags) \
                           -I $(srcdir)/src/tl/analysis/interface \
                           -I $(srcdir)/src/tl/analysis/common \
+                          -I $(srcdir)/src/tl/analysis/dom_tree \
                           -I $(srcdir)/src/tl/analysis/pcfg \
                           -I $(srcdir)/src/tl/analysis/tdg \
                           -I $(srcdir)/src/tl/omp/common \
@@ -1833,6 +1863,7 @@ src_tl_omp_auto_scope_libtlomp_auto_scope_la_CFLAGS = $(tl_cflags) \
 src_tl_omp_auto_scope_libtlomp_auto_scope_la_CXXFLAGS = $(tl_cflags) \
                           -I $(srcdir)/src/tl/analysis/interface \
                           -I $(srcdir)/src/tl/analysis/common \
+                          -I $(srcdir)/src/tl/analysis/dom_tree \
                           -I $(srcdir)/src/tl/analysis/pcfg \
                           -I $(srcdir)/src/tl/analysis/tdg \
                           -I $(srcdir)/src/tl/omp/common \
@@ -2332,6 +2363,7 @@ phases_LTLIBRARIES += src/tl/omp/lint/libtlomp-lint.la
 
 src_tl_omp_lint_libtlomp_lint_la_CXXFLAGS = $(phases_cxxflags) \
                           -I $(top_srcdir)/src/tl/omp/common \
+                          -I $(top_srcdir)/src/tl/analysis/dom_tree \
                           -I $(top_srcdir)/src/tl/analysis/pcfg \
                           -I $(top_srcdir)/src/tl/analysis/common \
                           -I $(top_srcdir)/src/tl/analysis/tasks \
@@ -2342,6 +2374,7 @@ src_tl_omp_lint_libtlomp_lint_la_CXXFLAGS = $(phases_cxxflags) \
 src_tl_omp_lint_libtlomp_lint_la_LDFLAGS = $(phases_ldflags)
 src_tl_omp_lint_libtlomp_lint_la_LIBADD = $(phases_libadd) \
 			  $(top_builddir)/src/tl/omp/common/libtlomp-common.la \
+			  $(top_builddir)/src/tl/analysis/dom_tree/libdom_tree.la \
 			  $(top_builddir)/src/tl/analysis/pcfg/libpcfg.la \
 			  $(top_builddir)/src/tl/analysis/tasks/libtasks_analysis.la \
 			  $(top_builddir)/src/tl/analysis/tdg/libtdg.la \
@@ -2395,6 +2428,7 @@ src_tl_ompss_nanos6_libtlnanos6_lowering_la_SOURCES = \
     src/tl/ompss/nanos6/tl-nanos6-lower.hpp \
     src/tl/ompss/nanos6/tl-nanos6-task.cpp \
     src/tl/ompss/nanos6/tl-nanos6-taskloop.cpp \
+    src/tl/ompss/nanos6/tl-nanos6-taskloop-worksharing.cpp \
     src/tl/ompss/nanos6/tl-nanos6-taskcall.cpp \
     src/tl/ompss/nanos6/tl-nanos6-task-worksharing.cpp \
     src/tl/ompss/nanos6/tl-nanos6-task-properties.hpp \
@@ -2423,6 +2457,73 @@ src_tl_ompss_nanos6_libtlnanos6_lowering_la_SOURCES = \
     src/tl/ompss/nanos6/devices/openacc/tl-nanos6-openacc-device.cpp \
     $(END)
 
+##########################################################################
+# src/tl/ompss/nanos6/devices/openacc
+##########################################################################
+
+phases_LTLIBRARIES += src/tl/ompss/nanos6/devices/openacc/libtl-nanos6-openacc-functions.la
+
+src_tl_ompss_nanos6_devices_openacc_libtl_nanos6_openacc_functions_la_SOURCES = \
+	src/tl/ompss/nanos6/devices/openacc/tl-nanos6-openacc-functions.cpp \
+	src/tl/ompss/nanos6/devices/openacc/tl-nanos6-openacc-functions.hpp \
+	$(END)
+
+src_tl_ompss_nanos6_devices_openacc_libtl_nanos6_openacc_functions_la_CFLAGS = $(phases_cflags) \
+    -I$(srcdir)/src/tl/omp/core \
+    -I$(srcdir)/src/tl/omp/common \
+    -I$(srcdir)/src/tl/omp/lowering-common \
+		$(END)
+
+src_tl_ompss_nanos6_devices_openacc_libtl_nanos6_openacc_functions_la_CXXFLAGS = $(phases_cxxflags) \
+    -I$(srcdir)/src/tl/omp/core \
+    -I$(srcdir)/src/tl/omp/common \
+    -I$(srcdir)/src/tl/omp/lowering-common \
+		$(END)
+
+src_tl_ompss_nanos6_devices_openacc_libtl_nanos6_openacc_functions_la_LDFLAGS = $(phases_ldflags)
+src_tl_ompss_nanos6_devices_openacc_libtl_nanos6_openacc_functions_la_LIBADD = $(phases_libadd) \
+    src/tl/omp/core/libtlomp-core.la \
+    src/tl/omp/common/libtlomp-common.la \
+    src/tl/omp/lowering-common/libtlomplowering-common.la
+
+endif
+
+##########################################################################
+# src/tl/ompss/oss-lint
+##########################################################################
+
+if BUILD_OSS_LINT
+
+phases_LTLIBRARIES += src/tl/ompss/oss_lint/libtloss-lint.la
+
+src_tl_ompss_oss_lint_libtloss_lint_la_CXXFLAGS = $(phases_cxxflags) \
+                          -I $(top_srcdir)/src/tl/omp/common \
+                          -I $(top_srcdir)/src/tl/optimizations \
+                          -I $(top_srcdir)/src/tl/analysis/dom_tree \
+                          -I $(top_srcdir)/src/tl/analysis/pcfg \
+                          -I $(top_srcdir)/src/tl/analysis/common \
+                          -I $(top_srcdir)/src/tl/analysis/tasks \
+                          -I $(top_srcdir)/src/tl/analysis/tdg \
+                          -I $(top_srcdir)/src/tl/analysis/interface \
+                          $(END)
+                          
+
+src_tl_ompss_oss_lint_libtloss_lint_la_LDFLAGS = $(phases_ldflags)
+src_tl_ompss_oss_lint_libtloss_lint_la_LIBADD = $(phases_libadd) \
+			  $(top_builddir)/src/tl/omp/common/libtlomp-common.la \
+			  $(top_builddir)/src/tl/optimizations/libtloptimizations.la \
+			  $(top_builddir)/src/tl/analysis/dom_tree/libdom_tree.la \
+			  $(ANALYSIS_LIBADD) \
+			  $(top_builddir)/src/tl/analysis/tasks/libtasks_analysis.la \
+			  $(top_builddir)/src/tl/analysis/tdg/libtdg.la \
+			  $(top_builddir)/src/tl/analysis/interface/libanalysis_interface.la \
+              $(END)
+
+src_tl_ompss_oss_lint_libtloss_lint_la_SOURCES = \
+   src/tl/ompss/oss_lint/tl-oss-lint.hpp \
+   src/tl/ompss/oss_lint/tl-oss-lint.cpp \
+   $(END)
+
 endif
 
 ##########################################################################
@@ -2435,6 +2536,7 @@ phases_LTLIBRARIES += src/tl/analysis/libanalysis_check.la
 src_tl_analysis_libanalysis_check_la_CFLAGS = $(phases_cflags)
 src_tl_analysis_libanalysis_check_la_CXXFLAGS = $(phases_cxxflags) \
 						$(ANALYSIS_CFLAGS) \
+						-I$(srcdir)/src/tl/analysis/dom_tree \
 						-I$(srcdir)/src/tl/analysis/interface \
 						-I$(srcdir)/src/tl/analysis/tdg \
 						-I$(srcdir)/src/tl/omp/core \
@@ -2443,6 +2545,7 @@ src_tl_analysis_libanalysis_check_la_CXXFLAGS = $(phases_cxxflags) \
 src_tl_analysis_libanalysis_check_la_LDFLAGS = $(phases_ldflags)
 src_tl_analysis_libanalysis_check_la_LIBADD = $(phases_libadd) \
 						$(ANALYSIS_LIBADD) \
+						src/tl/analysis/dom_tree/libdom_tree.la \
 						src/tl/analysis/interface/libanalysis_interface.la \
 						src/tl/analysis/tdg/libtdg.la \
 						src/tl/omp/lint/libtlomp-lint.la
@@ -3159,7 +3262,7 @@ src/driver/cxx-configfile-parser-internal.h : src/driver/cxx-configfile-parser.c
 
 src/driver/cxx-configfile-parser.c: $(srcdir)/src/driver/cxx-configfile-parser.y
 if BISON_BUILDING
-	$(BISON_verbose)$(BISON) -pconfigfile --debug --defines=src/driver/cxx-configfile-parser-internal.h --report=all --output=src/driver/cxx-configfile-parser.c $(srcdir)/src/driver/cxx-configfile-parser.y
+	$(BISON_verbose)$(BISON) -pconfigfile --debug --defines=src/driver/cxx-configfile-parser-internal.h $(BISON_REPORTING) --output=src/driver/cxx-configfile-parser.c $(srcdir)/src/driver/cxx-configfile-parser.y
 else
 	@echo "*** ERROR: file cxx-configfile-parser.y was modified but no suitable bison was found during configure ***"
 	@exit 1

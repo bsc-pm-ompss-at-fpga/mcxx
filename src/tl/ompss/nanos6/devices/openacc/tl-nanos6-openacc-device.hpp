@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------
-  (C) Copyright 2015-2015 Barcelona Supercomputing Center
+  (C) Copyright 2018-2020 Barcelona Supercomputing Center
                           Centro Nacional de Supercomputacion
   
   This file is part of Mercurium C/C++ source-to-source compiler.
@@ -34,15 +34,23 @@ namespace TL { namespace Nanos6 {
     class OpenACCDevice : public Device
     {
         public:
-			OpenACCDevice();
+            OpenACCDevice();
 
-			~OpenACCDevice();
+            ~OpenACCDevice();
 
             //! This function returns a symbol that represents the device type id
             TL::Symbol get_device_type_id() const;
 
-			//! This function returns whether the current device requires arguments translation
+            //! This function returns whether the current device requires arguments translation
             bool requires_arguments_translation() const;
+
+           Nodecl::NodeclBase compute_specific_task_body(
+                    Nodecl::NodeclBase task_body,
+                    const DirectiveEnvironment &env,
+                    Nodecl::NodeclBase unpacked_function_code,
+                    const TL::Scope &unpacked_inside_scope,
+                    Nodecl::Utils::SimpleSymbolMap &symbol_map);
+
     };
 
 } }
