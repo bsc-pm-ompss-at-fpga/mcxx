@@ -131,6 +131,7 @@ namespace TL
                 std::string _ignore_deps_spawn_str;
                 bool        _ignore_deps_spawn;
                 std::string _function_copy_suffix;
+                std::string _memory_ports_mode;
                 str_set_t   _registered_tasks;
                 Nodecl::NodeclBase _root;
                 TL::ObjectList< struct FpgaOutlineInfo >       _outlines;
@@ -141,7 +142,8 @@ namespace TL
                 void set_memory_port_width_from_str(const std::string& str);
                 void set_unaligned_memory_port_from_str(const std::string& str);
                 void set_force_periodic_support_from_str(const std::string& str);
-                void set_funcion_copy_suffix_from_str(const std::string& str);
+                void set_function_copy_suffix_from_str(const std::string& str);
+                void set_memory_ports_mode_from_str(const std::string& str);
                 void set_ignore_deps_spawn_from_str(const std::string& str);
 
                 Nodecl::Utils::SimpleSymbolMap                 _global_copied_fpga_symbols;
