@@ -975,7 +975,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             "64" : _memory_port_width;
     // Aux. variables for shared memory ports based on data type
     unsigned int n_type_ports = 0;
-    std::map<TL::Type, std::string> type_ports_map;
+    std::map<std::string, std::string> type_ports_map;
 
     memset(function_parameters_passed, 0, param_list.size());
 
@@ -1252,31 +1252,35 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
                 // By default, use a dedicated port for the field
                 std::string port_name = STR_MEM_PORT_PREFIX + field_name;
+                TL::Type port_type = elem_type;
                 bool create_new_port = true;
 
                 // Check if a shared type port had to be used and/or created
-                if (_memory_ports_mode == "type" && type_ports_map.count(unql_type) == 0)
+                const std::string port_type_str = unql_type.get_declaration(scope, "");
+                if (_memory_ports_mode == "type" && type_ports_map.count(port_type_str) == 0)
                 {
                     const std::string type_num_str = "shrd_" + std::to_string(n_type_ports++);
-                    type_ports_map[elem_type] = type_num_str;
+                    type_ports_map[port_type_str] = type_num_str;
                     port_name = STR_MEM_PORT_PREFIX + type_num_str;
+                    port_type = unql_type;
                 }
                 else if (_memory_ports_mode == "type")
                 {
-                    port_name = STR_MEM_PORT_PREFIX + type_ports_map[elem_type];
+                    port_name = STR_MEM_PORT_PREFIX + type_ports_map[port_type_str];
+                    port_type = unql_type;
                     create_new_port = false;
                 }
 
                 if (create_new_port)
                 {
                     const std::string port_declaration =
-                        elem_type.get_pointer_to().get_declaration(scope, port_name, TL::Type::PARAMETER_DECLARATION);
+                        port_type.get_pointer_to().get_declaration(scope, port_name, TL::Type::PARAMETER_DECLARATION);
                     params_src.append_with_separator(port_declaration, ", ");
 
                     pragmas_src
                         << "#pragma HLS INTERFACE m_axi port=" << port_name << "\n";
 
-                    if (elem_type.is_class())
+                    if (port_type.is_class())
                     {
                         pragmas_src
                             << "#pragma HLS DATA_PACK variable=" << port_name << "\n";
@@ -1347,25 +1351,29 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             const std::string casting_sizeof = elem_type.get_declaration(scope, "");
             // By default, use a dedicated port for the field
             std::string port_name = STR_MEM_PORT_PREFIX + param_name;
+            TL::Type port_type = unql_type;
             bool create_new_port = true;
 
             // Check if a shared type port had to be used and/or created
-            if (_memory_ports_mode == "type" && type_ports_map.count(unql_type) == 0)
+            const std::string port_type_str = elem_type.get_unqualified_type().get_declaration(scope, "");
+            if (_memory_ports_mode == "type" && type_ports_map.count(port_type_str) == 0)
             {
                 const std::string type_num_str = "shrd_" + std::to_string(n_type_ports++);
-                type_ports_map[unql_type] = type_num_str;
+                type_ports_map[port_type_str] = type_num_str;
                 port_name = STR_MEM_PORT_PREFIX + type_num_str;
+                port_type = elem_type.get_unqualified_type().get_pointer_to();
             }
             else if (_memory_ports_mode == "type")
             {
-                port_name = STR_MEM_PORT_PREFIX + type_ports_map[unql_type];
+                port_name = STR_MEM_PORT_PREFIX + type_ports_map[port_type_str];
+                port_type = elem_type.get_unqualified_type().get_pointer_to();
                 create_new_port = false;
             }
 
             if (create_new_port)
             {
                 const std::string port_declaration =
-                    unql_type.get_declaration(scope, port_name, TL::Type::PARAMETER_DECLARATION);
+                    port_type.get_declaration(scope, port_name, TL::Type::PARAMETER_DECLARATION);
                 params_src.append_with_separator(port_declaration, ", ");
 
                 pragmas_src
