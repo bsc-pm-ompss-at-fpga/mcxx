@@ -98,6 +98,16 @@ namespace TL { namespace OpenMP {
             _function_task_set = std::static_pointer_cast<OmpSs::FunctionTaskSet>(dto["openmp_task_info"]);
         }
 
+        if (!dto.get_keys().contains("ompss_assert_info"))
+        {
+            _ompss_assert_info = std::shared_ptr<OmpSs::AssertInfo>(new OmpSs::AssertInfo());
+            dto.set_object("ompss_assert_info", _ompss_assert_info);
+        }
+        else
+        {
+            _ompss_assert_info = std::static_pointer_cast<OmpSs::AssertInfo>(dto["ompss_assert_info"]);
+        }
+
         if (!dto.get_keys().contains("openmp_core_should_run"))
         {
             std::shared_ptr<TL::Bool> should_run(new TL::Bool(true));
@@ -604,7 +614,8 @@ namespace TL { namespace OpenMP {
         {
             ObjectList<OpenMP::ReductionSymbol> reduction_references;
             get_reduction_symbols(construct, construct.get_clause(it->clause_name),
-                    nonlocal_symbols, data_environment, reduction_references, extra_symbols);
+                    construct.retrieve_context(),
+                    nonlocal_symbols, reduction_references);
 
             std::for_each(reduction_references.begin(), reduction_references.end(),
                     DataEnvironmentSetterReduction(data_environment, it->data_attr));
@@ -2109,6 +2120,16 @@ namespace TL { namespace OpenMP {
         _openmp_info->pop_current_data_environment();
     }
 
+    void Core::oss_taskloop_for_handler_pre(TL::PragmaCustomStatement construct)
+    {
+        taskloop_handler_pre(construct);
+    }
+
+    void Core::oss_taskloop_for_handler_post(TL::PragmaCustomStatement construct)
+    {
+        taskloop_handler_post(construct);
+    }
+
     void Core::single_handler_pre(TL::PragmaCustomStatement construct)
     {
         DataEnvironment& data_environment = _openmp_info->get_new_data_environment(construct);
@@ -2751,6 +2772,7 @@ namespace TL { namespace OpenMP {
     OSS_TO_OMP_DIRECTIVE_HANDLER(declare_reduction)
 
     OSS_INVALID_DECLARATION_HANDLER(lint)
+    OSS_INVALID_DECLARATION_HANDLER(taskloop_for)
 
 #include "tl-omp-def-undef-macros.hpp"
 

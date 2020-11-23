@@ -349,6 +349,7 @@ namespace TL { namespace OpenMP {
     OSS_TO_OMP_DIRECTIVE_HANDLER(declare_reduction)
 
     OSS_INVALID_DECLARATION_HANDLER(lint)
+    OSS_INVALID_DECLARATION_HANDLER(taskloop_for)
 
 #include "tl-omp-def-undef-macros.hpp"
 
@@ -713,7 +714,7 @@ namespace TL { namespace OpenMP {
                     || directive.get_pragma_line().get_clause("do").is_defined()))
         {
             // '#pragama oss task for' is handled as if it was a taskloop
-            oss_loop_handler_post(directive, /* is_worksharing */ true);
+            oss_loop_handler_post(directive, /* is_worksharing */ true, /* is_taskloop */ false);
             return;
         }
 
@@ -1540,12 +1541,22 @@ namespace TL { namespace OpenMP {
 
     void Base::oss_taskloop_handler_pre(TL::PragmaCustomStatement directive) { }
     void Base::oss_taskloop_handler_post(TL::PragmaCustomStatement directive) {
-      return oss_loop_handler_post(directive, /* is_worksharing */ false);
+      return oss_loop_handler_post(directive, /* is_worksharing */ false, /* is_taskloop */ true);
+    }
+
+    void Base::oss_taskloop_for_handler_pre(TL::PragmaCustomStatement directive) { }
+    void Base::oss_taskloop_for_handler_post(TL::PragmaCustomStatement directive)
+    {
+        return oss_loop_handler_post(
+            directive, /* is_worksharing */ true, /* is_taskloop */ true);
     }
 
     void Base::oss_loop_handler_post(TL::PragmaCustomStatement directive,
-        bool is_worksharing)
+        bool is_worksharing, bool is_taskloop)
     {
+        ERROR_CONDITION(!(is_worksharing || is_taskloop),
+            "Handling a loop clause that is neither taskloop nor task for", 0);
+
         Nodecl::NodeclBase statement = directive.get_statements();
         ERROR_CONDITION(!statement.is<Nodecl::List>(), "Invalid tree", 0);
         statement = statement.as<Nodecl::List>().front();
@@ -1622,6 +1633,10 @@ namespace TL { namespace OpenMP {
                 "priority", "Its priority will be",
                 directive, context, execution_environment);
 
+        handle_generic_clause_with_one_argument<Nodecl::OmpSs::Cost>(
+                "cost", "Its cost will be",
+                directive, directive, execution_environment);
+
         pragma_line.diagnostic_unused_clauses();
 
         ERROR_CONDITION(!context.get_in_context().is<Nodecl::List>(), "Expecting list", 0);
@@ -1683,7 +1698,14 @@ namespace TL { namespace OpenMP {
 
         Nodecl::NodeclBase stmt;
 
-        if (is_worksharing)
+        if (is_worksharing && is_taskloop)
+        {
+            stmt = Nodecl::OmpSs::TaskloopWorksharing::make(
+                    execution_environment,
+                    context,
+                    directive.get_locus());
+        }
+        else if (is_worksharing)
         {
             stmt = Nodecl::OmpSs::TaskWorksharing::make(
                     execution_environment,
@@ -3032,6 +3054,14 @@ namespace TL { namespace OpenMP {
                 Nodecl::OmpSs::Release::make(
                     environment,
                     directive.get_locus()));
+    }
+
+    void Base::oss_assert_handler_pre(TL::PragmaCustomDirective construct) { }
+    void Base::oss_assert_handler_post(TL::PragmaCustomDirective directive)
+    {
+        TL::PragmaCustomLine pragma_line = directive.get_pragma_line();
+        pragma_line.diagnostic_unused_clauses();
+        Nodecl::Utils::remove_from_enclosing_list(directive);
     }
 
     void Base::oss_lint_handler_pre(TL::PragmaCustomStatement) { }
@@ -4562,16 +4592,54 @@ namespace TL { namespace OpenMP {
         if (label_clause.is_defined())
         {
             TL::ObjectList<std::string> str_list = label_clause.get_tokenized_arguments();
+            bool old_syntax = true;
+            // This is a heuristic for compatibility. Doesn't work all the time
+            // but it will most of the time.
+            if (!str_list.empty()
+                && !str_list[0].empty()
+                && (str_list[0][0] == '"' || str_list[0][0] == '\''))
+            {
+                diagnostic_context_t *diag_ctx
+                    = diagnostic_context_new_buffered();
+                diagnostic_context_push(diag_ctx);
+                TL::ObjectList<Nodecl::NodeclBase> expr_list
+                    = label_clause.get_arguments_as_expressions();
+                diagnostic_context_pop_and_discard();
+
+                auto is_valid_expr = [](Nodecl::NodeclBase expr) {
+                    return expr.is_constant()
+                           && const_value_is_string(expr.get_constant());
+                };
+
+                if (expr_list.size() == 1 && is_valid_expr(expr_list[0]))
+                {
+                    char is_null_ended = 0;
+
+                    str_list.clear();
+                    str_list.push_back(const_value_string_unpack_to_string(
+                        expr_list[0].get_constant(), &is_null_ended));
+                    old_syntax = false;
+                }
+            }
+
             if (str_list.size() == 1)
             {
-                execution_environment.append(
-                        Nodecl::OmpSs::TaskLabel::make(str_list[0], directive.get_locus()));
+                if (old_syntax)
+                {
+                    warn_printf_at(directive.get_locus(),
+                                   "deprecated use of label(%s) will be parsed "
+                                   "as label(\"%s\")\n",
+                                   str_list[0].c_str(),
+                                   str_list[0].c_str());
+                }
+                execution_environment.append(Nodecl::OmpSs::TaskLabel::make(
+                    str_list[0], directive.get_locus()));
 
                 if (emit_omp_report())
                 {
-                    *_omp_report_file
-                        << OpenMP::Report::indent
-                        << "Its label is '" << str_list[0] << "'\n";
+                    *_omp_report_file << OpenMP::Report::indent
+                                      << "Its label is '" << str_list[0]
+                                      << "'\n";
                 }
             }
             else

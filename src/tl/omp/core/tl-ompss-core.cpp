@@ -225,7 +225,7 @@ namespace TL { namespace OpenMP {
     //
     //  void foo(int* c) { }
     //
-    static Nodecl::NodeclBase update_clause(Nodecl::NodeclBase clause, Symbol function_symbol)
+    Nodecl::NodeclBase Core::update_clause(Nodecl::NodeclBase clause, Symbol function_symbol)
     {
         ObjectList<Symbol> function_parameters = function_symbol.get_function_parameters();
 
@@ -256,7 +256,7 @@ namespace TL { namespace OpenMP {
     }
 
     // Convenience function that updates a list of expressions
-    static ObjectList<Nodecl::NodeclBase> update_clauses(const ObjectList<Nodecl::NodeclBase>& clauses,
+    ObjectList<Nodecl::NodeclBase> Core::update_clauses(const ObjectList<Nodecl::NodeclBase>& clauses,
             Symbol function_symbol)
     {
         ObjectList<Nodecl::NodeclBase> updated_clauses;
@@ -326,7 +326,62 @@ namespace TL { namespace OpenMP {
             weakinout_arguments,
             concurrent_arguments,
             commutative_arguments,
-				weakcommutative_arguments;
+            weakcommutative_arguments,
+            reduction_arguments,
+            weakreduction_arguments;
+
+        ObjectList<Nodecl::NodeclBase> reduction_items;
+        ObjectList<Nodecl::NodeclBase> weakreduction_items;
+        {
+
+            struct ReductionsClauses
+            {
+                ObjectList<Nodecl::NodeclBase>& reds_nodes;
+                ObjectList<Nodecl::NodeclBase>& reds_items;
+                const char* red_name;
+            } reds_clauses[] = {
+                { reduction_arguments, reduction_items, "reduction" },
+                { weakreduction_arguments, weakreduction_items, "weakreduction" },
+            };
+
+            struct ReductionSymbolBuilder
+            {
+                private:
+                    const locus_t* _locus;
+
+                public:
+                    ReductionSymbolBuilder(const locus_t* locus)
+                        : _locus(locus)
+                    {
+                    }
+
+                    Nodecl::NodeclBase operator()(ReductionSymbol arg) const
+                    {
+                        return Nodecl::OpenMP::ReductionItem::make(
+                                /* reductor */ Nodecl::Symbol::make(arg.get_reduction()->get_symbol(), _locus),
+                                /* reduced symbol */ arg.get_symbol().make_nodecl(/* set_ref_type */ true, _locus),
+                                /* reduction type */ Nodecl::Type::make(arg.get_reduction_type(), _locus),
+                                _locus);
+                    }
+            };
+
+            for (ReductionsClauses* it = reds_clauses;
+                    it != (ReductionsClauses*) (&reds_clauses + 1);
+                    it++)
+            {
+                PragmaCustomClause clause =
+                    pragma_line.get_clause(it->red_name);
+
+                ObjectList<OpenMP::ReductionSymbol> reduction_symbols;
+                if (clause.is_defined())
+                {
+                    TL::ObjectList<TL::Symbol> nonlocal_symbols;
+                    get_reduction_symbols(pragma_line, clause, parsing_scope, nonlocal_symbols, reduction_symbols, function_sym);
+                }
+                it->reds_items.append(reduction_symbols.map<Nodecl::NodeclBase>(ReductionSymbolBuilder(pragma_line.get_locus())));
+                it->reds_nodes = reduction_symbols.map<Nodecl::NodeclBase>(&OpenMP::ReductionSymbol::get_reduction_expression);
+            }
+        }
 
         {
             struct DependencesClauses
@@ -461,6 +516,8 @@ namespace TL { namespace OpenMP {
                 { concurrent_arguments,      DEP_OMPSS_CONCURRENT     },
                 { commutative_arguments,     DEP_OMPSS_COMMUTATIVE    },
                 { weakcommutative_arguments, DEP_OMPSS_WEAK_COMMUTATIVE    },
+                { reduction_arguments,       DEP_OMPSS_REDUCTION      },
+                { weakreduction_arguments,   DEP_OMPSS_WEAK_REDUCTION },
             };
 
             for (DependencesInformation* it = deps_info;
@@ -495,7 +552,12 @@ namespace TL { namespace OpenMP {
         }
         ERROR_CONDITION(_target_context.empty(), "This cannot be empty", 0);
 
-        TL::OmpSs::FunctionTaskInfo task_info(function_sym, dependence_list);
+        TL::OmpSs::FunctionTaskInfo task_info(
+            function_sym,
+            dependence_list,
+            reduction_items,
+            weakreduction_items);
+
         task_info.set_shared_closure(shared_vars);
 
         // Now gather target information
@@ -684,6 +746,36 @@ namespace TL { namespace OpenMP {
         {
             TL::ObjectList<std::string> str_list = label_clause.get_tokenized_arguments();
 
+            bool old_syntax = true;
+            // This is a heuristic for compatibility. Doesn't work all the time
+            // but it will most of the time.
+            if (!str_list.empty()
+                && !str_list[0].empty()
+                && (str_list[0][0] == '"' || str_list[0][0] == '\''))
+            {
+                diagnostic_context_t *diag_ctx
+                    = diagnostic_context_new_buffered();
+                diagnostic_context_push(diag_ctx);
+                TL::ObjectList<Nodecl::NodeclBase> expr_list
+                    = label_clause.get_arguments_as_expressions();
+                diagnostic_context_pop_and_discard();
+
+                auto is_valid_expr = [](Nodecl::NodeclBase expr) {
+                    return expr.is_constant()
+                           && const_value_is_string(expr.get_constant());
+                };
+
+                if (expr_list.size() == 1 && is_valid_expr(expr_list[0]))
+                {
+                    char is_null_ended = 0;
+
+                    str_list.clear();
+                    str_list.push_back(const_value_string_unpack_to_string(
+                        expr_list[0].get_constant(), &is_null_ended));
+                    old_syntax = false;
+                }
+            }
+
             if (str_list.size() != 1)
             {
                 warn_printf_at(
@@ -692,6 +784,14 @@ namespace TL { namespace OpenMP {
             }
             else
             {
+                if (old_syntax)
+                {
+                    warn_printf_at(construct.get_locus(),
+                                   "deprecated use of label(%s) will be parsed "
+                                   "as label(\"%s\")\n",
+                                   str_list[0].c_str(),
+                                   str_list[0].c_str());
+                }
                 task_info.set_task_label(
                         Nodecl::OmpSs::TaskLabel::make(
                             str_list[0]));
@@ -867,6 +967,67 @@ namespace TL { namespace OpenMP {
     {
         _openmp_info->pop_current_data_environment();
     }
+
+    void Core::oss_assert_handler_pre(TL::PragmaCustomDirective construct)
+    {
+        TL::Scope scope = construct.get_context_of_declaration().get_scope();
+        if (!IS_FORTRAN_LANGUAGE
+            && scope != Scope::get_global_scope())
+        {
+            error_printf_at(
+                construct.get_locus(),
+                "'assert' construct is only allowed in file scope\n");
+        }
+        else
+        {
+            PragmaCustomLine pragma_line = construct.get_pragma_line();
+            PragmaCustomParameter param = pragma_line.get_parameter();
+            if (!param.is_defined())
+            {
+                error_printf_at(construct.get_locus(),
+                        "expecting a parameter in 'assert' construct\n");
+            }
+            else
+            {
+                ObjectList<std::string> assert_str_list = param.get_tokenized_arguments();
+
+                diagnostic_context_t *diag_ctx
+                    = diagnostic_context_new_buffered();
+                    diagnostic_context_push(diag_ctx);
+                TL::ObjectList<Nodecl::NodeclBase> assert_expr_list
+                    = param.get_arguments_as_expressions();
+                diagnostic_context_pop_and_discard();
+
+                bool is_error = true;
+                auto is_valid_expr = [](Nodecl::NodeclBase expr) {
+                    return expr.is_constant()
+                           && const_value_is_string(expr.get_constant());
+                };
+
+                if (assert_expr_list.size() == 1 && is_valid_expr(assert_expr_list[0]))
+                {
+                    char is_null_ended = 0;
+
+                    assert_str_list.clear();
+                    assert_str_list.push_back(const_value_string_unpack_to_string(
+                        assert_expr_list[0].get_constant(), &is_null_ended));
+                    is_error = false;
+                }
+
+                if (is_error)
+                {
+                    error_printf_at(construct.get_locus(),
+                            "invalid parameter in 'assert' construct\n");
+                }
+                else
+                {
+                    _ompss_assert_info->add_assert_string(assert_str_list[0]);
+                }
+            }
+        }
+    }
+
+    void Core::oss_assert_handler_post(TL::PragmaCustomDirective construct) { }
 
     void Core::oss_lint_handler_pre(TL::PragmaCustomStatement construct)
     {

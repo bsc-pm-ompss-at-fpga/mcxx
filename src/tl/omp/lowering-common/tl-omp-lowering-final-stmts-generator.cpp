@@ -24,6 +24,7 @@
   Cambridge, MA 02139, USA.
 --------------------------------------------------------------------*/
 
+#include "tl-omp-lowering-directive-environment.hpp"
 #include "tl-omp-lowering-final-stmts-generator.hpp"
 #include "tl-symbol-utils.hpp"
 
@@ -89,6 +90,12 @@ namespace TL { namespace OpenMP { namespace Lowering {
              }
 
              void visit(const Nodecl::OmpSs::TaskWorksharing &loop)
+             {
+                ++_num_task_related_pragmas;
+                walk(loop.get_loop());
+             }
+
+             void visit(const Nodecl::OmpSs::TaskloopWorksharing &loop)
              {
                 ++_num_task_related_pragmas;
                 walk(loop.get_loop());
@@ -187,8 +194,18 @@ namespace TL { namespace OpenMP { namespace Lowering {
 
              void visit(const Nodecl::OmpSs::TaskCall& task_call)
              {
-                task_call.replace(task_call.get_call());
-                walk(task_call);
+                DirectiveEnvironment _env = task_call.get_environment();
+
+                ERROR_CONDITION(_env.device_names.size() > 1, "Unexpected device clause list\n", 0);
+                bool is_cuda_task = (*_env.device_names.begin() == "cuda");
+
+                // Keep pragma for cuda tasks
+                if (!is_cuda_task) {
+                    task_call.replace(task_call.get_call());
+                    walk(task_call);
+                } else {
+                    walk(task_call.get_call());
+                }
              }
 
              void visit(const Nodecl::OpenMP::Taskloop& taskloop)
@@ -198,6 +215,12 @@ namespace TL { namespace OpenMP { namespace Lowering {
              }
 
              void visit(const Nodecl::OmpSs::TaskWorksharing &loop)
+             {
+                loop.replace(loop.get_loop());
+                walk(loop);
+             }
+
+             void visit(const Nodecl::OmpSs::TaskloopWorksharing &loop)
              {
                 loop.replace(loop.get_loop());
                 walk(loop);
@@ -376,6 +399,15 @@ namespace TL { namespace OpenMP { namespace Lowering {
         walk(node.get_loop());
 
         //std::cerr << "loop: " << node.get_locus_str() << std::endl;
+        Nodecl::NodeclBase final_stmts = generate_final_stmts(node.get_loop());
+        _final_stmts_map.insert(std::make_pair(node, final_stmts));
+    }
+
+    void FinalStmtsGenerator::visit(const Nodecl::OmpSs::TaskloopWorksharing &node)
+    {
+        walk(node.get_loop());
+
+        //std::cerr << "taskloop worksharing: " << node.get_locus_str() << std::endl;
         Nodecl::NodeclBase final_stmts = generate_final_stmts(node.get_loop());
         _final_stmts_map.insert(std::make_pair(node, final_stmts));
     }

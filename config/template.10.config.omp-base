@@ -69,7 +69,9 @@ linker_name = @GCC@
 {(openmp|ompss), (openmp-lint|task-correctness), !analysis-check} compiler_phase = libtlomp-lint.so
 {(openmp|ompss), (openmp-lint|task-correctness)} options = --variable=correctness_log_dir:@CORRECTNESS_LOG_DIR@
 {openmp-lint} options = --variable=lint_deprecated_flag:1
-
+{ompss-2, (oss-lint|oss-lint-tasks)} compiler_phase = libtloss-lint.so
+{(oss-lint|oss-lint-tasks), !ompss-2} error = "Either flag --oss-lint or --oss-lint-tasks passed, but flag --ompss-2 is missing"
+{oss-lint-tasks} options = --variable=oss_lint_only_tasks:1
 
 #simd
 {svml} preprocessor_options = -include math.h
@@ -187,6 +189,10 @@ linker_options = -Xlinker --enable-new-dtags
 
 # Nanos6 + OpenCL
 {@NANOS6_GATE@,ompss-2,opencl} preprocessor_options = -DNANOS6_OPENCL
+
+# Nanos6 + OpenACC
+{@NANOS6_GATE@,ompss-2,openacc} preprocessor_options = -DNANOS6_OPENACC
+{@NANOS6_GATE@,ompss-2,openacc} compiler_phase = libtl-nanos6-openacc-functions.so
 
 # TCL
 {@TCL_GATE@, checkpoint} linker_options = -Xlinker @RPATH_PARAMETER@ -Xlinker @TCL_LIB@/performance

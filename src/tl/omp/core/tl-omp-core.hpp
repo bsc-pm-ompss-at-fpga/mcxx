@@ -111,6 +111,8 @@ namespace TL
 
                 std::shared_ptr<OmpSs::FunctionTaskSet> _function_task_set;
                 std::stack<OmpSs::TargetContext> _target_context;
+                // OmpSs-2 Assert string list
+                std::shared_ptr<OmpSs::AssertInfo> _ompss_assert_info;
 
                 void ompss_target_handler_pre(TL::PragmaCustomStatement ctr);
                 void ompss_target_handler_post(TL::PragmaCustomStatement ctr);
@@ -143,13 +145,21 @@ namespace TL
                         DataEnvironment& data_environment,
                         ObjectList<Symbol>& extra_symbols);
 
+                Nodecl::NodeclBase update_clause(
+                        Nodecl::NodeclBase clause,
+                        Symbol function_symbol);
+
+                ObjectList<Nodecl::NodeclBase> update_clauses(
+                        const ObjectList<Nodecl::NodeclBase>& clauses,
+                        Symbol function_symbol);
+
                 void get_reduction_symbols(
                         TL::PragmaCustomLine construct,
                         PragmaCustomClause clause,
+                        TL::Scope scope,
                         const TL::ObjectList<TL::Symbol> &symbols_in_construct,
-                        DataEnvironment& data_environment,
                         ObjectList<ReductionSymbol>& sym_list,
-                        ObjectList<Symbol>& extra_symbols);
+                        const TL::Symbol &function_sym = TL::Symbol::invalid());
 
                 void get_reduction_explicit_attributes(
                         TL::PragmaCustomLine construct,
