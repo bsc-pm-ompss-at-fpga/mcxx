@@ -121,8 +121,8 @@ namespace TL
                 std::string _vivado_project_name;
                 std::string _ip_cache_path;
                 std::string _dataflow;
-                std::string _force_fpga_task_creation_ports_str;
-                str_set_t   _force_fpga_task_creation_ports;
+                std::string _force_fpga_spawn_ports_str;
+                str_set_t   _force_fpga_spawn_ports;
                 std::string _memory_port_width;
                 std::string _unaligned_memory_port_str;
                 bool        _unaligned_memory_port;
@@ -138,7 +138,7 @@ namespace TL
                 TL::ObjectList< struct FpgaNanosPostInitInfo > _nanos_post_init_actions;
 
                 void set_bitstream_generation_from_str(const std::string& str);
-                void set_force_fpga_task_creation_ports_from_str(const std::string& str);
+                void set_force_fpga_spawn_ports_from_str(const std::string& str);
                 void set_memory_port_width_from_str(const std::string& str);
                 void set_unaligned_memory_port_from_str(const std::string& str);
                 void set_force_periodic_support_from_str(const std::string& str);

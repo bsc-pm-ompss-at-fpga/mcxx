@@ -277,7 +277,7 @@ void DeviceFPGA::create_outline(
                 const bool periodic_support = !num_repetitions_expr.is_null() || !period_expr.is_null() || _force_periodic_support;
                 const bool creates_children_tasks =
                     (info._num_inner_tasks > 0) ||
-                    (_force_fpga_task_creation_ports.find(acc_type) != _force_fpga_task_creation_ports.end());
+                    (_force_fpga_spawn_ports.find(acc_type) != _force_fpga_spawn_ports.end());
                 FpgaOutlineInfo to_outline_info(
                     called_task.get_name(),
                     get_num_instances(info._target_info),
@@ -499,7 +499,7 @@ void DeviceFPGA::create_outline(
 }
 
 DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_generation(false),
-    _force_fpga_task_creation_ports(), _memory_port_width(""), _unaligned_memory_port(false),
+    _force_fpga_spawn_ports(), _memory_port_width(""), _unaligned_memory_port(false),
     _force_periodic_support(false), _onto_warn_shown(false)
 {
     set_phase_name("Nanox FPGA support");
@@ -544,10 +544,10 @@ DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_gener
         _dataflow,
         "OFF");
 
-    register_parameter("force_fpga_task_creation_ports",
+    register_parameter("force_fpga_spawn_ports",
         "This is the parameter to force the use of extra task creation ports in a set of fpga accelerators: <onto value>[,<onto value>][...]",
-        _force_fpga_task_creation_ports_str,
-        "0").connect(std::bind(&DeviceFPGA::set_force_fpga_task_creation_ports_from_str, this, std::placeholders::_1));
+        _force_fpga_spawn_ports_str,
+        "0").connect(std::bind(&DeviceFPGA::set_force_fpga_spawn_ports_from_str, this, std::placeholders::_1));
 
     register_parameter("fpga_memory_port_width",
         "Defines the width (in bits) of memory ports (only for wrapper localmem data) for fpga accelerators",
@@ -2415,13 +2415,13 @@ void DeviceFPGA::set_bitstream_generation_from_str(const std::string& in_str)
     TL::parse_boolean_option("bitstream_generation", str, _bitstream_generation, "Assuming false.");
 }
 
-void DeviceFPGA::set_force_fpga_task_creation_ports_from_str(const std::string& str)
+void DeviceFPGA::set_force_fpga_spawn_ports_from_str(const std::string& str)
 {
     std::string val;
     std::istringstream stream(str);
     while (std::getline(stream, val, ','))
     {
-        _force_fpga_task_creation_ports.insert(val);
+        _force_fpga_spawn_ports.insert(val);
     }
 }
 
