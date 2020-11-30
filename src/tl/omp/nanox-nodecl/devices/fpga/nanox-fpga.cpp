@@ -277,7 +277,7 @@ void DeviceFPGA::create_outline(
                 const bool periodic_support = !num_repetitions_expr.is_null() || !period_expr.is_null() || _force_periodic_support;
                 const bool creates_children_tasks =
                     (info._num_inner_tasks > 0) ||
-                    (_force_fpga_task_creation_ports.find(acc_type) != _force_fpga_task_creation_ports.end());
+                    (_force_fpga_spawn_ports.find(acc_type) != _force_fpga_spawn_ports.end());
                 FpgaOutlineInfo to_outline_info(
                     called_task.get_name(),
                     get_num_instances(info._target_info),
@@ -499,7 +499,7 @@ void DeviceFPGA::create_outline(
 }
 
 DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_generation(false),
-    _force_fpga_task_creation_ports(), _memory_port_width(""), _unaligned_memory_port(false),
+    _force_fpga_spawn_ports(), _memory_port_width(""), _unaligned_memory_port(false),
     _force_periodic_support(false), _onto_warn_shown(false)
 {
     set_phase_name("Nanox FPGA support");
@@ -544,10 +544,10 @@ DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_gener
         _dataflow,
         "OFF");
 
-    register_parameter("force_fpga_task_creation_ports",
+    register_parameter("force_fpga_spawn_ports",
         "This is the parameter to force the use of extra task creation ports in a set of fpga accelerators: <onto value>[,<onto value>][...]",
-        _force_fpga_task_creation_ports_str,
-        "0").connect(std::bind(&DeviceFPGA::set_force_fpga_task_creation_ports_from_str, this, std::placeholders::_1));
+        _force_fpga_spawn_ports_str,
+        "0").connect(std::bind(&DeviceFPGA::set_force_fpga_spawn_ports_from_str, this, std::placeholders::_1));
 
     register_parameter("fpga_memory_port_width",
         "Defines the width (in bits) of memory ports (only for wrapper localmem data) for fpga accelerators",
@@ -567,7 +567,12 @@ DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_gener
     register_parameter("fpga_function_copy_suffix",
         "Forces the suffix placed at the end of functions moved to fpga HLS source",
         _function_copy_suffix,
-        "").connect(std::bind(&DeviceFPGA::set_funcion_copy_suffix_from_str, this, std::placeholders::_1));
+        "").connect(std::bind(&DeviceFPGA::set_function_copy_suffix_from_str, this, std::placeholders::_1));
+
+    register_parameter("fpga_memory_ports_mode",
+        "Defines how the memory ports are generated: dedicated/type",
+        _memory_ports_mode,
+        "dedicated").connect(std::bind(&DeviceFPGA::set_function_copy_suffix_from_str, this, std::placeholders::_1));
 
     register_parameter("fpga_ignore_deps_task_spawn",
         "Ignores the task dependences information when spawning a task inside another FPGA task",
@@ -968,6 +973,9 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     unsigned int wrapper_memport_width;
     const std::string wrapper_memport_width_str = (_memory_port_width == "" && creates_children_tasks) ?
             "64" : _memory_port_width;
+    // Aux. variables for shared memory ports based on data type
+    unsigned int n_type_ports = 0;
+    std::map<std::string, std::string> type_ports_map;
 
     memset(function_parameters_passed, 0, param_list.size());
 
@@ -1062,17 +1070,6 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         handle_task_execution_cmd_src
             << "  unsigned int __j, __k, __o;";
     }
-
-    /*
-     * Generate wrapper code
-     * We are going to keep original parameter name for the original function
-     *
-     * input/output parameters are received concatenated one after another.
-     * The wrapper must create local variables for each input/output and unpack
-     * streamed input/output data into that local variables.
-     *
-     * Scalar parameters are going to be copied as long as no unpacking is needed
-     */
 
     // Go through all the data items
     for (ObjectList<OutlineDataItem*>::iterator it = data_items.begin(); it != data_items.end(); it++)
@@ -1253,18 +1250,41 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                         "Disabling shared memory port for argument '%s' (array of arrays)\n", field_name.c_str());
                 }
 
-                const std::string port_name = STR_MEM_PORT_PREFIX + field_name;
-                const std::string port_declaration =
-                    elem_type.get_pointer_to().get_declaration(scope, port_name, TL::Type::PARAMETER_DECLARATION);
-                params_src.append_with_separator(port_declaration, ", ");
+                // By default, use a dedicated port for the field
+                std::string port_name = STR_MEM_PORT_PREFIX + field_name;
+                TL::Type port_type = elem_type;
+                bool create_new_port = true;
 
-                pragmas_src
-                    << "#pragma HLS INTERFACE m_axi port=" << port_name << "\n";
-
-                if (elem_type.is_class())
+                // Check if a shared type port had to be used and/or created
+                const std::string port_type_str = unql_type.get_declaration(scope, "");
+                if (_memory_ports_mode == "type" && type_ports_map.count(port_type_str) == 0)
                 {
+                    const std::string type_num_str = "shrd_" + std::to_string(n_type_ports++);
+                    type_ports_map[port_type_str] = type_num_str;
+                    port_name = STR_MEM_PORT_PREFIX + type_num_str;
+                    port_type = unql_type;
+                }
+                else if (_memory_ports_mode == "type")
+                {
+                    port_name = STR_MEM_PORT_PREFIX + type_ports_map[port_type_str];
+                    port_type = unql_type;
+                    create_new_port = false;
+                }
+
+                if (create_new_port)
+                {
+                    const std::string port_declaration =
+                        port_type.get_pointer_to().get_declaration(scope, port_name, TL::Type::PARAMETER_DECLARATION);
+                    params_src.append_with_separator(port_declaration, ", ");
+
                     pragmas_src
-                        << "#pragma HLS DATA_PACK variable=" << port_name << "\n";
+                        << "#pragma HLS INTERFACE m_axi port=" << port_name << "\n";
+
+                    if (port_type.is_class())
+                    {
+                        pragmas_src
+                            << "#pragma HLS DATA_PACK variable=" << port_name << "\n";
+                    }
                 }
 
                 in_copies_switch_body
@@ -1329,18 +1349,41 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
             const std::string casting_pointer = unql_type.get_declaration(scope, "");
             const std::string casting_sizeof = elem_type.get_declaration(scope, "");
-            const std::string port_name = STR_MEM_PORT_PREFIX + param_name;
-            const std::string port_declaration = unql_type.get_declaration(scope, port_name, TL::Type::PARAMETER_DECLARATION);
+            // By default, use a dedicated port for the field
+            std::string port_name = STR_MEM_PORT_PREFIX + param_name;
+            TL::Type port_type = unql_type;
+            bool create_new_port = true;
 
-            params_src.append_with_separator(port_declaration, ", ");
-
-            pragmas_src
-                << "#pragma HLS INTERFACE m_axi port=" << port_name << "\n";
-
-            if (elem_type.is_class())
+            // Check if a shared type port had to be used and/or created
+            const std::string port_type_str = elem_type.get_unqualified_type().get_declaration(scope, "");
+            if (_memory_ports_mode == "type" && type_ports_map.count(port_type_str) == 0)
             {
+                const std::string type_num_str = "shrd_" + std::to_string(n_type_ports++);
+                type_ports_map[port_type_str] = type_num_str;
+                port_name = STR_MEM_PORT_PREFIX + type_num_str;
+                port_type = elem_type.get_unqualified_type().get_pointer_to();
+            }
+            else if (_memory_ports_mode == "type")
+            {
+                port_name = STR_MEM_PORT_PREFIX + type_ports_map[port_type_str];
+                port_type = elem_type.get_unqualified_type().get_pointer_to();
+                create_new_port = false;
+            }
+
+            if (create_new_port)
+            {
+                const std::string port_declaration =
+                    port_type.get_declaration(scope, port_name, TL::Type::PARAMETER_DECLARATION);
+                params_src.append_with_separator(port_declaration, ", ");
+
                 pragmas_src
-                    << "#pragma HLS DATA_PACK variable=" << port_name << "\n";
+                    << "#pragma HLS INTERFACE m_axi port=" << port_name << "\n";
+
+                if (elem_type.is_class())
+                {
+                    pragmas_src
+                        << "#pragma HLS DATA_PACK variable=" << port_name << "\n";
+                }
             }
 
             in_copies_switch_body
@@ -2372,13 +2415,13 @@ void DeviceFPGA::set_bitstream_generation_from_str(const std::string& in_str)
     TL::parse_boolean_option("bitstream_generation", str, _bitstream_generation, "Assuming false.");
 }
 
-void DeviceFPGA::set_force_fpga_task_creation_ports_from_str(const std::string& str)
+void DeviceFPGA::set_force_fpga_spawn_ports_from_str(const std::string& str)
 {
     std::string val;
     std::istringstream stream(str);
     while (std::getline(stream, val, ','))
     {
-        _force_fpga_task_creation_ports.insert(val);
+        _force_fpga_spawn_ports.insert(val);
     }
 }
 
@@ -2397,9 +2440,14 @@ void DeviceFPGA::set_force_periodic_support_from_str(const std::string& str)
     TL::parse_boolean_option("force_fpga_periodic_support", str, _force_periodic_support, "Assuming false.");
 }
 
-void DeviceFPGA::set_funcion_copy_suffix_from_str(const std::string& in_str)
+void DeviceFPGA::set_function_copy_suffix_from_str(const std::string& in_str)
 {
     _function_copy_suffix = in_str;
+}
+
+void DeviceFPGA::set_memory_ports_mode_from_str(const std::string& in_str)
+{
+    _memory_ports_mode = in_str;
 }
 
 void DeviceFPGA::set_ignore_deps_spawn_from_str(const std::string& str)
