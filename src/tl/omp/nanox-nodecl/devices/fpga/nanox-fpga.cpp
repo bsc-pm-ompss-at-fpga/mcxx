@@ -545,7 +545,7 @@ DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_gener
         "OFF");
 
     register_parameter("force_fpga_spawn_ports",
-        "This is the parameter to force the use of extra task creation ports in a set of fpga accelerators: <onto value>[,<onto value>][...]",
+        "This is the parameter to force the use of extra task creation ports in a set of fpga accelerators: <type value>[,<type value>][...]",
         _force_fpga_spawn_ports_str,
         "0").connect(std::bind(&DeviceFPGA::set_force_fpga_spawn_ports_from_str, this, std::placeholders::_1));
 
@@ -1595,16 +1595,10 @@ std::string DeviceFPGA::get_acc_type(const TL::Symbol& task, const TargetInforma
     if (onto_clause.size() >= 1)
     {
         Nodecl::NodeclBase onto_val = onto_clause[0];
-        if (!_onto_warn_shown)
-        {
-            warn_printf_at(onto_val.get_locus(),
-                "The use of onto clause is no longer needed unless you have a collision between two FPGA tasks that yeld the same type hash\n");
-            _onto_warn_shown = true;
-        }
-        if (onto_clause.size() > 1)
+        if (onto_clause.size() > 2)
         {
             error_printf_at(onto_val.get_locus(),
-                "The syntax 'onto(type, count)' is no longer supported. Use 'onto(type) num_instances(count)' instead\n");
+                "Too many arguments in onto clause, expected 1 or 2\n");
             fatal_error("Unsupported clause syntax");
         }
 
@@ -1677,6 +1671,25 @@ std::string DeviceFPGA::get_acc_type(const TL::Symbol& task, const TargetInforma
     return value;
 }
 
+Nodecl::NodeclBase DeviceFPGA::get_acc_instance(const TargetInformation& target_info)
+{
+    Nodecl::NodeclBase clause_value;
+
+    ObjectList<Nodecl::NodeclBase> onto_clause = target_info.get_onto();
+    if (onto_clause.size() >= 2)
+    {
+        clause_value = onto_clause[1];
+        if (onto_clause.size() > 2)
+        {
+            error_printf_at(clause_value.get_locus(),
+                "Too many arguments in onto clause, expected 1 or 2\n");
+            fatal_error("Unsupported clause syntax");
+        }
+    }
+
+    return clause_value;
+}
+
 std::string DeviceFPGA::get_num_instances(const TargetInformation& target_info)
 {
     std::string value = "1"; //Default is 1 instance
@@ -1695,7 +1708,7 @@ std::string DeviceFPGA::get_num_instances(const TargetInformation& target_info)
             const_value_t *ct_val = numins_value.get_constant();
             if (!const_value_is_integer(ct_val))
             {
-                error_printf_at(numins_value.get_locus(), "Constant is not integer type in onto clause: num_instances\n");
+                error_printf_at(numins_value.get_locus(), "Constant is not integer type in num_instances clause\n");
                 fatal_error("Unsupported clause syntax");
             }
             else
@@ -1775,6 +1788,8 @@ void DeviceFPGA::emit_async_device(
     TL::Scope function_scope = current_function.get_scope();
 
     std::string acc_type;
+    Nodecl::NodeclBase acc_instance;
+    Source acc_instance_code;
 
     // Check devices of all implementations
     for (OutlineInfo::implementation_table_t::const_iterator it = implementation_table.begin();
@@ -1784,6 +1799,20 @@ void DeviceFPGA::emit_async_device(
         const TargetInformation& target_info = it->second;
         // FIXME: Consider information from all implementations not only last one
         acc_type = get_acc_type(called_task, target_info);
+        acc_instance = get_acc_instance(target_info);
+    }
+
+    // Check if an specific instance is required
+    if (!acc_instance.is_null())
+    {
+        acc_instance_code
+            << as_expression(acc_instance);
+    }
+    else
+    {
+        // NOTE: 0xFF (max. value) means any instance
+        acc_instance_code
+            << "0xFF";
     }
 
     Source spawn_code, args_list, deps_list, deps_flags_list, copies_list;
@@ -2024,7 +2053,7 @@ void DeviceFPGA::emit_async_device(
     }
 
     spawn_code
-        << "nanos_fpga_create_wd_async(" << acc_type << "U, "
+        << "nanos_fpga_create_wd_async(" << acc_type << "U, " << acc_instance_code << ", "
         << num_args << ", " << (num_args > 0 ? "mcxx_args" : "(unsigned long long int *)0") << ", "
         << num_deps << ", " << (num_deps > 0 ? "mcxx_deps, mcxx_deps_flags" : "(unsigned long long int *)0, (unsigned char *)0") << ", "
         << num_copies << ", " << (num_copies > 0 ? "mcxx_copies" : "(nanos_fpga_copyinfo_t *)0") << ");";

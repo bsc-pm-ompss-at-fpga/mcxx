@@ -171,6 +171,7 @@ namespace TL
                 void add_included_fpga_files(FILE* file);
 
                 std::string get_acc_type(const TL::Symbol& task, const TargetInformation& target_info);
+                Nodecl::NodeclBase get_acc_instance(const TargetInformation& target_info);
                 std::string get_num_instances(const TargetInformation& target_info);
                 Nodecl::NodeclBase get_num_repetitions(const TargetInformation& target_info);
                 Nodecl::NodeclBase get_period(const TargetInformation& target_info);

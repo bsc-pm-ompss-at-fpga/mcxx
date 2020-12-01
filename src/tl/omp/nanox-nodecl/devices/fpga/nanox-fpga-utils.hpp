@@ -1007,7 +1007,7 @@ void get_hls_wrapper_decls(
             wrapper_decls_before_user_code
                 << "unsigned long long int nanos_fpga_current_wd();"
                 << "nanos_err_t nanos_fpga_wg_wait_completion(unsigned long long int uwg, unsigned char avoid_flush);"
-                << "void nanos_fpga_create_wd_async(const unsigned long long int type,"
+                << "void nanos_fpga_create_wd_async(const unsigned long long int type, const unsigned char instanceNum,"
                 << "    const unsigned char numArgs, const unsigned long long int * args,"
                 << "    const unsigned char numDeps, const unsigned long long int * deps, const unsigned char * depsFlags,"
                 << "    const unsigned char numCopies, const nanos_fpga_copyinfo_t * copies);";
@@ -1432,7 +1432,7 @@ void get_hls_wrapper_defs(
             << "  return NANOS_OK;"
             << "}"
 
-            << "void nanos_fpga_create_wd_async(const unsigned long long int type,"
+            << "void nanos_fpga_create_wd_async(const unsigned long long int type, const unsigned char instanceNum,"
             << "    const unsigned char numArgs, const unsigned long long int * args,"
             << "    const unsigned char numDeps, const unsigned long long int * deps, const unsigned char * depsFlags,"
             << "    const unsigned char numCopies, const nanos_fpga_copyinfo_t * copies)"
@@ -1452,8 +1452,10 @@ void get_hls_wrapper_defs(
             << "    __mcxx_write_out_port(tmp, destId, 0);"
             //2nd word: [ parent_task_id (64b) ]
             << "    __mcxx_write_out_port(" << STR_TASKID << ", destId, 0);"
-            //3rd word: [ type_value (64b) ]
-            << "    __mcxx_write_out_port(type, destId, 0);"
+            //3rd word: [ padding(16b) | instance_value (8b) | padding (6b) | type_value (34b) ]
+            << "    tmp = instanceNum;"
+            << "    tmp = (tmp << 40) | type;"
+            << "    __mcxx_write_out_port(tmp, destId, 0);"
             << "    for (unsigned char idx = 0; idx < currentNumDeps; ++idx) {"
             << "      tmp = depsFlags[idx];"
             << "      tmp = (tmp << 56) | deps[idx];"
