@@ -112,15 +112,8 @@ namespace TL
                     std::string _argument;
                 };
 
-                std::string _board_name;
-                std::string _device_name;
-                std::string _frequency;
                 std::string _bitstream_generation_str;
                 bool        _bitstream_generation;
-                std::string _vivado_design_path;
-                std::string _vivado_project_name;
-                std::string _ip_cache_path;
-                std::string _dataflow;
                 std::string _force_fpga_spawn_ports_str;
                 str_set_t   _force_fpga_spawn_ports;
                 std::string _memory_port_width;
@@ -148,7 +141,6 @@ namespace TL
 
                 Nodecl::Utils::SimpleSymbolMap                 _global_copied_fpga_symbols;
                 Nodecl::List                                   _stuff_to_copy;
-                bool                                           _onto_warn_shown;
 
                 void gen_hls_wrapper(
                         const TL::Symbol& func_symbol,

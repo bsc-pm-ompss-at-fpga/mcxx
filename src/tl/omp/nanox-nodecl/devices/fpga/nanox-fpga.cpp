@@ -500,49 +500,15 @@ void DeviceFPGA::create_outline(
 
 DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_generation(false),
     _force_fpga_spawn_ports(), _memory_port_width(""), _unaligned_memory_port(false),
-    _force_periodic_support(false), _onto_warn_shown(false)
+    _force_periodic_support(false), _ignore_deps_spawn(false)
 {
     set_phase_name("Nanox FPGA support");
     set_phase_description("This phase is used by Nanox phases to implement FPGA device support");
-    register_parameter("board_name",
-        "This is the parameter Board Name that appears in the Vivado Design",
-        _board_name,
-        "xilinx.com:zc702:part0:1.1");
-
-    register_parameter("device_name",
-        "This is the parameter the specific fpga device name of the board",
-        _device_name,
-        "xc7z020clg484-1");
-
-    register_parameter("FPGA accelerators frequency",
-        "This is the parameter to indicate the FPGA accelerators frequency",
-        _frequency,
-        "10");
 
     register_parameter("bitstream_generation",
         "Enables/disables the bitstream generation of FPGA accelerators",
         _bitstream_generation_str,
         "0").connect(std::bind(&DeviceFPGA::set_bitstream_generation_from_str, this, std::placeholders::_1));
-
-    register_parameter("vivado_design_path",
-        "This is the parameter to indicate where the automatically generated vivado design will be placed",
-        _vivado_design_path,
-        "$PWD");
-
-    register_parameter("vivado_project_name",
-        "This is the parameter to indicate the vivado project name",
-        _vivado_project_name,
-        "Filename");
-
-    register_parameter("ip_cache_path",
-        "This is the parameter to indicate where the cache of ips is placed",
-        _ip_cache_path,
-        "$PWD/IP_cache");
-
-    register_parameter("dataflow",
-        "This is the parameter to indicate where the user wants to use the dataflow optimization: ON/OFF",
-        _dataflow,
-        "OFF");
 
     register_parameter("force_fpga_spawn_ports",
         "This is the parameter to force the use of extra task creation ports in a set of fpga accelerators: <type value>[,<type value>][...]",
@@ -814,8 +780,6 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
         Nodecl::NodeclBase nanos_post_init_tree = nanos_post_init.parse_global(_root);
         Nodecl::Utils::append_to_top_level_nodecl(nanos_post_init_tree);
     }
-
-    _onto_warn_shown = false;
 }
 
 void DeviceFPGA::add_included_fpga_files(FILE* file)
