@@ -556,18 +556,7 @@ void DeviceFPGA::run(DTO& dto) {
     if (_bitstream_generation)
     {
         std::cerr << "FPGA bitstream generation phase analysis - ON" << std::endl;
-        //std::cerr << "================================================================" << std::endl;
-        //std::cerr << "\t Board Name                  : " << _board_name << std::endl;
-        //std::cerr << "\t Device Name                 : " << _device_name << std::endl;
-        //std::cerr << "\t Frequency                   : " << _frequency << "ns" << std::endl;
-        //std::cerr << "\t Bitstream generation active : " << _bitstream_generation << std::endl;
-        //std::cerr << "\t Vivado design path          : " << _vivado_design_path << std::endl;
-        //std::cerr << "\t Vivado project name         : " << _vivado_project_name << std::endl;
-        //std::cerr << "\t IP cache path               : " << _ip_cache_path << std::endl;
-        //std::cerr << "\t Dataflow active             : " << _dataflow << std::endl;
-        //std::cerr << "================================================================" << std::endl;
     }
-
 }
 
 void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
@@ -678,20 +667,27 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
             it++)
         {
             std::string new_filename = it->get_filename();
-            FILE* ancillary_file;
 
-            // Check if file exist
-            ancillary_file = fopen(new_filename.c_str(), "r");
-            if (ancillary_file != NULL)
+            // Make sure there are no duplicated files
+            TL::ObjectList<struct FpgaOutlineInfo>::iterator it2;
+            for (it2 = _outlines.begin();
+                it2 != it;
+                it2++)
             {
-                fclose(ancillary_file);
-                fatal_error("ERROR: Trying to create '%s' which already exists.\n%s\n%s",
-                    new_filename.c_str(),
-                    "       If you have two FPGA tasks with the same function name, you should use the onto(type) clause in the target directive.",
-                    "       Otherwise, you must clean the running directory before linking.");
+                if (new_filename == it2->get_filename())
+                {
+                    fatal_error("ERROR: Duplicated hls intermediate filename found: '%s'", new_filename.c_str());
+                }
+                else if (it->_type == it2->_type)
+                {
+                    fatal_error("ERROR: Duplicated type for FPGA task: '%s'\n       Functions: '%s' and '%s'",
+                        it->_type.c_str(),
+                        it->_name.c_str(),
+                        it2->_name.c_str());
+                }
             }
 
-            ancillary_file = fopen(new_filename.c_str(), "w+");
+            FILE* ancillary_file = fopen(new_filename.c_str(), "w+");
             if (ancillary_file == NULL)
             {
                 fatal_error("%s: error: cannot open file %s\n",
