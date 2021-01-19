@@ -125,6 +125,8 @@ namespace TL
                 bool        _force_periodic_support;
                 std::string _ignore_deps_spawn_str;
                 bool        _ignore_deps_spawn;
+                std::string _unordered_args_str;
+                bool        _unordered_args;
                 std::string _function_copy_suffix;
                 std::string _memory_ports_mode;
                 str_set_t   _registered_tasks;
@@ -141,6 +143,7 @@ namespace TL
                 void set_function_copy_suffix_from_str(const std::string& str);
                 void set_memory_ports_mode_from_str(const std::string& str);
                 void set_ignore_deps_spawn_from_str(const std::string& str);
+                void set_unordered_args_from_str(const std::string& str);
 
                 Nodecl::Utils::SimpleSymbolMap                 _global_copied_fpga_symbols;
                 Nodecl::List                                   _stuff_to_copy;
