@@ -500,7 +500,7 @@ void DeviceFPGA::create_outline(
 
 DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_generation(false),
     _force_fpga_spawn_ports(), _memory_port_width(""), _unaligned_memory_port(false),
-    _force_periodic_support(false), _ignore_deps_spawn(false)
+    _check_limits_memory_port(true), _force_periodic_support(false), _ignore_deps_spawn(false)
 {
     set_phase_name("Nanox FPGA support");
     set_phase_description("This phase is used by Nanox phases to implement FPGA device support");
@@ -524,6 +524,11 @@ DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_gener
         "Enables the logic to support unaligned memory regions handled by the memory port",
         _unaligned_memory_port_str,
         "0").connect(std::bind(&DeviceFPGA::set_unaligned_memory_port_from_str, this, std::placeholders::_1));
+
+    register_parameter("fpga_check_limits_memory_port",
+        "Enables the logic to ensure not overflowing local variables handled by the memory port",
+        _check_limits_memory_port_str,
+        "1").connect(std::bind(&DeviceFPGA::set_check_limits_memory_port_from_str, this, std::placeholders::_1));
 
     register_parameter("force_fpga_periodic_support",
         "Force enabling the periodic tasks support in FPGA accelerators",
@@ -1112,14 +1117,23 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 const std::string port_name = STR_WRAPPERDATA;
                 const std::string mem_ptr_type = "ap_uint<" + wrapper_memport_width_str + ">";
                 const std::string n_elems_read = "(sizeof(" + mem_ptr_type + ")/sizeof(" + casting_sizeof + "))";
-                const std::string unaligned_offset = _unaligned_memory_port ? "-__o" : "";
-                const std::string unaligned_extra = _unaligned_memory_port ? "+__o" : "";
+                Source limits_skip, start_limit_extra, unaligned_offset, unaligned_extra;
 
                 in_copies_switch_body << "{";
 
                 if (_unaligned_memory_port)
                 {
                     in_copies_switch_body << "      __o = __param[" << param_id << "]%sizeof(" << mem_ptr_type << ")/sizeof(" << casting_sizeof << ");";
+                    start_limit_extra << "((__j==0) && (__k<__o)) || ";
+                    unaligned_offset << "-__o";
+                    unaligned_extra << "+__o";
+                }
+
+                if (_unaligned_memory_port || _check_limits_memory_port)
+                {
+                    limits_skip
+                        << "          if (" << start_limit_extra << "((__j*" << n_elems_read << "+__k) >= (" << n_elements_src << unaligned_extra << ")))"
+                        <<            " continue;";
                 }
 
                 in_copies_switch_body
@@ -1133,8 +1147,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                     << "        for (__k=0;"
                     << "         __k<(" << n_elems_read << ");"
                     << "         __k++) {"
-                    << "          if (" << (_unaligned_memory_port ? "((__j==0) && (__k<__o)) || " : "")
-                    <<              "((__j*" << n_elems_read << "+__k) >= (" << n_elements_src << unaligned_extra << "))) continue;"
+                    <<            limits_skip
                     << "          union {"
                     << "            unsigned long long int raw;"
                     << "            " << casting_sizeof << " typed;"
@@ -1168,8 +1181,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                         << "        for (__k=0;"
                         << "         __k<(" << n_elems_read << ");"
                         << "         __k++) {"
-                        << "          if (" << (_unaligned_memory_port ? "((__j==0) && (__k<__o)) || " : "")
-                        <<              "((__j*" << n_elems_read << "+__k) >= (" << n_elements_src << unaligned_extra << "))) continue;"
+                        <<            limits_skip
                         << "          union {"
                         << "            unsigned long long int raw;"
                         << "            " << casting_sizeof << " typed;"
@@ -2422,6 +2434,11 @@ void DeviceFPGA::set_memory_port_width_from_str(const std::string& in_str)
 void DeviceFPGA::set_unaligned_memory_port_from_str(const std::string& str)
 {
     TL::parse_boolean_option("fpga_unaligned_memory_port", str, _unaligned_memory_port, "Assuming false.");
+}
+
+void DeviceFPGA::set_check_limits_memory_port_from_str(const std::string& str)
+{
+    TL::parse_boolean_option("fpga_check_limits_memory_port", str, _check_limits_memory_port, "Assuming true.");
 }
 
 void DeviceFPGA::set_force_periodic_support_from_str(const std::string& str)

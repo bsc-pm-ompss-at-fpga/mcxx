@@ -119,6 +119,8 @@ namespace TL
                 std::string _memory_port_width;
                 std::string _unaligned_memory_port_str;
                 bool        _unaligned_memory_port;
+                std::string _check_limits_memory_port_str;
+                bool        _check_limits_memory_port;
                 std::string _force_periodic_support_str;
                 bool        _force_periodic_support;
                 std::string _ignore_deps_spawn_str;
@@ -134,6 +136,7 @@ namespace TL
                 void set_force_fpga_spawn_ports_from_str(const std::string& str);
                 void set_memory_port_width_from_str(const std::string& str);
                 void set_unaligned_memory_port_from_str(const std::string& str);
+                void set_check_limits_memory_port_from_str(const std::string& str);
                 void set_force_periodic_support_from_str(const std::string& str);
                 void set_function_copy_suffix_from_str(const std::string& str);
                 void set_memory_ports_mode_from_str(const std::string& str);
