@@ -500,7 +500,8 @@ void DeviceFPGA::create_outline(
 
 DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_generation(false),
     _force_fpga_spawn_ports(), _memory_port_width(""), _unaligned_memory_port(false),
-    _force_periodic_support(false), _ignore_deps_spawn(false)
+    _check_limits_memory_port(true), _force_periodic_support(false), _ignore_deps_spawn(false),
+    _unordered_args(true)
 {
     set_phase_name("Nanox FPGA support");
     set_phase_description("This phase is used by Nanox phases to implement FPGA device support");
@@ -525,6 +526,11 @@ DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_gener
         _unaligned_memory_port_str,
         "0").connect(std::bind(&DeviceFPGA::set_unaligned_memory_port_from_str, this, std::placeholders::_1));
 
+    register_parameter("fpga_check_limits_memory_port",
+        "Enables the logic to ensure not overflowing local variables handled by the memory port",
+        _check_limits_memory_port_str,
+        "1").connect(std::bind(&DeviceFPGA::set_check_limits_memory_port_from_str, this, std::placeholders::_1));
+
     register_parameter("force_fpga_periodic_support",
         "Force enabling the periodic tasks support in FPGA accelerators",
         _force_periodic_support_str,
@@ -544,6 +550,11 @@ DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_gener
         "Ignores the task dependences information when spawning a task inside another FPGA task",
         _ignore_deps_spawn_str,
         "0").connect(std::bind(&DeviceFPGA::set_ignore_deps_spawn_from_str, this, std::placeholders::_1));
+
+    register_parameter("fpga_unordered_args",
+        "Supports unordered argument retrival",
+        _unordered_args_str,
+        "1").connect(std::bind(&DeviceFPGA::set_unordered_args_from_str, this, std::placeholders::_1));
 }
 
 void DeviceFPGA::pre_run(DTO& dto) {
@@ -556,18 +567,7 @@ void DeviceFPGA::run(DTO& dto) {
     if (_bitstream_generation)
     {
         std::cerr << "FPGA bitstream generation phase analysis - ON" << std::endl;
-        //std::cerr << "================================================================" << std::endl;
-        //std::cerr << "\t Board Name                  : " << _board_name << std::endl;
-        //std::cerr << "\t Device Name                 : " << _device_name << std::endl;
-        //std::cerr << "\t Frequency                   : " << _frequency << "ns" << std::endl;
-        //std::cerr << "\t Bitstream generation active : " << _bitstream_generation << std::endl;
-        //std::cerr << "\t Vivado design path          : " << _vivado_design_path << std::endl;
-        //std::cerr << "\t Vivado project name         : " << _vivado_project_name << std::endl;
-        //std::cerr << "\t IP cache path               : " << _ip_cache_path << std::endl;
-        //std::cerr << "\t Dataflow active             : " << _dataflow << std::endl;
-        //std::cerr << "================================================================" << std::endl;
     }
-
 }
 
 void DeviceFPGA::get_device_descriptor(DeviceDescriptorInfo& info,
@@ -678,20 +678,27 @@ void DeviceFPGA::phase_cleanup(DTO& data_flow)
             it++)
         {
             std::string new_filename = it->get_filename();
-            FILE* ancillary_file;
 
-            // Check if file exist
-            ancillary_file = fopen(new_filename.c_str(), "r");
-            if (ancillary_file != NULL)
+            // Make sure there are no duplicated files
+            TL::ObjectList<struct FpgaOutlineInfo>::iterator it2;
+            for (it2 = _outlines.begin();
+                it2 != it;
+                it2++)
             {
-                fclose(ancillary_file);
-                fatal_error("ERROR: Trying to create '%s' which already exists.\n%s\n%s",
-                    new_filename.c_str(),
-                    "       If you have two FPGA tasks with the same function name, you should use the onto(type) clause in the target directive.",
-                    "       Otherwise, you must clean the running directory before linking.");
+                if (new_filename == it2->get_filename())
+                {
+                    fatal_error("ERROR: Duplicated hls intermediate filename found: '%s'", new_filename.c_str());
+                }
+                else if (it->_type == it2->_type)
+                {
+                    fatal_error("ERROR: Duplicated type for FPGA task: '%s'\n       Functions: '%s' and '%s'",
+                        it->_type.c_str(),
+                        it->_name.c_str(),
+                        it2->_name.c_str());
+                }
             }
 
-            ancillary_file = fopen(new_filename.c_str(), "w+");
+            FILE* ancillary_file = fopen(new_filename.c_str(), "w+");
             if (ancillary_file == NULL)
             {
                 fatal_error("%s: error: cannot open file %s\n",
@@ -930,7 +937,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         local_decls_src, reset_src, handle_task_execution_cmd_src, init_hw_instr_cmd_src,
         wrapper_decls_after_user_code, condition_task_execution_cmd_src;
     Source periodic_command_read, periodic_command_pre, periodic_command_post;
-    Source in_copies, out_copies, in_copies_switch_body, out_copies_switch_body;
+    Source in_copies, out_copies, in_copies_body, out_copies_body;
     Source profiling_0, profiling_1, profiling_2, profiling_3, profiling_4, profiling_5;
     unsigned int n_params_id = 0;
     unsigned int n_params_out = 0;
@@ -958,8 +965,14 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         << "#pragma HLS RESET variable=__reset\n";
 
     handle_task_execution_cmd_src
-        << "  unsigned char __i, __param_id;"
-        << "  ap_uint<8> __copyFlags;";
+        << "  unsigned char __i;";
+
+    if (_unordered_args)
+    {
+        handle_task_execution_cmd_src
+            << "  unsigned char __param_id;"
+            << "  ap_uint<8> __copyFlags;";
+    }
 
     if (instrumentation_enabled())
     {
@@ -1082,24 +1095,41 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             local_decls_src
                 << " static " << localmem_type.get_unqualified_type().get_declaration(scope, field_name) << ";";
 
-            in_copies_switch_body
-                << "    case " << param_id << ":\n";
-
-            //NOTE: If the elements are const qualified they cannot be an output
-            if (!elem_type.is_const())
+            if (_unordered_args)
             {
-                in_copies_switch_body
-                    << "      __paramInfo_out[" << n_params_out << "] = __paramInfo[" << param_id << "];";
+                in_copies_body
+                    << "    case " << param_id << ":\n";
 
-                out_copies_switch_body
-                    << "    case " << param_id << ":\n"
-                    << "      if(__copyFlags[5])";
+                //NOTE: If the elements are const qualified they cannot be an output
+                if (!elem_type.is_const())
+                {
+                    in_copies_body
+                        << "      __paramInfo_out[" << n_params_out << "] = __paramInfo[" << param_id << "];";
 
-                n_params_out++;
+                    out_copies_body
+                        << "    case " << param_id << ":\n"
+                        << "      if(__copyFlags[5])";
+
+                    n_params_out++;
+                }
+
+                in_copies_body
+                    << "      if(__copyFlags[4])";
             }
+            else
+            {
+                //NOTE: If the elements are const qualified they cannot be an output
+                if (!elem_type.is_const())
+                {
+                    out_copies_body
+                        << "    if(__paramInfo[" << param_id << "][5])";
 
-            in_copies_switch_body
-                << "      if(__copyFlags[4])";
+                    n_params_out++;
+                }
+
+                in_copies_body
+                    << "      if(__paramInfo[" << param_id << "][4])";
+            }
 
             //FIXME: Add suport for arrays when the memory_port_width is defined
             if (wrapper_memport_width_str != "" && !localmem_type.array_element().is_array())
@@ -1116,17 +1146,26 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 const std::string port_name = STR_WRAPPERDATA;
                 const std::string mem_ptr_type = "ap_uint<" + wrapper_memport_width_str + ">";
                 const std::string n_elems_read = "(sizeof(" + mem_ptr_type + ")/sizeof(" + casting_sizeof + "))";
-                const std::string unaligned_offset = _unaligned_memory_port ? "-__o" : "";
-                const std::string unaligned_extra = _unaligned_memory_port ? "+__o" : "";
+                Source limits_skip, start_limit_extra, unaligned_offset, unaligned_extra;
 
-                in_copies_switch_body << "{";
+                in_copies_body << "{";
 
                 if (_unaligned_memory_port)
                 {
-                    in_copies_switch_body << "      __o = __param[" << param_id << "]%sizeof(" << mem_ptr_type << ")/sizeof(" << casting_sizeof << ");";
+                    in_copies_body << "      __o = __param[" << param_id << "]%sizeof(" << mem_ptr_type << ")/sizeof(" << casting_sizeof << ");";
+                    start_limit_extra << "((__j==0) && (__k<__o)) || ";
+                    unaligned_offset << "-__o";
+                    unaligned_extra << "+__o";
                 }
 
-                in_copies_switch_body
+                if (_unaligned_memory_port || _check_limits_memory_port)
+                {
+                    limits_skip
+                        << "          if (" << start_limit_extra << "((__j*" << n_elems_read << "+__k) >= (" << n_elements_src << unaligned_extra << ")))"
+                        <<            " continue;";
+                }
+
+                in_copies_body
                     << "      for (__j=0;"
                     << "       __j<(((" << n_elements_src << unaligned_extra << ")*sizeof(" << casting_sizeof << ") - 1)/sizeof(" << mem_ptr_type << ")+1);"
                     << "       __j++) {"
@@ -1137,8 +1176,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                     << "        for (__k=0;"
                     << "         __k<(" << n_elems_read << ");"
                     << "         __k++) {"
-                    << "          if (" << (_unaligned_memory_port ? "((__j==0) && (__k<__o)) || " : "")
-                    <<              "((__j*" << n_elems_read << "+__k) >= (" << n_elements_src << unaligned_extra << "))) continue;"
+                    <<            limits_skip
                     << "          union {"
                     << "            unsigned long long int raw;"
                     << "            " << casting_sizeof << " typed;"
@@ -1150,19 +1188,19 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                     << "          " << field_name << "[__j*" << n_elems_read << "+__k" << unaligned_offset << "] = cast_tmp.typed;"
                     << "        }"
                     << "      }"
-                    << "}";
+                    << "    }";
 
                 //NOTE: If the elements are const qualified they cannot be an output
                 if (!elem_type.is_const())
                 {
-                    out_copies_switch_body << "{";
+                    out_copies_body << "{";
 
                     if (_unaligned_memory_port)
                     {
-                        out_copies_switch_body << "      __o = __param[" << param_id << "]%sizeof(" << mem_ptr_type << ")/sizeof(" << casting_sizeof << ");";
+                        out_copies_body << "      __o = __param[" << param_id << "]%sizeof(" << mem_ptr_type << ")/sizeof(" << casting_sizeof << ");";
                     }
 
-                    out_copies_switch_body
+                    out_copies_body
                         << "      for (__j=0;"
                         << "       __j<(((" << n_elements_src << unaligned_extra << ")*sizeof(" << casting_sizeof << ")-1)/sizeof(" << mem_ptr_type << ")+1);"
                         << "       __j++) {"
@@ -1172,8 +1210,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                         << "        for (__k=0;"
                         << "         __k<(" << n_elems_read << ");"
                         << "         __k++) {"
-                        << "          if (" << (_unaligned_memory_port ? "((__j==0) && (__k<__o)) || " : "")
-                        <<              "((__j*" << n_elems_read << "+__k) >= (" << n_elements_src << unaligned_extra << "))) continue;"
+                        <<            limits_skip
                         << "          union {"
                         << "            unsigned long long int raw;"
                         << "            " << casting_sizeof << " typed;"
@@ -1186,24 +1223,24 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
                     if (_unaligned_memory_port)
                     {
-                        out_copies_switch_body
+                        out_copies_body
                             << "        const int rem = " << n_elements_src << unaligned_extra << "-__j*" << n_elems_read << ";"
                             << "        const unsigned int bit_f = (__j == 0) ? __o*sizeof(" << casting_sizeof << ")*8 : 0;";
                     }
                     else
                     {
-                        out_copies_switch_body
+                        out_copies_body
                             << "        const int rem = " << n_elements_src << "-(__j*" << n_elems_read << ");"
                             << "        const unsigned int bit_f = 0;";
                     }
 
-                    out_copies_switch_body
+                    out_copies_body
                         << "        const unsigned int bit_l = rem >= " << n_elems_read << " ? "
                         <<            "(sizeof(" << mem_ptr_type << ")*8-1) : (rem*sizeof(" << casting_sizeof << ")*8-1);"
                         << "        " << port_name << "[__param[" << param_id << "]/sizeof(" << mem_ptr_type << ") + __j].range("
                         <<            "bit_l, bit_f) = __tmpBuffer.range(sizeof(" << mem_ptr_type << ")*8-1, bit_f);"
                         << "      }"
-                        << "}";
+                        << "    }";
                 }
             }
             else
@@ -1251,7 +1288,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                     }
                 }
 
-                in_copies_switch_body
+                in_copies_body
                     << "      memcpy(" << field_name << ", "
                     <<        "(" << casting_const_pointer << ")("
                     <<         port_name << " + __param[" << param_id << "]/sizeof(" << casting_sizeof << ")), "
@@ -1259,21 +1296,24 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
                 if (!elem_type.is_const())
                 {
-                    out_copies_switch_body
+                    out_copies_body
                         << "      memcpy(" << port_name <<  " + __param[" << param_id << "]/sizeof(" << casting_sizeof << "), "
                         <<        "(" << casting_const_pointer << ")" << field_name << ", "
                         <<         n_elements_src << "*sizeof(" << casting_sizeof << "));";
                 }
             }
 
-            in_copies_switch_body
-                << "      break;";
-
-            //NOTE: If the elements are const qualified they cannot be an output
-            if (!elem_type.is_const())
+            if (_unordered_args)
             {
-                out_copies_switch_body
+                in_copies_body
                     << "      break;";
+
+                //NOTE: If the elements are const qualified they cannot be an output
+                if (!elem_type.is_const())
+                {
+                    out_copies_body
+                        << "      break;";
+                }
             }
         }
         else
@@ -1294,9 +1334,21 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         TL::Type unql_type = param_type.get_unqualified_type();
         const std::string param_decl = unql_type.get_declaration(scope, param_name);
         const bool is_mcxx_ptr_t = param_decl.find("mcxx_ptr_t") != std::string::npos;
+        Source case_pre, case_post;
 
         local_decls_src
             << param_decl << ";";
+
+        if (_unordered_args)
+        {
+            case_pre << "    case " << param_id << ":\n";
+            case_post << "      break;";
+        }
+        else
+        {
+            case_pre << "    {";
+            case_post << "    }";
+        }
 
         if (param_type.is_pointer() || param_type.is_array())
         {
@@ -1350,30 +1402,30 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 }
             }
 
-            in_copies_switch_body
-                << "    case " << param_id << ":\n"
+            in_copies_body
+                << case_pre
                 << "      " << param_name << " = (" << casting_pointer << ")"
                 <<        "(" << port_name << " + __param[" << param_id << "]/sizeof(" << casting_sizeof << "));"
-                << "      break;";
+                << case_post;
         }
         else if (param_type.is_scalar_type())
         {
-            in_copies_switch_body
-                << "    case " << param_id << ":\n"
+            in_copies_body
+                << case_pre
                 << "      union {"
                 << "        " << unql_type.get_declaration(scope, param_name) << ";"
                 << "        unsigned long long int "<< param_name << "_task_arg;"
                 << "      } mcc_arg_" << param_id << ";"
                 << "      mcc_arg_" << param_id << "." << param_name << "_task_arg = __param[" << param_id << "];"
                 << "      " << param_name << " = mcc_arg_" << param_id << "." << param_name << ";"
-                << "      break;";
+                << case_post;
         }
         else if (creates_children_tasks && is_mcxx_ptr_t)
         {
-            in_copies_switch_body
-                << "    case " << param_id << ":\n"
+            in_copies_body
+                << case_pre
                 << "      " << param_name << " = __param[" << param_id << "];"
-                << "      break;";
+                << case_post;
         }
         else
         {
@@ -1387,7 +1439,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         n_params_id++;
     }
 
-    if (n_params_id)
+    if (n_params_id && _unordered_args)
     {
         handle_task_execution_cmd_src
             << "  unsigned long long int __param[" << n_params_id << "], __paramInfo[" << n_params_id << "];";
@@ -1402,13 +1454,28 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             << "    __copyFlags = __paramInfo[__i];"
             << "    __param_id = __paramInfo[__i] >> 32;"
             << "    switch (__param_id) {"
-            <<      in_copies_switch_body
+            <<      in_copies_body
             << "    default:;"
             << "    }"
             << "  }";
     }
+    else if (n_params_id)
+    {
+        handle_task_execution_cmd_src
+            << "  unsigned long long int __param[" << n_params_id << "];"
+            << "  ap_uint<8> __paramInfo[" << n_params_id << "];";
 
-    if (n_params_out)
+        in_copies
+            << "  for (__i = 0; __i < " << n_params_id << "; __i++) {"
+            << "    __paramInfo[__i] = " << STR_INPUTSTREAM << ".read().data;"
+            << "    __param[__i] = " << STR_INPUTSTREAM << ".read().data;"
+            << "  }"
+            << "  {"
+            <<      in_copies_body
+            << "  }";
+    }
+
+    if (n_params_out && _unordered_args)
     {
         handle_task_execution_cmd_src
             << "  unsigned long long int __paramInfo_out[" << n_params_out << "];"
@@ -1419,9 +1486,16 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             << "    __copyFlags = __paramInfo_out[__i]; "
             << "    __param_id = __paramInfo_out[__i] >> 32;"
             << "    switch (__param_id) {"
-            <<      out_copies_switch_body
+            <<      out_copies_body
             << "    default:;"
             << "    }"
+            << "  }";
+    }
+    else if (n_params_out)
+    {
+        out_copies
+            << "  {"
+            <<      out_copies_body
             << "  }";
     }
 
@@ -2428,6 +2502,11 @@ void DeviceFPGA::set_unaligned_memory_port_from_str(const std::string& str)
     TL::parse_boolean_option("fpga_unaligned_memory_port", str, _unaligned_memory_port, "Assuming false.");
 }
 
+void DeviceFPGA::set_check_limits_memory_port_from_str(const std::string& str)
+{
+    TL::parse_boolean_option("fpga_check_limits_memory_port", str, _check_limits_memory_port, "Assuming true.");
+}
+
 void DeviceFPGA::set_force_periodic_support_from_str(const std::string& str)
 {
     TL::parse_boolean_option("force_fpga_periodic_support", str, _force_periodic_support, "Assuming false.");
@@ -2446,6 +2525,11 @@ void DeviceFPGA::set_memory_ports_mode_from_str(const std::string& in_str)
 void DeviceFPGA::set_ignore_deps_spawn_from_str(const std::string& str)
 {
     TL::parse_boolean_option("fpga_ignore_deps_task_spawn", str, _ignore_deps_spawn, "Assuming false.");
+}
+
+void DeviceFPGA::set_unordered_args_from_str(const std::string& str)
+{
+    TL::parse_boolean_option("fpga_unordered_args", str, _unordered_args, "Assuming true.");
 }
 
 std::string DeviceFPGA::FpgaOutlineInfo::get_filename() const
