@@ -950,12 +950,9 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
     memset(function_parameters_passed, 0, param_list.size());
 
-    params_src
-        << "axiStream_t& " << STR_INPUTSTREAM;
-
     pragmas_src
         << "#pragma HLS INTERFACE ap_ctrl_none port=return\n"
-        << "#pragma HLS INTERFACE axis port=" << STR_INPUTSTREAM << "\n"
+        << "#pragma HLS INTERFACE ap_hs port=" << STR_INPORT << "\n"
         << "#pragma HLS INTERFACE ap_hs port=" << STR_OUTPORT << "\n";
 
     local_decls_src
@@ -997,7 +994,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         init_hw_instr_cmd_src
             << "else if (__commandCode == 2) {"
             << "  __mcxx_instrData_t tmpSetup;"
-            << "  tmpSetup.range(63,0) = " << STR_INPUTSTREAM << ".read().data;"
+            << "  tmpSetup.range(63,0) = " << STR_INPORT_READ << ";"
             << "  tmpSetup.range(79,64) = __commandArgs&0xFFFFFF;"
             << "  tmpSetup.bit(104) = 0;"
             << "  " << STR_INSTR_PORT << ".write(tmpSetup);"
@@ -1446,8 +1443,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
         in_copies
             << "  for (__i = 0; __i < " << n_params_id << "; __i++) {"
-            << "    __paramInfo[__i] = " << STR_INPUTSTREAM << ".read().data;"
-            << "    __param[__i] = " << STR_INPUTSTREAM << ".read().data;"
+            << "    __paramInfo[__i] = " << STR_INPORT_READ << ";"
+            << "    __param[__i] = " << STR_INPORT_READ << ";"
             << "  }"
             << ""
             << "  for (__i = 0; __i < " << n_params_id << "; __i++) {"
@@ -1467,8 +1464,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
         in_copies
             << "  for (__i = 0; __i < " << n_params_id << "; __i++) {"
-            << "    __paramInfo[__i] = " << STR_INPUTSTREAM << ".read().data;"
-            << "    __param[__i] = " << STR_INPUTSTREAM << ".read().data;"
+            << "    __paramInfo[__i] = " << STR_INPORT_READ << ";"
+            << "    __param[__i] = " << STR_INPORT_READ << ";"
             << "  }"
             << "  {"
             <<      in_copies_body
@@ -1511,7 +1508,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             << "  unsigned int __task_period = 0;"
             << "  " << STR_NUM_REPS << " = 1;"
             << "  if (__commandCode == 5) {"
-            << "    __bufferData = " << STR_INPUTSTREAM << ".read().data;"
+            << "    __bufferData = " << STR_INPORT_READ << ";"
             << "    " << STR_NUM_REPS << " = __bufferData;"
             << "    __task_period = __bufferData>>32;"
             << "  }";
@@ -1536,8 +1533,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
 
     handle_task_execution_cmd_src
         << "  unsigned char __comp_needed, __destID;"
-        << "  " << STR_TASKID << " = " << STR_INPUTSTREAM << ".read().data;"
-        << "  " << STR_PARENT_TASKID << " = " << STR_INPUTSTREAM << ".read().data;"
+        << "  " << STR_TASKID << " = " << STR_INPORT_READ << ";"
+        << "  " << STR_PARENT_TASKID << " = " << STR_INPORT_READ << ";"
         << "  __comp_needed = __commandArgs>>24;"
         << "  __destID = __commandArgs>>32;"
         <<    periodic_command_read
@@ -1583,7 +1580,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         << "  __reset = 1;"
         <<    reset_src
         << "}"
-        << "__bufferData = " << STR_INPUTSTREAM << ".read().data;"
+        << "__bufferData = " << STR_INPORT_READ << ";"
         << "__commandCode = __bufferData;"
         << "__commandArgs = __bufferData>>8;"
         << "if (" << condition_task_execution_cmd_src << ") {"

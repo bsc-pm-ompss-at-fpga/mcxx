@@ -36,13 +36,13 @@
 #define STR_ACCID              "accID"
 #define STR_COMPONENTS_COUNT   "__mcxx_taskComponents"
 #define STR_OUTPORT            "mcxx_outPort"
-#define STR_GLOB_EINPORT       "mcxx_eInPort"
+#define STR_INPORT             "mcxx_inPort"
+#define STR_INPORT_READ        "mcxx_inPort.read()"
 #define STR_TASKID             "__mcxx_taskId"
 #define STR_PARENT_TASKID      "__mcxx_parent_taskId"
 #define STR_REP_NUM            "__mcxx_periTask_repNum"
 #define STR_NUM_REPS           "__mcxx_periTask_numReps"
 #define STR_WRAPPERDATA        "mcxx_wrapper_data"
-#define STR_INPUTSTREAM        "mcxx_inStream"
 #define STR_INSTR_PORT         "mcxx_instr"
 #define STR_HWCOUNTER_PORT     "mcxx_hwcounterPort"
 #define STR_FREQ_PORT          "mcxx_freqPort"
@@ -873,16 +873,8 @@ void get_hls_wrapper_decls(
         << "extern const unsigned char " << STR_ACCID << ";"
         << "static unsigned long long int " << STR_TASKID << ";"
         << "static unsigned long long int " << STR_PARENT_TASKID << ";"
+        << "extern hls::stream<ap_uint<64> > " << STR_INPORT << ";"
         << "extern ap_uint<72> " << STR_OUTPORT << ";";
-
-    if (task_creation || user_calls_nanos_set_lock || user_calls_nanos_try_lock || user_calls_nanos_unset_lock)
-    {
-        wrapper_decls_before_user_code
-            << "extern volatile ap_uint<8> " << STR_GLOB_EINPORT << ";";
-
-        wrapper_body_pragmas
-            << "#pragma HLS INTERFACE ap_hs port=" << STR_GLOB_EINPORT << "\n";
-    }
 
     if (instrumentation)
     {
@@ -941,12 +933,6 @@ void get_hls_wrapper_decls(
         // NOTE: The following declarations will be placed in the source by the codegen in C lang
         wrapper_decls_before_user_code
             << "void __mcxx_write_out_port(const unsigned long long int data, const unsigned short dest, const unsigned char last);";
-
-        if (task_creation || user_calls_nanos_set_lock || user_calls_nanos_try_lock || user_calls_nanos_unset_lock)
-        {
-            wrapper_decls_before_user_code
-                << "ap_uint<8> __mcxx_read_ein_port();";
-        }
     }
 
     if (user_calls_set.count("mcxx_memcpy") > 0 && !IS_C_LANGUAGE)
@@ -1176,17 +1162,6 @@ void get_hls_wrapper_defs(
         << "  __mcxx_write_out_port(" << STR_PARENT_TASKID << ", destId, 1);"
         << "}";
 
-    if (task_creation || user_calls_nanos_set_lock || user_calls_nanos_try_lock || user_calls_nanos_unset_lock)
-    {
-        wrapper_defs
-            << "ap_uint<8> __mcxx_read_ein_port()"
-            << "{"
-            << "  #pragma HLS INTERFACE ap_hs port=" << STR_GLOB_EINPORT << "\n"
-            << "  ap_uint<8> sync = " << STR_GLOB_EINPORT << ";"
-            << "  return sync;"
-            << "}";
-    }
-
     if (user_calls_set.count("mcxx_memcpy") > 0)
     {
         wrapper_defs
@@ -1266,7 +1241,7 @@ void get_hls_wrapper_defs(
             << "    {\n"
             << "#pragma HLS PROTOCOL fixed\n"
             << "      wait();"
-            << "      ack = __mcxx_read_ein_port();"
+            << "      ack = " << STR_INPORT_READ << ";"
             << "    }\n"
             << "  } while (ack != " << ACK_OK_CODE << ");"
             <<    instr_post
@@ -1298,7 +1273,7 @@ void get_hls_wrapper_defs(
             << "  {\n"
             << "#pragma HLS PROTOCOL fixed\n"
             << "    wait();"
-            << "    ack = __mcxx_read_ein_port();"
+            << "    ack = " << STR_INPORT_READ << ";"
             << "  }\n"
             << "  result[0] = (ack == " << ACK_OK_CODE << ");"
             <<    instr_post
@@ -1423,7 +1398,7 @@ void get_hls_wrapper_defs(
             << "    {\n"
             << "#pragma HLS PROTOCOL fixed\n"
             << "      wait();"
-            << "      __mcxx_read_ein_port();"
+            << "      tmp = " << STR_INPORT_READ << ";"
             << "      wait();"
             << "    }\n"
             << "  }"
@@ -1484,7 +1459,7 @@ void get_hls_wrapper_defs(
             << "    }"
             << "    {\n"
             << "#pragma HLS PROTOCOL fixed\n"
-            << "      ack = __mcxx_read_ein_port();"
+            << "      ack = " << STR_INPORT_READ << ";"
             << "      finalMode = (ack == " << ACK_FINAL_CODE << ");"
             << "      currentNumDeps = ack == " << ACK_FINAL_CODE << " ? 0 : numDeps;"
             << "    }\n"
