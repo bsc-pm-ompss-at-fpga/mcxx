@@ -33,7 +33,6 @@
 #include "tl-symbol-utils.hpp"
 #include "../../../lowering-common/tl-omp-lowering-utils.hpp"
 
-#define STR_ACCID              "accID"
 #define STR_COMPONENTS_COUNT   "__mcxx_taskComponents"
 #define STR_OUTPORT            "mcxx_outPort"
 #define STR_INPORT             "mcxx_inPort"
@@ -870,7 +869,6 @@ void get_hls_wrapper_decls(
 
     /*** Variable declarations ***/
     wrapper_decls_before_user_code
-        << "extern const unsigned char " << STR_ACCID << ";"
         << "static unsigned long long int " << STR_TASKID << ";"
         << "static unsigned long long int " << STR_PARENT_TASKID << ";"
         << "extern hls::stream<ap_uint<64> > " << STR_INPORT << ";"
@@ -1155,8 +1153,7 @@ void get_hls_wrapper_defs(
 
         << "void __mcxx_send_finished_task_cmd(const unsigned char destId)"
         << "{"
-        << "  unsigned long long int header = " << STR_ACCID << ";"
-        << "  header = (header << 8) | 0x03;"
+        << "  unsigned long long int header = 0x03;"
         << "  __mcxx_write_out_port(header, destId, 0);"
         << "  __mcxx_write_out_port(" << STR_TASKID << ", destId, 0);"
         << "  __mcxx_write_out_port(" << STR_PARENT_TASKID << ", destId, 1);"
