@@ -193,7 +193,7 @@ void add_fpga_header(
     fprintf(file, "\
 #include <cstring>\n\
 #include <hls_stream.h>\n\
-#include <ap_axi_sdata.h>\n\n"
+#include <ap_int.h>\n\n"
     );
 }
 
@@ -778,12 +778,6 @@ void get_hls_wrapper_decls(
     const bool put_nanos_handle_err_api =
         !IS_C_LANGUAGE && (task_creation || user_calls_nanos_handle_err);
     bool is_nanos_err_declared = false;
-
-    /*** Type declarations ***/
-    wrapper_decls_before_user_code
-        << "typedef ap_axis<64,1,8,5> axiData_t;"
-        << "typedef hls::stream<axiData_t> axiStream_t;"
-        /*<< "typedef unsigned long long int nanos_wd_t;"*/;
 
     if (put_nanos_err_api)
     {
