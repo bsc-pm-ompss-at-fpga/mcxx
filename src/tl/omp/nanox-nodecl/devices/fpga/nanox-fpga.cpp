@@ -1236,7 +1236,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                             << "        const unsigned int bit_l = rem >= " << n_elems_read << " ? "
                             <<            "(sizeof(" << mem_ptr_type << ")*8-1) : (rem*sizeof(" << casting_sizeof << ")*8-1);"
                             << "        " << port_name << "[__param[" << param_id << "]/sizeof(" << mem_ptr_type << ") + __j].range("
-                            <<            "bit_l, bit_f) = __tmpBuffer.range(sizeof(" << mem_ptr_type << ")*8-1, bit_f);"
+                            <<            "bit_l, bit_f) = __tmpBuffer.range(sizeof(" << mem_ptr_type << ")*8-1, bit_f);";
                     }
                     else
                     {
@@ -1244,8 +1244,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                             << "        " << port_name << "[__param[" << param_id << "]/sizeof(" << mem_ptr_type << ") + __j] = __tmpBuffer;";
                     }
                     out_copies_body
-                            << "      }"
-                            << "    }";
+                        << "      }"
+                        << "    }";
                 }
             }
             else
