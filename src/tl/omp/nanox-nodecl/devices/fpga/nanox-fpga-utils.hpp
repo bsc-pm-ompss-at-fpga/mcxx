@@ -1381,9 +1381,7 @@ void get_hls_wrapper_defs(
             << "{"
             <<    instr_wait_pre
             << "  if (" << STR_COMPONENTS_COUNT << " != 0) {"
-            << "    unsigned long long int tmp = " << STR_ACCID << ";"
-            << "    tmp = tmp << 48 /*ACC_ID info uses bits [48:55]*/;"
-            << "    tmp = 0x8000000100000000 | tmp | " << STR_COMPONENTS_COUNT << ";"
+            << "    unsigned long long int tmp = 0x8000000100000000 | " << STR_COMPONENTS_COUNT << ";"
             << "    __mcxx_write_out_port(tmp /*TASKWAIT_DATA_BLOCK*/, " << HWR_TASKWAIT_ID << ", 0 /*last*/);"
             << "    __mcxx_write_out_port(" << STR_TASKID << " /*data*/, " << HWR_TASKWAIT_ID << ", 1 /*last*/);"
             << "    {\n"
