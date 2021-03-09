@@ -33,7 +33,6 @@
 #include "tl-symbol-utils.hpp"
 #include "../../../lowering-common/tl-omp-lowering-utils.hpp"
 
-#define STR_ACCID              "accID"
 #define STR_COMPONENTS_COUNT   "__mcxx_taskComponents"
 #define STR_OUTPORT            "mcxx_outPort"
 #define STR_INPORT             "mcxx_inPort"
@@ -194,7 +193,7 @@ void add_fpga_header(
     fprintf(file, "\
 #include <cstring>\n\
 #include <hls_stream.h>\n\
-#include <ap_axi_sdata.h>\n\n"
+#include <ap_int.h>\n\n"
     );
 }
 
@@ -780,12 +779,6 @@ void get_hls_wrapper_decls(
         !IS_C_LANGUAGE && (task_creation || user_calls_nanos_handle_err);
     bool is_nanos_err_declared = false;
 
-    /*** Type declarations ***/
-    wrapper_decls_before_user_code
-        << "typedef ap_axis<64,1,8,5> axiData_t;"
-        << "typedef hls::stream<axiData_t> axiStream_t;"
-        /*<< "typedef unsigned long long int nanos_wd_t;"*/;
-
     if (put_nanos_err_api)
     {
         // NOTE: The following declarations will be placed in the source by the codegen in C lang
@@ -870,7 +863,6 @@ void get_hls_wrapper_decls(
 
     /*** Variable declarations ***/
     wrapper_decls_before_user_code
-        << "extern const unsigned char " << STR_ACCID << ";"
         << "static unsigned long long int " << STR_TASKID << ";"
         << "static unsigned long long int " << STR_PARENT_TASKID << ";"
         << "extern hls::stream<ap_uint<64> > " << STR_INPORT << ";"
@@ -1155,8 +1147,7 @@ void get_hls_wrapper_defs(
 
         << "void __mcxx_send_finished_task_cmd(const unsigned char destId)"
         << "{"
-        << "  unsigned long long int header = " << STR_ACCID << ";"
-        << "  header = (header << 8) | 0x03;"
+        << "  unsigned long long int header = 0x03;"
         << "  __mcxx_write_out_port(header, destId, 0);"
         << "  __mcxx_write_out_port(" << STR_TASKID << ", destId, 0);"
         << "  __mcxx_write_out_port(" << STR_PARENT_TASKID << ", destId, 1);"
@@ -1390,9 +1381,7 @@ void get_hls_wrapper_defs(
             << "{"
             <<    instr_wait_pre
             << "  if (" << STR_COMPONENTS_COUNT << " != 0) {"
-            << "    unsigned long long int tmp = " << STR_ACCID << ";"
-            << "    tmp = tmp << 48 /*ACC_ID info uses bits [48:55]*/;"
-            << "    tmp = 0x8000000100000000 | tmp | " << STR_COMPONENTS_COUNT << ";"
+            << "    unsigned long long int tmp = 0x8000000100000000 | " << STR_COMPONENTS_COUNT << ";"
             << "    __mcxx_write_out_port(tmp /*TASKWAIT_DATA_BLOCK*/, " << HWR_TASKWAIT_ID << ", 0 /*last*/);"
             << "    __mcxx_write_out_port(" << STR_TASKID << " /*data*/, " << HWR_TASKWAIT_ID << ", 1 /*last*/);"
             << "    {\n"
