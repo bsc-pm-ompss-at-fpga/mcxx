@@ -63,10 +63,10 @@
 #define ACK_FINAL_CODE          0x2
 
 //IDs of the HWR IPs
-#define HWR_DEPS_ID             0x12
-#define HWR_SCHED_ID            0x13
-#define HWR_TASKWAIT_ID         0x14
-#define HWR_LOCK_ID             0x15
+#define HWR_LOCK_ID             0x1
+#define HWR_DEPS_ID             0x2
+#define HWR_SCHED_ID            0x3
+#define HWR_TASKWAIT_ID         0x4
 
 namespace TL
 {
@@ -866,7 +866,7 @@ void get_hls_wrapper_decls(
         << "static unsigned long long int " << STR_TASKID << ";"
         << "static unsigned long long int " << STR_PARENT_TASKID << ";"
         << "extern hls::stream<ap_uint<64> > " << STR_INPORT << ";"
-        << "extern ap_uint<72> " << STR_OUTPORT << ";";
+        << "extern ap_uint<68> " << STR_OUTPORT << ";";
 
     if (instrumentation)
     {
@@ -1138,10 +1138,9 @@ void get_hls_wrapper_defs(
         << "void __mcxx_write_out_port(const unsigned long long int data, const unsigned short dest, const unsigned char last)"
         << "{"
         << "#pragma HLS INTERFACE ap_hs port=" << STR_OUTPORT << " register\n"
-        // NOTE: Pack the axiData_t info: data(64bits) + dest(6bits) + last(2bit). It can be done
-        //       with less bits but this way the info is HEX friendly
-        << "  ap_uint<72> tmp = data;"
-        << "  tmp = (tmp << 8) | ((dest & 0x3F) << 2) | (last & 0x3);"
+        // NOTE: Pack the axiData_t info: data(64bits) + dest(3bits) + last(1bit)
+        << "  ap_uint<68> tmp = data;"
+        << "  tmp = (tmp << 4) | ((dest & 0x7) << 1) | (last & 0x1);"
         << "  " << STR_OUTPORT << " = tmp;"
         << "}"
 
