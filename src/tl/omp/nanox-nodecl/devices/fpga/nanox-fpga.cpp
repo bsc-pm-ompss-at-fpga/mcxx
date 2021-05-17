@@ -501,7 +501,7 @@ void DeviceFPGA::create_outline(
 DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_generation(false),
     _force_fpga_spawn_ports(), _memory_port_width(""), _unaligned_memory_port(false),
     _check_limits_memory_port(true), _force_periodic_support(false), _ignore_deps_spawn(false),
-    _unordered_args(true)
+    _unordered_args(false)
 {
     set_phase_name("Nanox FPGA support");
     set_phase_description("This phase is used by Nanox phases to implement FPGA device support");
@@ -554,7 +554,7 @@ DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_gener
     register_parameter("fpga_unordered_args",
         "Supports unordered argument retrival",
         _unordered_args_str,
-        "1").connect(std::bind(&DeviceFPGA::set_unordered_args_from_str, this, std::placeholders::_1));
+        "0").connect(std::bind(&DeviceFPGA::set_unordered_args_from_str, this, std::placeholders::_1));
 }
 
 void DeviceFPGA::pre_run(DTO& dto) {
@@ -2534,7 +2534,7 @@ void DeviceFPGA::set_ignore_deps_spawn_from_str(const std::string& str)
 
 void DeviceFPGA::set_unordered_args_from_str(const std::string& str)
 {
-    TL::parse_boolean_option("fpga_unordered_args", str, _unordered_args, "Assuming true.");
+    TL::parse_boolean_option("fpga_unordered_args", str, _unordered_args, "Assuming false.");
 }
 
 std::string DeviceFPGA::FpgaOutlineInfo::get_filename() const
