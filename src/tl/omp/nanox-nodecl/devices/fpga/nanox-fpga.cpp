@@ -1295,6 +1295,14 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                     {
                         pragmas_src
                             << "#pragma HLS DATA_PACK variable=" << port_name << "\n";
+
+                        // Check if the size of type is power of 2. If not, vivado_hls may thrown an error
+                        if (port_type.get_size() & (port_type.get_size() - 1)) {
+                            std::string warn_str = "Bitwidth of parameter '%s' is not power of 2 but data_pack directive is enabled. ";
+                            warn_str += "This requires a memory port which bitwidth is not power of 2. ";
+                            warn_str += "Please, check the argument type or disable the DATA_PACK directive with fpga_directive_data_pack option\n";
+                            warn_printf_at(param_symbol.get_locus(), warn_str.c_str(), field_name.c_str());
+                        }
                     }
                 }
 
@@ -1409,6 +1417,14 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 {
                     pragmas_src
                         << "#pragma HLS DATA_PACK variable=" << port_name << "\n";
+
+                    // Check if the size of type is power of 2. If not, vivado_hls may thrown an error
+                    if (elem_type.get_size() & (elem_type.get_size() - 1)) {
+                        std::string warn_str = "Bitwidth of parameter '%s' is not power of 2 but data_pack directive is enabled. ";
+                        warn_str += "This requires a memory port which bitwidth is not power of 2. ";
+                        warn_str += "Please, check the argument type or disable the DATA_PACK directive with fpga_directive_data_pack option\n";
+                        warn_printf_at(it->get_locus(), warn_str.c_str(), param_name.c_str());
+                    }
                 }
             }
 
