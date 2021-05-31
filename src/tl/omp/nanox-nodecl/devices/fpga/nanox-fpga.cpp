@@ -501,7 +501,7 @@ void DeviceFPGA::create_outline(
 DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_generation(false),
     _force_fpga_spawn_ports(), _memory_port_width(""), _unaligned_memory_port(false),
     _check_limits_memory_port(true), _force_periodic_support(false), _ignore_deps_spawn(false),
-    _unordered_args(false)
+    _unordered_args(false), _data_pack(true)
 {
     set_phase_name("Nanox FPGA support");
     set_phase_description("This phase is used by Nanox phases to implement FPGA device support");
@@ -555,6 +555,11 @@ DeviceFPGA::DeviceFPGA() : DeviceProvider(std::string("fpga")), _bitstream_gener
         "Supports unordered argument retrival",
         _unordered_args_str,
         "0").connect(std::bind(&DeviceFPGA::set_unordered_args_from_str, this, std::placeholders::_1));
+
+    register_parameter("fpga_directive_data_pack",
+        "Adds a data_pack directive to struct parameters",
+        _data_pack_str,
+        "1").connect(std::bind(&DeviceFPGA::set_data_pack_from_str, this, std::placeholders::_1));
 }
 
 void DeviceFPGA::pre_run(DTO& dto) {
@@ -1286,7 +1291,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                     pragmas_src
                         << "#pragma HLS INTERFACE m_axi port=" << port_name << "\n";
 
-                    if (port_type.is_class())
+                    if (port_type.is_class() && _data_pack)
                     {
                         pragmas_src
                             << "#pragma HLS DATA_PACK variable=" << port_name << "\n";
@@ -1400,7 +1405,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 pragmas_src
                     << "#pragma HLS INTERFACE m_axi port=" << port_name << "\n";
 
-                if (elem_type.is_class())
+                if (elem_type.is_class() && _data_pack)
                 {
                     pragmas_src
                         << "#pragma HLS DATA_PACK variable=" << port_name << "\n";
@@ -2535,6 +2540,11 @@ void DeviceFPGA::set_ignore_deps_spawn_from_str(const std::string& str)
 void DeviceFPGA::set_unordered_args_from_str(const std::string& str)
 {
     TL::parse_boolean_option("fpga_unordered_args", str, _unordered_args, "Assuming false.");
+}
+
+void DeviceFPGA::set_data_pack_from_str(const std::string& str)
+{
+    TL::parse_boolean_option("fpga_directive_data_pack", str, _data_pack, "Assuming true.");
 }
 
 std::string DeviceFPGA::FpgaOutlineInfo::get_filename() const
