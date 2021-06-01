@@ -127,6 +127,8 @@ namespace TL
                 bool        _ignore_deps_spawn;
                 std::string _unordered_args_str;
                 bool        _unordered_args;
+                std::string _data_pack_str;
+                bool        _data_pack;
                 std::string _function_copy_suffix;
                 std::string _memory_ports_mode;
                 str_set_t   _registered_tasks;
@@ -144,6 +146,7 @@ namespace TL
                 void set_memory_ports_mode_from_str(const std::string& str);
                 void set_ignore_deps_spawn_from_str(const std::string& str);
                 void set_unordered_args_from_str(const std::string& str);
+                void set_data_pack_from_str(const std::string& str);
 
                 Nodecl::Utils::SimpleSymbolMap                 _global_copied_fpga_symbols;
                 Nodecl::List                                   _stuff_to_copy;
