@@ -41,6 +41,7 @@
 #define STR_PARENT_TASKID      "__mcxx_parent_taskId"
 #define STR_REP_NUM            "__mcxx_periTask_repNum"
 #define STR_NUM_REPS           "__mcxx_periTask_numReps"
+#define STR_PARAMS             "__mcxx_raw_params"
 #define STR_WRAPPERDATA        "mcxx_wrapper_data"
 #define STR_INSTR_PORT         "mcxx_instr"
 #define STR_HWCOUNTER_PORT     "mcxx_hwcounterPort"
@@ -603,6 +604,18 @@ struct FpgaTaskCodeVisitor : public Nodecl::ExhaustiveVisitor<void>
                 {
                     _user_calls_set.insert("nanos_fpga_get_time_us");
                 }
+                else if (sym.get_name().find("nanos_fpga_get_raw_arg") != std::string::npos)
+                {
+                    _user_calls_set.insert("nanos_fpga_get_raw_arg");
+                }
+                else if (sym.get_name().find("nanos_fpga_memcpy_wideport_in") != std::string::npos)
+                {
+                    _user_calls_set.insert("nanos_fpga_memcpy_wideport_in");
+                }
+                else if (sym.get_name().find("nanos_fpga_memcpy_wideport_out") != std::string::npos)
+                {
+                    _user_calls_set.insert("nanos_fpga_memcpy_wideport_out");
+                }
 
                 return;
             }
@@ -882,14 +895,17 @@ void get_hls_wrapper_decls(
         wrapper_decls_before_user_code
             << "static ap_uint<32> " << STR_COMPONENTS_COUNT << ";";
 
-        if (shared_memory_port_width != "")
-        {
-            wrapper_decls_before_user_code
-                << "extern volatile ap_uint<" + shared_memory_port_width + "> * " + STR_WRAPPERDATA << ";";
+    }
 
-            wrapper_body_pragmas
-                << "#pragma HLS INTERFACE m_axi port=" << STR_WRAPPERDATA << "\n";
-        }
+    if (shared_memory_port_width != "")
+    {
+        wrapper_decls_before_user_code
+            << "extern ap_uint<" + shared_memory_port_width + "> * " + STR_WRAPPERDATA << ";"
+            << "template<typename T> void __mcxx_memcpy_port_in(T * dst, const unsigned long long int src, const size_t len);"
+            << "template<typename T> void __mcxx_memcpy_port_out(const unsigned long long int dst, const T * src, const size_t len);";
+
+        wrapper_body_pragmas
+            << "#pragma HLS INTERFACE m_axi port=" << STR_WRAPPERDATA << "\n";
     }
 
     if (periodic_support || user_calls_nanos_time || user_calls_set.count("mcxx_usleep") > 0)
@@ -1118,6 +1134,32 @@ void get_hls_wrapper_decls(
             << ptr_ops
             << "};";
     }
+
+    if (user_calls_set.count("nanos_fpga_get_raw_arg") > 0 && !IS_C_LANGUAGE)
+    {
+        wrapper_decls_before_user_code
+            << "unsigned long long int nanos_fpga_get_raw_arg(const unsigned char idx);";
+    }
+    if (user_calls_set.count("nanos_fpga_memcpy_wideport_in") > 0 && !IS_C_LANGUAGE && shared_memory_port_width != "")
+    {
+        wrapper_decls_before_user_code
+            << "template<typename T>"
+            << "void nanos_fpga_memcpy_wideport_in(T * dst, const unsigned long long int addr, const unsigned int num_elems);";
+    }
+    else if (user_calls_set.count("nanos_fpga_memcpy_wideport_in") > 0 && shared_memory_port_width == "")
+    {
+        fatal_error("Found a call to nanos_fpga_memcpy_wideport_in but no width specified");
+    }
+    if (user_calls_set.count("nanos_fpga_memcpy_wideport_out") > 0 && !IS_C_LANGUAGE && shared_memory_port_width != "")
+    {
+        wrapper_decls_before_user_code
+            << "template<typename T>"
+            << "void nanos_fpga_memcpy_wideport_out(const unsigned long long int addr, const T * src, const unsigned int num_elems);";
+    }
+    else if (user_calls_set.count("nanos_fpga_memcpy_wideport_out") > 0 && shared_memory_port_width == "")
+    {
+        fatal_error("Found a call to nanos_fpga_memcpy_wideport_out but no width specified");
+    }
 }
 
 void get_hls_wrapper_defs(
@@ -1126,6 +1168,8 @@ void get_hls_wrapper_defs(
   const bool periodic_support,
   const std::set<std::string> user_calls_set,
   const std::string shared_memory_port_width,
+  const bool shared_memory_port_unaligned,
+  const bool shared_memory_port_limits,
   Source& wrapper_defs)
 {
     //NOTE: Do not remove the '\n' characters at the end of some lines. Otherwise, the generated source is not well formated
@@ -1460,6 +1504,106 @@ void get_hls_wrapper_defs(
             << "}";
     }
 
+    if (shared_memory_port_width != "")
+    {
+        Source limits_skip, start_limit_extra, unaligned_calc, unaligned_offset, unaligned_extra, out_write;
+        const std::string mem_ptr_type = "ap_uint<" + shared_memory_port_width + ">";
+        const std::string n_elems_read = "(sizeof(" + mem_ptr_type + ")/sizeof(T))";
+
+        if (shared_memory_port_unaligned)
+        {
+            unaligned_calc << "const unsigned int __o = addr%sizeof(" << mem_ptr_type << ")/sizeof(T);";
+            start_limit_extra << "((__j==0) && (__k<__o)) || ";
+            unaligned_offset << "-__o";
+            unaligned_extra << "+__o";
+
+            out_write
+                << "    const int rem = len" << unaligned_extra << "-__j*" << n_elems_read << ";"
+                << "    const unsigned int bit_f = (__j == 0) ? __o*sizeof(T)*8 : 0;";
+        }
+        else if (shared_memory_port_limits)
+        {
+            out_write
+                << "    const int rem = len-(__j*" << n_elems_read << ");"
+                << "    const unsigned int bit_f = 0;";
+        }
+
+        if (shared_memory_port_unaligned || shared_memory_port_limits)
+        {
+            limits_skip
+                << "    if (" << start_limit_extra << "((__j*" << n_elems_read << "+__k) >= (len" << unaligned_extra << ")))"
+                <<      " continue;";
+
+            out_write
+                << "    const unsigned int bit_l = rem >= " << n_elems_read << " ? "
+                <<       "(sizeof(" << mem_ptr_type << ")*8-1) : (rem*sizeof(T)*8-1);"
+                << "   " << STR_WRAPPERDATA << "[addr/sizeof(" << mem_ptr_type << ") + __j].range("
+                <<       "bit_l, bit_f) = __tmpBuffer.range(sizeof(" << mem_ptr_type << ")*8-1, bit_f);";
+        }
+        else
+        {
+            out_write
+                << "    " << STR_WRAPPERDATA << "[addr/sizeof(" << mem_ptr_type << ") + __j] = __tmpBuffer;";
+        }
+
+        wrapper_defs
+            << "template<typename T> void __mcxx_memcpy_port_in(T * local, const unsigned long long int addr, const size_t len)"
+            << "{"
+            << "#pragma HLS INTERFACE m_axi port=" << STR_WRAPPERDATA << "\n"
+            << "#pragma HLS inline\n"
+            <<    unaligned_calc
+            << "  for (unsigned int __j=0;"
+            << "   __j<(len == 0 ? 0 : (((len" << unaligned_extra << ")*sizeof(T) - 1)/sizeof(" << mem_ptr_type << ")+1));"
+            << "   __j++) {"
+            << "    " <<  mem_ptr_type << " __tmpBuffer;"
+            << "    __tmpBuffer = *(" << STR_WRAPPERDATA << " + addr/sizeof(" << mem_ptr_type << ") + __j);"
+            << "    #pragma HLS PIPELINE\n"
+            << "    #pragma HLS UNROLL region\n"
+            << "    for (unsigned int __k=0;"
+            << "     __k<(" << n_elems_read << ");"
+            << "     __k++) {"
+            <<        limits_skip
+            << "      union {"
+            << "        unsigned long long int raw;"
+            << "        T typed;"
+            << "      } cast_tmp;"
+            << "      cast_tmp.raw = __tmpBuffer.range("
+            <<        "(__k+1)*sizeof(T)*8-1,"
+            <<        "__k*sizeof(T)*8);"
+            << "      #pragma HLS DEPENDENCE variable=local inter false\n"
+            << "      local[__j*" << n_elems_read << "+__k" << unaligned_offset << "] = cast_tmp.typed;"
+            << "    }"
+            << "  }"
+            << "}"
+            << "template<typename T> void __mcxx_memcpy_port_out(const unsigned long long int addr, const T * local, const size_t len)"
+            << "{"
+            << "#pragma HLS INTERFACE m_axi port=" << STR_WRAPPERDATA << "\n"
+            << "#pragma HLS inline\n"
+            <<    unaligned_calc
+            << "  for (unsigned int __j=0;"
+            << "   __j<(len == 0 ? 0 : (((len" << unaligned_extra << ")*sizeof(T)-1)/sizeof(" << mem_ptr_type << ")+1));"
+            << "   __j++) {"
+            << "    " << mem_ptr_type << " __tmpBuffer;"
+            << "    #pragma HLS PIPELINE\n"
+            << "    #pragma HLS UNROLL region\n"
+            << "    for (unsigned int __k=0;"
+            << "     __k<(" << n_elems_read << ");"
+            << "     __k++) {"
+            <<        limits_skip
+            << "      union {"
+            << "        unsigned long long int raw;"
+            << "        T typed;"
+            << "      } cast_tmp;"
+            << "      cast_tmp.typed = local[__j*" << n_elems_read << "+__k" << unaligned_offset << "];"
+            << "      __tmpBuffer.range("
+            <<        "(__k+1)*sizeof(T)*8-1,"
+            <<        "__k*sizeof(T)*8) = cast_tmp.raw;"
+            << "    }"
+            <<      out_write
+            << "  }"
+            << "}";
+    }
+
     if (periodic_support)
     {
         wrapper_defs
@@ -1489,6 +1633,36 @@ void get_hls_wrapper_defs(
             << "#pragma HLS inline\n"
             << "#pragma HLS INTERFACE ap_none port=" << STR_HWCOUNTER_PORT << "\n"
             << "  return " << STR_HWCOUNTER_PORT <<"/(unsigned long long int)" << STR_FREQ_PORT << ";"
+            << "}";
+    }
+
+    if (user_calls_set.count("nanos_fpga_get_raw_arg") > 0)
+    {
+        wrapper_defs
+            << "unsigned long long int nanos_fpga_get_raw_arg(const unsigned char idx)"
+            << "{"
+            << "#pragma HLS inline\n"
+            << "  return " << STR_PARAMS << "[idx];"
+            << "}";
+    }
+    if (user_calls_set.count("nanos_fpga_memcpy_wideport_in") > 0)
+    {
+        wrapper_defs
+            << "template<typename T>"
+            << "void nanos_fpga_memcpy_wideport_in(T * dst, const unsigned long long int addr, const unsigned int num_elems)"
+            << "{"
+            << "#pragma HLS inline\n"
+            << "  __mcxx_memcpy_port_in<T>(dst, addr, num_elems);"
+            << "}";
+    }
+    if (user_calls_set.count("nanos_fpga_memcpy_wideport_out") > 0)
+    {
+        wrapper_defs
+            << "template<typename T>"
+            << "void nanos_fpga_memcpy_wideport_out(const unsigned long long int addr, const T * src, const unsigned int num_elems)"
+            << "{"
+            << "#pragma HLS inline\n"
+            << "  __mcxx_memcpy_port_out<T>(addr, src, num_elems);"
             << "}";
     }
 }
