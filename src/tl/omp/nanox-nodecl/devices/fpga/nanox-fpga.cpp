@@ -1360,8 +1360,10 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         n_params_id++;
     }
 
+    //NOTE: Static arrays must have length > 0
+    const unsigned int params_len = std::max<unsigned int>(1, n_params_id);
     wrapper_decls
-        << "  unsigned long long int " << STR_PARAMS << "[" << n_params_id << "];";
+        << "  unsigned long long int " << STR_PARAMS << "[" << params_len << "];";
 
     if (n_params_id && _unordered_args)
     {
