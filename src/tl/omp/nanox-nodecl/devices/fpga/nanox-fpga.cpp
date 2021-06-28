@@ -1613,8 +1613,8 @@ std::string DeviceFPGA::get_acc_type(const TL::Symbol& task, const TargetInforma
                 ++it2)
         {
             //Architecture bits are:
-            //  - 63th bit is set if task has SMP support
-            //  - 62th bit is set if task has FPGA support
+            //  - 33th bit is set if task has SMP support
+            //  - 32th bit is set if task has FPGA support
             std::string device_name = *it2;
             if (device_name == "smp")
             {
