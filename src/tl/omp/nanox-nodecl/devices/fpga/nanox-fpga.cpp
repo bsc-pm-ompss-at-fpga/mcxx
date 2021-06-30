@@ -1035,19 +1035,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             fatal_error("Unsupported value");
         }
 
-        if (!creates_children_tasks)
-        {
-            // NOTE: If the task creates children tasks, the port will de created in the global scope
-            const std::string port_declaration =
-                "ap_uint<" + wrapper_memport_width_str + "> * " + STR_WRAPPERDATA;
-            params_src.append_with_separator(port_declaration, ", ");
-
-            pragmas_src
-                << "#pragma HLS INTERFACE m_axi port=" << STR_WRAPPERDATA << "\n";
-        }
-
-        handle_task_execution_cmd_src
-            << "  unsigned int __j, __k, __o;";
+        // NOTE: The port will de created in the global scope
     }
 
     // Go through all the data items
@@ -1092,6 +1080,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             TL::Type elem_type = get_element_type_pointer_to(localmem_type);
             TL::Type unql_type = elem_type.get_unqualified_type();
             const std::string casting_const_pointer = unql_type.get_const_type().get_pointer_to().get_declaration(scope, "");
+            const std::string casting_unql = unql_type.get_declaration(scope, "");
             const std::string casting_sizeof = elem_type.get_declaration(scope, "");
 
             local_decls_src
@@ -1145,112 +1134,18 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                     fatal_error("Unsupported value");
                 }
 
-                const std::string port_name = STR_WRAPPERDATA;
-                const std::string mem_ptr_type = "ap_uint<" + wrapper_memport_width_str + ">";
-                const std::string n_elems_read = "(sizeof(" + mem_ptr_type + ")/sizeof(" + casting_sizeof + "))";
-                Source limits_skip, start_limit_extra, unaligned_offset, unaligned_extra;
-
-                in_copies_body << "{";
-
-                if (_unaligned_memory_port)
-                {
-                    in_copies_body << "      __o = __param[" << param_id << "]%sizeof(" << mem_ptr_type << ")/sizeof(" << casting_sizeof << ");";
-                    start_limit_extra << "((__j==0) && (__k<__o)) || ";
-                    unaligned_offset << "-__o";
-                    unaligned_extra << "+__o";
-                }
-
-                if (_unaligned_memory_port || _check_limits_memory_port)
-                {
-                    limits_skip
-                        << "          if (" << start_limit_extra << "((__j*" << n_elems_read << "+__k) >= (" << n_elements_src << unaligned_extra << ")))"
-                        <<            " continue;";
-                }
-
                 in_copies_body
-                    << "      for (__j=0;"
-                    << "       __j<(((" << n_elements_src << unaligned_extra << ")*sizeof(" << casting_sizeof << ") - 1)/sizeof(" << mem_ptr_type << ")+1);"
-                    << "       __j++) {"
-                    << "        " <<  mem_ptr_type << " __tmpBuffer;"
-                    << "        __tmpBuffer = *(" << port_name << " + __param[" << param_id << "]/sizeof(" << mem_ptr_type << ") + __j);"
-                    << "        #pragma HLS PIPELINE\n"
-                    << "        #pragma HLS UNROLL region\n"
-                    << "        for (__k=0;"
-                    << "         __k<(" << n_elems_read << ");"
-                    << "         __k++) {"
-                    <<            limits_skip
-                    << "          union {"
-                    << "            unsigned long long int raw;"
-                    << "            " << casting_sizeof << " typed;"
-                    << "          } cast_tmp;"
-                    << "          cast_tmp.raw = __tmpBuffer.range("
-                    <<            "(__k+1)*sizeof(" << casting_sizeof << ")*8-1,"
-                    <<            "__k*sizeof(" << casting_sizeof << ")*8);"
-                    << "          #pragma HLS DEPENDENCE variable=" << field_name << " inter false\n"
-                    << "          " << field_name << "[__j*" << n_elems_read << "+__k" << unaligned_offset << "] = cast_tmp.typed;"
-                    << "        }"
-                    << "      }"
-                    << "    }";
+                    << "{"
+                    << "  __mcxx_memcpy_port_in<" << casting_unql << ">(" << field_name << "," << STR_PARAMS << "[" << param_id << "]," << n_elements_src << ");"
+                    << "}";
 
                 //NOTE: If the elements are const qualified they cannot be an output
                 if (!elem_type.is_const())
                 {
-                    out_copies_body << "{";
-
-                    if (_unaligned_memory_port)
-                    {
-                        out_copies_body << "      __o = __param[" << param_id << "]%sizeof(" << mem_ptr_type << ")/sizeof(" << casting_sizeof << ");";
-                    }
-
                     out_copies_body
-                        << "      for (__j=0;"
-                        << "       __j<(((" << n_elements_src << unaligned_extra << ")*sizeof(" << casting_sizeof << ")-1)/sizeof(" << mem_ptr_type << ")+1);"
-                        << "       __j++) {"
-                        << "        " << mem_ptr_type << " __tmpBuffer;"
-                        << "        #pragma HLS PIPELINE\n"
-                        << "        #pragma HLS UNROLL region\n"
-                        << "        for (__k=0;"
-                        << "         __k<(" << n_elems_read << ");"
-                        << "         __k++) {"
-                        <<            limits_skip
-                        << "          union {"
-                        << "            unsigned long long int raw;"
-                        << "            " << casting_sizeof << " typed;"
-                        << "          } cast_tmp;"
-                        << "          cast_tmp.typed = " << field_name << "[__j*" << n_elems_read << "+__k" << unaligned_offset << "];"
-                        << "          __tmpBuffer.range("
-                        <<            "(__k+1)*sizeof(" << casting_sizeof << ")*8-1,"
-                        <<            "__k*sizeof(" << casting_sizeof << ")*8) = cast_tmp.raw;"
-                        << "        }";
-
-                    if (_unaligned_memory_port)
-                    {
-                        out_copies_body
-                            << "        const int rem = " << n_elements_src << unaligned_extra << "-__j*" << n_elems_read << ";"
-                            << "        const unsigned int bit_f = (__j == 0) ? __o*sizeof(" << casting_sizeof << ")*8 : 0;";
-                    }
-                    else if (_check_limits_memory_port)
-                    {
-                        out_copies_body
-                            << "        const int rem = " << n_elements_src << "-(__j*" << n_elems_read << ");"
-                            << "        const unsigned int bit_f = 0;";
-                    }
-                    if (_unaligned_memory_port || _check_limits_memory_port)
-                    {
-                        out_copies_body
-                            << "        const unsigned int bit_l = rem >= " << n_elems_read << " ? "
-                            <<            "(sizeof(" << mem_ptr_type << ")*8-1) : (rem*sizeof(" << casting_sizeof << ")*8-1);"
-                            << "        " << port_name << "[__param[" << param_id << "]/sizeof(" << mem_ptr_type << ") + __j].range("
-                            <<            "bit_l, bit_f) = __tmpBuffer.range(sizeof(" << mem_ptr_type << ")*8-1, bit_f);";
-                    }
-                    else
-                    {
-                        out_copies_body
-                            << "        " << port_name << "[__param[" << param_id << "]/sizeof(" << mem_ptr_type << ") + __j] = __tmpBuffer;";
-                    }
-                    out_copies_body
-                        << "      }"
-                        << "    }";
+                        << "{"
+                        << "  __mcxx_memcpy_port_out<" << casting_unql << ">(" << STR_PARAMS << "[" << param_id << "]," << field_name << "," << n_elements_src << ");"
+                        << "}";
                 }
             }
             else
@@ -1309,13 +1204,13 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 in_copies_body
                     << "      memcpy(" << field_name << ", "
                     <<        "(" << casting_const_pointer << ")("
-                    <<         port_name << " + __param[" << param_id << "]/sizeof(" << casting_sizeof << ")), "
+                    <<         port_name << " + " << STR_PARAMS << "[" << param_id << "]/sizeof(" << casting_sizeof << ")), "
                     <<         n_elements_src << "*sizeof(" << casting_sizeof << "));";
 
                 if (!elem_type.is_const())
                 {
                     out_copies_body
-                        << "      memcpy(" << port_name <<  " + __param[" << param_id << "]/sizeof(" << casting_sizeof << "), "
+                        << "      memcpy(" << port_name <<  " + " << STR_PARAMS << "[" << param_id << "]/sizeof(" << casting_sizeof << "), "
                         <<        "(" << casting_const_pointer << ")" << field_name << ", "
                         <<         n_elements_src << "*sizeof(" << casting_sizeof << "));";
                 }
@@ -1431,7 +1326,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
             in_copies_body
                 << case_pre
                 << "      " << param_name << " = (" << casting_pointer << ")"
-                <<        "(" << port_name << " + __param[" << param_id << "]/sizeof(" << casting_sizeof << "));"
+                <<        "(" << port_name << " + " << STR_PARAMS << "[" << param_id << "]/sizeof(" << casting_sizeof << "));"
                 << case_post;
         }
         else if (param_type.is_scalar_type())
@@ -1442,7 +1337,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
                 << "        " << unql_type.get_declaration(scope, param_name) << ";"
                 << "        unsigned long long int "<< param_name << "_task_arg;"
                 << "      } mcc_arg_" << param_id << ";"
-                << "      mcc_arg_" << param_id << "." << param_name << "_task_arg = __param[" << param_id << "];"
+                << "      mcc_arg_" << param_id << "." << param_name << "_task_arg = " << STR_PARAMS << "[" << param_id << "];"
                 << "      " << param_name << " = mcc_arg_" << param_id << "." << param_name << ";"
                 << case_post;
         }
@@ -1450,7 +1345,7 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         {
             in_copies_body
                 << case_pre
-                << "      " << param_name << " = __param[" << param_id << "];"
+                << "      " << param_name << " = " << STR_PARAMS << "[" << param_id << "];"
                 << case_post;
         }
         else
@@ -1465,15 +1360,20 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         n_params_id++;
     }
 
+    //NOTE: Static arrays must have length > 0
+    const unsigned int params_len = std::max<unsigned int>(1, n_params_id);
+    wrapper_decls
+        << "  unsigned long long int " << STR_PARAMS << "[" << params_len << "];";
+
     if (n_params_id && _unordered_args)
     {
         handle_task_execution_cmd_src
-            << "  unsigned long long int __param[" << n_params_id << "], __paramInfo[" << n_params_id << "];";
+            << "  unsigned long long int __paramInfo[" << n_params_id << "];";
 
         in_copies
             << "  for (__i = 0; __i < " << n_params_id << "; __i++) {"
             << "    __paramInfo[__i] = " << STR_INPORT_READ << ";"
-            << "    __param[__i] = " << STR_INPORT_READ << ";"
+            << "    " << STR_PARAMS << "[__i] = " << STR_INPORT_READ << ";"
             << "  }"
             << ""
             << "  for (__i = 0; __i < " << n_params_id << "; __i++) {"
@@ -1488,13 +1388,12 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
     else if (n_params_id)
     {
         handle_task_execution_cmd_src
-            << "  unsigned long long int __param[" << n_params_id << "];"
             << "  ap_uint<8> __paramInfo[" << n_params_id << "];";
 
         in_copies
             << "  for (__i = 0; __i < " << n_params_id << "; __i++) {"
             << "    __paramInfo[__i] = " << STR_INPORT_READ << ";"
-            << "    __param[__i] = " << STR_INPORT_READ << ";"
+            << "    " << STR_PARAMS << "[__i] = " << STR_INPORT_READ << ";"
             << "  }"
             << "  {"
             <<      in_copies_body
@@ -1625,6 +1524,8 @@ void DeviceFPGA::gen_hls_wrapper(const Symbol &func_symbol, ObjectList<OutlineDa
         periodic_support,
         user_calls_set,
         wrapper_memport_width_str,
+        _unaligned_memory_port,
+        _check_limits_memory_port,
         wrapper_source);
 }
 
@@ -1714,8 +1615,8 @@ std::string DeviceFPGA::get_acc_type(const TL::Symbol& task, const TargetInforma
                 ++it2)
         {
             //Architecture bits are:
-            //  - 63th bit is set if task has SMP support
-            //  - 62th bit is set if task has FPGA support
+            //  - 33th bit is set if task has SMP support
+            //  - 32th bit is set if task has FPGA support
             std::string device_name = *it2;
             if (device_name == "smp")
             {
